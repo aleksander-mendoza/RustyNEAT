@@ -111,7 +111,7 @@ impl Neat64 {
         Ok(CPPN64 { cppn: fitter.cppn.crossover(&less_fit.cppn, &mut ||self.neat.random_weight_generator()), input_size, output_size })
     }
 
-    
+
 }
 
 
