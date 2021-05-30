@@ -23,7 +23,8 @@ use py::*;
 /// A Python module implemented in Rust.
 #[pymodule]
 fn rusty_neat(py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(sum_as_string, m)?)?;
+    m.add_function(wrap_pyfunction!(random_activation_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(activation_functions, m)?)?;
     m.add_class::<CPPN32>()?;
     m.add_class::<CPPN64>()?;
     m.add_class::<Neat32>()?;

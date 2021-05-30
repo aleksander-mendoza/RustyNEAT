@@ -159,6 +159,14 @@ impl<X: Num> CPPN<X> {
     fn assert_invariants(&self) {
         assert!(self.edges.windows(2).all(|e| e[0].innovation_no < e[1].innovation_no));
     }
+    pub fn get_random_node(&self) -> usize {
+        let r:f32 = rand::random();
+        self.node_count()*r as usize
+    }
+    pub fn get_random_edge(&self) -> usize {
+        let r:f32 = rand::random();
+        self.edge_count()*r as usize
+    }
     /**Splits an edge in half and introduces a new node in the middle. As a side effect, two
     new connections are added (representing the two halves of old edge) and
     the original edge becomes disabled. Two new innovation numbers are added.
@@ -209,6 +217,21 @@ impl<X: Num> CPPN<X> {
     }
     pub fn set_weight(&mut self, edge_idx: usize, weight: X) {
         self.edges[edge_idx].weight = weight
+    }
+    pub fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
+    pub fn edge_count(&self) -> usize {
+        self.edges.len()
+    }
+    pub fn edge_src(&self, edge_idx:usize) -> usize {
+        self.edges[edge_idx].from
+    }
+    pub fn edge_dest(&self, edge_idx:usize) -> usize {
+        self.edges[edge_idx].to
+    }
+    pub fn edge_innovation_no(&self, edge_idx:usize) -> usize {
+        self.edges[edge_idx].innovation_no
     }
     pub fn get_weight(&self, edge_idx: usize) -> X {
         self.edges[edge_idx].weight

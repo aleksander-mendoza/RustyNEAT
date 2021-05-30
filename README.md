@@ -62,7 +62,7 @@ out = net.make_output_buffer()
 out.set_input([1,2,3,4])
 
 # run the network
-net.run(out)
+net(out)
 
 # get the output
 some_list = out.get_output()
