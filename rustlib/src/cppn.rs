@@ -74,7 +74,7 @@ impl<X: Num> CPPN<X> {
         let mut edges = Vec::with_capacity(output_size.max(input_size));
         if input_size > output_size {
             for (dst_node, src_node) in (0..input_size).enumerate() {
-                let dst_node = dst_node % output_size;
+                let dst_node = input_size + dst_node % output_size;
                 innovation_no += 1;
                 edges.push(Edge { from: src_node, weight: weight_generator(), to: dst_node, enabled: true, innovation_no })
             }
@@ -85,28 +85,34 @@ impl<X: Num> CPPN<X> {
                 edges.push(Edge { from: src_node, weight: weight_generator(), to: dst_node, enabled: true, innovation_no })
             }
         }
-        (Self { nodes, edges }, innovation_no)
+        let s = Self { nodes, edges };
+        s.assert_invariants();
+        (s, innovation_no)
     }
     /**Checks if graphs is acyclic. Usually it should be, unless you're
      trying to evolve recurrent neural networks.*/
     pub fn is_acyclic(&self) -> bool {
-        let mut visited = vec![false; self.nodes.len()];
+        let mut visited = vec![0; self.nodes.len()];
         let mut min_unvisited = 0;
         let mut stack = Vec::<usize>::new();
+        let mut iteration = 1;
         let lookup = self.build_edge_lookup_table();
-        while let Some(unvisited_idx) = visited[min_unvisited..].iter().position(|&x| !x) {
+        while let Some(unvisited_idx) = visited[min_unvisited..].iter().position(|&x| x==0) {
+            let unvisited_idx = min_unvisited + unvisited_idx;
             min_unvisited = unvisited_idx + 1;
             stack.push(unvisited_idx);
             while let Some(src_node) = stack.pop() {
-                visited[src_node] = true;
+                assert!(visited[src_node]<iteration);
+                visited[src_node] = iteration;
                 for &(dst_node,_) in lookup.get(src_node).unwrap() {
-                    if visited[dst_node] {
+                    if visited[dst_node]==iteration {
                         return false;
-                    } else {
+                    } else if visited[dst_node] == 0 {
                         stack.push(dst_node);
                     }
                 }
             }
+            iteration+=1;
         }
         true
     }
@@ -157,7 +163,10 @@ impl<X: Num> CPPN<X> {
         innovation_no
     }
     fn assert_invariants(&self) {
-        assert!(self.edges.windows(2).all(|e| e[0].innovation_no < e[1].innovation_no));
+        assert!(self.edges.windows(2).all(|e| e[0].innovation_no < e[1].innovation_no),"Edges are not sorted by innovation number");
+        let nodes = self.node_count();
+        assert!(self.edges.iter().all(|e| e.to<nodes),"Destination of edge points to non-existent node");
+        assert!(self.edges.iter().all(|e| e.from<nodes),"Source of edge points to non-existent node");
     }
     pub fn get_random_node(&self) -> usize {
         let r:f32 = rand::random();
@@ -266,6 +275,7 @@ impl<X: Num> CPPN<X> {
     /**Returns node indices sorted in topological order and it also returns a lookup
     table of outgoing edges as a by-product*/
     fn topological_sort(&self) -> (Vec<usize>, Vec<Vec<(usize,usize)>>) {
+        assert!(self.is_acyclic());
         let mut visited = vec![false; self.nodes.len()];
         let mut min_unvisited_idx = 0;
         let mut topological_order = Vec::new();

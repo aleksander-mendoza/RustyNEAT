@@ -1,20 +1,20 @@
+
+
 use pyo3::prelude::*;
 use pyo3::{wrap_pyfunction, PyObjectProtocol};
 use pyo3::PyResult;
-use crate::{cppn, neat};
+use rusty_neat_core::{cppn, neat};
 use std::collections::HashSet;
-use crate::activations::{identity, ALL_STR, ALL_F64, STR_TO_IDX};
+use rusty_neat_core::activations::{identity, ALL_STR, ALL_F64, STR_TO_IDX};
 use pyo3::exceptions::PyValueError;
-use crate::cppn::CPPN;
-use rand::random;
+use rusty_neat_core::cppn::CPPN;
 use std::iter::FromIterator;
 use pyo3::types::PyString;
 
 /// Formats the sum of two numbers as string.
 #[pyfunction]
 pub fn random_activation_fn() -> String {
-    let r: f32 = random();
-    String::from(ALL_STR[ALL_STR.len() * r as usize])
+    String::from(rusty_neat_core::activations::random_activation_fn_name())
 }
 
 #[pyfunction]
@@ -104,7 +104,7 @@ impl Neat64 {
     }
     #[getter]
     fn output_size(&self) -> usize {
-        self.neat.get_input_size()
+        self.neat.get_output_size()
     }
 
     #[getter]
@@ -301,3 +301,17 @@ impl PyObjectProtocol for Output64 {
         self.__str__()
     }
 }
+
+
+/// A Python module implemented in Rust.
+#[pymodule]
+fn rusty_neat(py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(random_activation_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(activation_functions, m)?)?;
+    m.add_class::<CPPN32>()?;
+    m.add_class::<CPPN64>()?;
+    m.add_class::<Neat32>()?;
+    m.add_class::<Neat64>()?;
+    Ok(())
+}
+

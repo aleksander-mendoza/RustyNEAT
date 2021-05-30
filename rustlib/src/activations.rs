@@ -28,6 +28,11 @@ pub const ALL_F32: [fn(f32) -> f32; 8] = [sigmoid_f32, relu_f32, f32::sin, f32::
 lazy_static! {
     pub static ref STR_TO_IDX:HashMap<String,usize> = HashMap::<String,usize>::from_iter(ALL_STR.iter().enumerate().map(|(i,&s)|(String::from(s),i)));
 }
+
+pub fn random_activation_fn_name() -> &'static str{
+    let r: f32 = rand::random();
+    ALL_STR[ALL_STR.len() * r as usize]
+}
 //
 //
 

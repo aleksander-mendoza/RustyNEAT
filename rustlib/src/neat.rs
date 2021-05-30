@@ -131,4 +131,14 @@ mod tests {
         net.run(buff.as_mut_slice());
         neat.get_output_slice(buff.as_slice());
     }
+
+    #[test]
+    fn cppn_2() {
+        let mut neat = Neat::<f64>::new_default(2, 1);
+        let cppn = neat.new_cppn();
+        let net = cppn.build_feed_forward_net();
+        let mut buff = net.new_input_buffer();
+        net.run(buff.as_mut_slice());
+        neat.get_output_slice(buff.as_slice());
+    }
 }
