@@ -131,7 +131,7 @@ impl Neat64 {
         Ok(CPPN64 { cppn: fitter.cppn.crossover(&less_fit.cppn, &mut || self.neat.random_weight_generator()), input_size, output_size })
     }
 
-    #[text_signature = "(from_node,to_node, /)"]
+    #[text_signature = "(cppn, from_node, to_node, /)"]
     fn add_connection(&mut self, cppn: &mut CPPN64, from: usize, to: usize) -> PyResult<bool> {
         if from >= cppn.node_count() {
             return Err(PyValueError::new_err(format!("CPPN has {} nodes but provided source index {}", cppn.node_count(), from)));
@@ -142,12 +142,12 @@ impl Neat64 {
         Ok(self.neat.add_connection_if_possible(&mut cppn.cppn, from, to))
     }
 
-    #[text_signature = "(from_node,to_node, /)"]
+    #[text_signature = "(cppn, /)"]
     fn add_random_connection(&mut self, cppn: &mut CPPN64) -> bool {
         self.neat.attempt_to_add_random_connection(&mut cppn.cppn)
     }
 
-    #[text_signature = "(edge_to_split, /)"]
+    #[text_signature = "(cppn, edge_to_split, /)"]
     fn add_node(&mut self, cppn: &mut CPPN64, edge: usize) -> PyResult<()> {
         if edge >= cppn.edge_count() {
             return Err(PyValueError::new_err(format!("CPPN has {} edges but provided index {}", cppn.edge_count(), edge)));
@@ -155,19 +155,27 @@ impl Neat64 {
         Ok(self.neat.add_node(&mut cppn.cppn, edge))
     }
 
-    #[text_signature = "(from_node,to_node, /)"]
+    #[text_signature = "(cppn, /)"]
     fn add_random_node(&mut self, cppn: &mut CPPN64) {
         self.neat.add_random_node(&mut cppn.cppn)
     }
-
+    #[text_signature = "( /)"]
     pub fn random_weight(&self) -> f64 {
         self.neat.random_weight_generator()
+    }
+    #[text_signature = "(cppn, edge_index, /)"]
+    pub fn set_random_activation_function(&mut self, cppn: &mut CPPN64, edge:usize) -> PyResult<()>{
+        if edge >= cppn.edge_count() {
+            return Err(PyValueError::new_err(format!("CPPN has {} edges but provided index {}", cppn.edge_count(), edge)));
+        }
+        Ok(cppn.cppn.set_activation(edge, self.neat.get_random_activation_function()))
     }
 }
 
 
 #[pymethods]
 impl CPPN64 {
+
     #[text_signature = "(/)"]
     fn build_feed_forward_net(&self) -> FeedForwardNet64 {
         FeedForwardNet64 {
