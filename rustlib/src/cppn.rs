@@ -2,6 +2,7 @@ use crate::num::Num;
 use crate::util::Initializer;
 use rand::Rng;
 use crate::activations;
+use std::fmt::{Display, Formatter};
 
 
 enum EdgeOrNode<X> {
@@ -15,7 +16,7 @@ pub struct FeedForwardNet<X: Num> {
 }
 
 impl<X: Num> FeedForwardNet<X> {
-    pub fn new_input_buffer(&self) -> Vec<X> {
+    pub fn make_output_buffer(&self) -> Vec<X> {
         vec![X::zero(); self.len]
     }
     pub fn run(&self, input_buffer: &mut [X]) {
@@ -28,8 +29,6 @@ impl<X: Num> FeedForwardNet<X> {
         }
     }
 }
-
-
 
 
 #[derive(Clone)]
@@ -55,13 +54,23 @@ struct Edge<X: Num> {
 
 
 impl<X: Num> CPPN<X> {
-    fn build_edge_lookup_table(&self) -> Vec<Vec<(usize,usize)>> {
+    fn build_edge_lookup_table(&self) -> Vec<Vec<(usize, usize)>> {
         let mut edge_lookup = Vec::initialize(self.nodes.len(), |_| Vec::new());
-        for (edge_idx,edge) in self.edges.iter().enumerate() {
+        for (edge_idx, edge) in self.edges.iter().enumerate() {
             let mut entry = &mut edge_lookup[edge.from];
             // assert!(!entry.contains(&edge.to));
-            if edge.enabled {
-                entry.push((edge.to,edge_idx));
+            entry.push((edge.to, edge_idx));
+        }
+        edge_lookup
+    }
+
+    fn build_enabled_edge_only_lookup_table(&self) -> Vec<Vec<(usize, usize)>> {
+        let mut edge_lookup = Vec::initialize(self.nodes.len(), |_| Vec::new());
+        for (edge_idx, edge) in self.edges.iter().enumerate() {
+            let mut entry = &mut edge_lookup[edge.from];
+            // assert!(!entry.contains(&edge.to));
+            if edge.enabled{
+                entry.push((edge.to, edge_idx));
             }
         }
         edge_lookup
@@ -87,32 +96,39 @@ impl<X: Num> CPPN<X> {
         }
         let s = Self { nodes, edges };
         s.assert_invariants();
+        assert!(s.is_acyclic());
         (s, innovation_no)
     }
     /**Checks if graphs is acyclic. Usually it should be, unless you're
      trying to evolve recurrent neural networks.*/
     pub fn is_acyclic(&self) -> bool {
-        let mut visited = vec![0; self.nodes.len()];
+        let mut visited = vec![false; self.nodes.len()];
+        let mut on_stack = vec![false; self.nodes.len()];
         let mut min_unvisited = 0;
-        let mut stack = Vec::<usize>::new();
-        let mut iteration = 1;
         let lookup = self.build_edge_lookup_table();
-        while let Some(unvisited_idx) = visited[min_unvisited..].iter().position(|&x| x==0) {
+        while let Some(unvisited_idx) = visited[min_unvisited..].iter().position(|&x| !x) {
             let unvisited_idx = min_unvisited + unvisited_idx;
+            assert!(on_stack.iter().all(|&x| !x));
+            assert!(!visited[unvisited_idx]);
             min_unvisited = unvisited_idx + 1;
-            stack.push(unvisited_idx);
-            while let Some(src_node) = stack.pop() {
-                assert!(visited[src_node]<iteration);
-                visited[src_node] = iteration;
-                for &(dst_node,_) in lookup.get(src_node).unwrap() {
-                    if visited[dst_node]==iteration {
-                        return false;
-                    } else if visited[dst_node] == 0 {
-                        stack.push(dst_node);
+            fn has_cycle(current_idx:usize,lookup:&Vec<Vec<(usize,usize)>>, visited:&mut Vec<bool>, on_stack:&mut Vec<bool>)->bool{
+                visited[current_idx] = true;
+                on_stack[current_idx] = true;
+                for &(outgoing,_)  in &lookup[current_idx]{
+                    if !visited[outgoing]{
+                        if has_cycle(outgoing,lookup,visited,on_stack){
+                            return true;
+                        }
+                    }else if on_stack[outgoing]{
+                        return true;
                     }
                 }
+                on_stack[current_idx] = false;
+                false
             }
-            iteration+=1;
+            if has_cycle(unvisited_idx,&lookup,&mut visited,&mut on_stack){
+                return false;
+            }
         }
         true
     }
@@ -120,12 +136,13 @@ impl<X: Num> CPPN<X> {
     The network must be acyclic in order to be convertible into feed-forward neural net.
     This function only works under the precondition that the graph is initially acyclic.*/
     pub fn can_connect(&self, from: usize, to: usize) -> bool {
-        assert!(self.is_acyclic());
+        if from==to{return false;}
+        assert!(self.is_acyclic(), "{}", self);
         let mut stack = Vec::<usize>::new();
         let lookup = self.build_edge_lookup_table();
         stack.push(to);
         while let Some(src_node) = stack.pop() {
-            for &(dst_node,_) in lookup.get(src_node).unwrap() {
+            for &(dst_node, _) in lookup.get(src_node).unwrap() {
                 if dst_node == from {
                     return false;
                 } else {
@@ -139,9 +156,11 @@ impl<X: Num> CPPN<X> {
     /**Will introduce connection only if it doesn't break acyclicity. If successful, increases innovation number and returns its new value.
     Testing whether connection was successfully added, can be easily achieved by checking if old value of innovation number is different from
     the returned one.*/
-    pub fn add_connection_if_possible(&mut self, from: usize, to: usize, weight: X, mut innovation_no: usize) -> usize {
+    pub fn add_connection_if_possible(&mut self, from: usize, to: usize, weight: X, innovation_no: usize) -> usize {
         if self.can_connect(from, to) {
-            self.add_connection_forcefully(from, to, weight, innovation_no)
+            let inno = self.add_connection_forcefully(from, to, weight, innovation_no);
+            assert!(self.is_acyclic(), "{}", self);
+            inno
         } else {
             innovation_no
         }
@@ -162,25 +181,29 @@ impl<X: Num> CPPN<X> {
         self.assert_invariants();
         innovation_no
     }
-    fn assert_invariants(&self) {
-        assert!(self.edges.windows(2).all(|e| e[0].innovation_no < e[1].innovation_no),"Edges are not sorted by innovation number");
+    pub fn search_connection_by_endpoints(&mut self, from: usize, to: usize) -> Option<usize> {
+        self.edges.iter().position(|e|e.from==from&&e.to==to)
+    }
+    pub fn assert_invariants(&self) {
+        assert!(self.edges.windows(2).all(|e| e[0].innovation_no < e[1].innovation_no), "Edges are not sorted by innovation number:\n{}",self);
         let nodes = self.node_count();
-        assert!(self.edges.iter().all(|e| e.to<nodes),"Destination of edge points to non-existent node");
-        assert!(self.edges.iter().all(|e| e.from<nodes),"Source of edge points to non-existent node");
+        assert!(self.edges.iter().all(|e| e.to < nodes), "Destination of edge points to non-existent node:\n{}",self);
+        assert!(self.edges.iter().all(|e| e.from < nodes), "Source of edge points to non-existent node:\n{}",self);
     }
     pub fn get_random_node(&self) -> usize {
-        let r:f32 = rand::random();
-        self.node_count()*r as usize
+        let r: f32 = rand::random();
+        self.node_count() * r as usize
     }
     pub fn get_random_edge(&self) -> usize {
-        let r:f32 = rand::random();
-        self.edge_count()*r as usize
+        let r: f32 = rand::random();
+        self.edge_count() * r as usize
     }
     /**Splits an edge in half and introduces a new node in the middle. As a side effect, two
     new connections are added (representing the two halves of old edge) and
     the original edge becomes disabled. Two new innovation numbers are added.
     Returns new innovation number.*/
     pub fn add_node(&mut self, edge_index: usize, activation: fn(X) -> X, mut innovation_no: usize) -> usize {
+        let was_acyclic = self.is_acyclic();
         let from = self.edges[edge_index].from;
         let to = self.edges[edge_index].to;
         let weight = self.edges[edge_index].weight;
@@ -208,6 +231,7 @@ impl<X: Num> CPPN<X> {
         self.edges.push(outgoing_edge);
         self.edges[edge_index].enabled = false;
         self.assert_invariants();
+        assert_eq!(was_acyclic, self.is_acyclic());
         innovation_no
     }
     pub fn has_activation(&mut self, node_idx: usize) -> bool {
@@ -233,13 +257,13 @@ impl<X: Num> CPPN<X> {
     pub fn edge_count(&self) -> usize {
         self.edges.len()
     }
-    pub fn edge_src(&self, edge_idx:usize) -> usize {
+    pub fn edge_src(&self, edge_idx: usize) -> usize {
         self.edges[edge_idx].from
     }
-    pub fn edge_dest(&self, edge_idx:usize) -> usize {
+    pub fn edge_dest(&self, edge_idx: usize) -> usize {
         self.edges[edge_idx].to
     }
-    pub fn edge_innovation_no(&self, edge_idx:usize) -> usize {
+    pub fn edge_innovation_no(&self, edge_idx: usize) -> usize {
         self.edges[edge_idx].innovation_no
     }
     pub fn get_weight(&self, edge_idx: usize) -> X {
@@ -251,41 +275,61 @@ impl<X: Num> CPPN<X> {
     pub fn set_enabled(&mut self, edge_idx: usize, enabled: bool) {
         self.edges[edge_idx].enabled = enabled
     }
-    /**It is assumed that this network is more fit than the other and hence it will retain.
+    /**It is assumed that this network is more fit than the other and hence it will retain all
+    it's original connections.
     */
-    pub fn crossover_in_place<R: Rng>(&mut self, other: &Self, rng: &mut R) {
-        let mut j = 0; // index of edge in other
+    pub fn crossover_in_place(&mut self, other: &Self) {
+        let was_acyclic = self.is_acyclic();
+        let mut j = 0; // index of edge in the other
 
-        for edge in self.edges.iter_mut() {
-            if rng.gen_bool(0.5) {
+        'outer: for edge in self.edges.iter_mut() {
+            let r: f32 = rand::random();
+            if r < 0.5f32 { // sometimes edge weight will be crossed-over and sometimes not
                 while other.edges[j].innovation_no < edge.innovation_no {
                     j += 1;
+                    if j >= other.edges.len() {
+                        break 'outer;
+                    }
                 }
                 if other.edges[j].innovation_no == edge.innovation_no {
                     edge.weight = other.edges[j].weight;
                 }
             }
         }
+        for (my_node, other_node) in self.nodes.iter_mut().zip(other.nodes.iter()) {
+            // Note that because all the edges are crossed over according to their innovation number,
+            // the source and destination nodes remain unaffected by such operation
+            // (equal innovation number means equal source and destination). Therefore
+            // we can cross-over the nodes as well, without much risk (it is still possible to
+            // cross-over two unrelated nodes, but it's less likely)
+            let r: f32 = rand::random();
+            if r < 0.5f32 {
+                my_node.activation = other_node.activation.clone();
+            }
+        }
+        self.assert_invariants();
+        assert_eq!(was_acyclic, self.is_acyclic(), "{}", self)
     }
-    pub fn crossover<R: FnMut()->X>(&self, other: &Self, rng: &mut R) -> Self {
-        let c = self.clone();
-        c.crossover(other, rng);
+
+    pub fn crossover(&self, other: &Self) -> Self {
+        let mut c = self.clone();
+        c.crossover_in_place(other);
         c
     }
     /**Returns node indices sorted in topological order and it also returns a lookup
     table of outgoing edges as a by-product*/
-    fn topological_sort(&self) -> (Vec<usize>, Vec<Vec<(usize,usize)>>) {
-        assert!(self.is_acyclic());
+    fn topological_sort(&self) -> (Vec<usize>, Vec<Vec<(usize, usize)>>) {
+        assert!(self.is_acyclic(), "{}", self);
         let mut visited = vec![false; self.nodes.len()];
         let mut min_unvisited_idx = 0;
         let mut topological_order = Vec::new();
-        let lookup = self.build_edge_lookup_table();
+        let lookup = self.build_enabled_edge_only_lookup_table();
         while let Some(unvisited_idx) = visited[min_unvisited_idx..].iter().position(|&x| !x) {
             let unvisited_idx = min_unvisited_idx + unvisited_idx;
             min_unvisited_idx = unvisited_idx + 1;
-            fn rec(lookup: &Vec<Vec<(usize,usize)>>, visited: &mut Vec<bool>,
+            fn rec(lookup: &Vec<Vec<(usize, usize)>>, visited: &mut Vec<bool>,
                    topological_order: &mut Vec<usize>, node: usize) {
-                for &(dst_node,_) in &lookup[node] {
+                for &(dst_node, _) in &lookup[node] {
                     if !visited[dst_node] {
                         rec(lookup, visited, topological_order, dst_node);
                     }
@@ -311,14 +355,30 @@ impl<X: Num> CPPN<X> {
             if let Some(f) = node.activation {
                 instructions.push(EdgeOrNode::Node(node_idx, f));
             }
-            for &(_,outgoing_edge_idx) in &lookup[node_idx] {
+            for &(_, outgoing_edge_idx) in &lookup[node_idx] {
                 let edge = &self.edges[outgoing_edge_idx];
                 if edge.enabled {
                     instructions.push(EdgeOrNode::Edge(edge.from, edge.weight, edge.to))
                 }
             }
         }
-        FeedForwardNet { net: instructions, len: self.nodes.len() }
+        FeedForwardNet { net: instructions, len: self.node_count() }
+    }
+}
+
+impl <X:Num> Display for CPPN<X>{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        for (idx,node) in self.nodes.iter().enumerate(){
+            if let Some(a_f) = node.activation {
+                writeln!(f, "Node {} is {}", idx, X::find_name_by_fn_ptr(a_f));
+            }else{
+                writeln!(f, "Input node {}", idx);
+            }
+        }
+        for (idx,edge) in self.edges.iter().enumerate(){
+            writeln!(f, "{} {} from {} to {} with weight {} and innovation number {}", if edge.enabled{"Edge"}else{"Disabled edge"},  idx, edge.from, edge.to, edge.weight, edge.innovation_no);
+        }
+        Ok(())
     }
 }
 

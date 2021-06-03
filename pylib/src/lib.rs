@@ -11,10 +11,15 @@ use rusty_neat_core::cppn::CPPN;
 use std::iter::FromIterator;
 use pyo3::types::PyString;
 
-/// Formats the sum of two numbers as string.
 #[pyfunction]
 pub fn random_activation_fn() -> String {
     String::from(rusty_neat_core::activations::random_activation_fn_name())
+}
+
+
+#[pyfunction]
+pub fn look(o:&PyAny) {
+    println!("Look={}",o.to_string());
 }
 
 #[pyfunction]
@@ -112,25 +117,6 @@ impl Neat64 {
         self.neat.get_global_innovation_no()
     }
 
-    #[text_signature = "(fitter, less_fit, /)"]
-    fn crossover(&self, fitter: &CPPN64, less_fit: &CPPN64) -> PyResult<CPPN64> {
-        let input_size = self.input_size();
-        let output_size = self.output_size();
-        if fitter.input_size != input_size {
-            return Err(PyValueError::new_err(format!("Left CPPN has input size {} but NEAT instance expected {}", fitter.input_size, input_size)));
-        }
-        if fitter.output_size != output_size {
-            return Err(PyValueError::new_err(format!("Left CPPN has output size {} but NEAT instance expected {}", fitter.output_size, output_size)));
-        }
-        if less_fit.input_size != input_size {
-            return Err(PyValueError::new_err(format!("Right CPPN has input size {} but NEAT instance expected {}", less_fit.input_size, input_size)));
-        }
-        if less_fit.output_size != output_size {
-            return Err(PyValueError::new_err(format!("Right CPPN has output size {} but NEAT instance expected {}", less_fit.output_size, output_size)));
-        }
-        Ok(CPPN64 { cppn: fitter.cppn.crossover(&less_fit.cppn, &mut || self.neat.random_weight_generator()), input_size, output_size })
-    }
-
     #[text_signature = "(cppn, from_node, to_node, /)"]
     fn add_connection(&mut self, cppn: &mut CPPN64, from: usize, to: usize) -> PyResult<bool> {
         if from >= cppn.node_count() {
@@ -155,6 +141,18 @@ impl Neat64 {
         Ok(self.neat.add_node(&mut cppn.cppn, edge))
     }
 
+    #[text_signature = "(population,node_insertion_prob,edge_insertion_prob,activation_fn_mutation_prob,weight_mutation_prob /)"]
+    fn mutate_population(&mut self, mut cppn: Vec<PyRefMut<CPPN64>>, node_insertion_prob: f32,
+                         edge_insertion_prob: f32,
+                         activation_fn_mutation_prob: f32,
+                         weight_mutation_prob: f32){
+        self.neat.mutate_population(cppn.iter_mut().map(|c| &mut c.cppn),
+                                    node_insertion_prob,
+                                    edge_insertion_prob,
+                                    activation_fn_mutation_prob,
+                                    weight_mutation_prob)
+    }
+
     #[text_signature = "(cppn, /)"]
     fn add_random_node(&mut self, cppn: &mut CPPN64) {
         self.neat.add_random_node(&mut cppn.cppn)
@@ -170,12 +168,34 @@ impl Neat64 {
         }
         Ok(cppn.cppn.set_activation(edge, self.neat.get_random_activation_function()))
     }
+
+
+    #[text_signature = "(population, /)"]
+    fn make_output_buffer(&self, population:Vec<PyRef<CPPN64>>) -> Output64 {
+        Output64 {
+            out: self.neat.make_output_buffer(population.iter().map(|x|&x.cppn)).unwrap_or_else(||vec![0f64;self.input_size()+self.output_size()]),
+            input_size: self.input_size(),
+            output_size: self.output_size(),
+        }
+    }
+
 }
 
 
 #[pymethods]
 impl CPPN64 {
-
+    #[text_signature = "(less_fit, /)"]
+    fn crossover(&self, less_fit: &CPPN64) -> PyResult<CPPN64> {
+        let input_size = self.input_size;
+        let output_size = self.output_size;
+        if less_fit.input_size != input_size {
+            return Err(PyValueError::new_err(format!("Fittter (right) CPPN has input size {} and less fit (left) CPPN has {}", input_size, less_fit.input_size)));
+        }
+        if less_fit.output_size != output_size {
+            return Err(PyValueError::new_err(format!("Fittter (right) CPPN has output size {} and less fit (left) CPPN has {}", output_size, less_fit.output_size)));
+        }
+        Ok(CPPN64 { cppn: self.cppn.crossover(&less_fit.cppn), input_size, output_size })
+    }
     #[text_signature = "(/)"]
     fn build_feed_forward_net(&self) -> FeedForwardNet64 {
         FeedForwardNet64 {
@@ -232,6 +252,34 @@ impl CPPN64 {
         }
         Ok(self.cppn.get_weight(edge))
     }
+    #[text_signature = "(source_node, destination_node, /)"]
+    fn search_connection_by_endpoints(&mut self, source_node: usize, destination_node: usize) -> PyResult<Option<usize>> {
+        if source_node >= self.node_count() {
+            return Err(PyValueError::new_err(format!("CPPN has {} nodes but provided source node {}", self.node_count(), source_node)));
+        }
+        if destination_node >= self.node_count() {
+            return Err(PyValueError::new_err(format!("CPPN has {} nodes but provided destination node {}", self.node_count(), destination_node)));
+        }
+        Ok(self.cppn.search_connection_by_endpoints(source_node, destination_node))
+    }
+
+    #[text_signature = "(edge_index, enabled, /)"]
+    fn set_enabled(&mut self, edge: usize, enabled: bool) -> PyResult<()> {
+        if edge >= self.edge_count() {
+            return Err(PyValueError::new_err(format!("CPPN has {} edges but provided index {}", self.edge_count(), edge)));
+        }
+        Ok(self.cppn.set_enabled(edge, enabled))
+    }
+
+
+
+    #[text_signature = "(edge_index, /)"]
+    fn is_enabled(&mut self, edge: usize) -> PyResult<bool> {
+        if edge >= self.edge_count() {
+            return Err(PyValueError::new_err(format!("CPPN has {} edges but provided index {}", self.edge_count(), edge)));
+        }
+        Ok(self.cppn.is_enabled(edge))
+    }
 
     #[text_signature = "(edge_index, /)"]
     fn edge_dest_node(&mut self, edge: usize) -> PyResult<usize> {
@@ -268,7 +316,7 @@ impl FeedForwardNet64 {
     #[text_signature = "(/)"]
     fn make_output_buffer(&self) -> Output64 {
         Output64 {
-            out: self.net.new_input_buffer(),
+            out: self.net.make_output_buffer(),
             input_size: self.input_size,
             output_size: self.output_size,
         }
@@ -303,7 +351,17 @@ impl Output64 {
 #[pyproto]
 impl PyObjectProtocol for Output64 {
     fn __str__(&self) -> PyResult<String>{
-        Ok(format!("Input={:?}, Output={:?}", self.get_input(), self.get_output()))
+        Ok(format!("Len={}, Input={:?}, Output={:?}", self.out.len(), self.get_input(), self.get_output()))
+    }
+    fn __repr__(&self) -> PyResult<String> {
+        self.__str__()
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for CPPN64 {
+    fn __str__(&self) -> PyResult<String>{
+        Ok(format!("{}",self.cppn))
     }
     fn __repr__(&self) -> PyResult<String> {
         self.__str__()
@@ -316,6 +374,7 @@ impl PyObjectProtocol for Output64 {
 fn rusty_neat(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(random_activation_fn, m)?)?;
     m.add_function(wrap_pyfunction!(activation_functions, m)?)?;
+    m.add_function(wrap_pyfunction!(look, m)?)?;
     m.add_class::<CPPN32>()?;
     m.add_class::<CPPN64>()?;
     m.add_class::<Neat32>()?;

@@ -19,7 +19,7 @@ impl<X: Num> Neat<X> {
     }
 }
 
-impl<X: Num> Neat<X> where Standard: Distribution<X> + Distribution<f64> {
+impl<'x, X: 'x + Num> Neat<X> where Standard: Distribution<X> + Distribution<f64> {
     pub fn random_weight_generator(&self) -> X {
         rand::random()
     }
@@ -115,6 +115,38 @@ impl<X: Num> Neat<X> where Standard: Distribution<X> + Distribution<f64> {
     pub fn add_random_node(&mut self, cppn: &mut CPPN<X>) {
         self.add_node(cppn, cppn.get_random_edge())
     }
+
+    pub fn make_output_buffer<'b, I:Iterator<Item=&'b CPPN<X>>>(&'b self, population: I)->Option<Vec<X>>{
+        population.map(CPPN::node_count).max().map(|m|vec![X::zero(); m])
+    }
+
+    pub fn mutate_population<'b, I:Iterator<Item=&'x mut CPPN<X>>>(&'b mut self, population: I,
+                             node_insertion_prob: f32,
+                             edge_insertion_prob: f32,
+                             activation_fn_mutation_prob: f32,
+                             weight_mutation_prob: f32) {
+        for cppn in population {
+            let was_acyclic = cppn.is_acyclic();
+            if rand::random::<f32>() < node_insertion_prob {
+                self.add_random_node(cppn)
+            }
+            if rand::random::<f32>() < edge_insertion_prob {
+                self.attempt_to_add_random_connection(cppn);
+            }
+            for edge_index in 0..cppn.edge_count(){
+                if rand::random::<f32>() < weight_mutation_prob {
+                    cppn.set_weight(edge_index, self.random_weight_generator())
+                }
+            }
+            for node_index in 0..cppn.node_count(){
+                if rand::random::<f32>() < activation_fn_mutation_prob {
+                    cppn.set_activation(node_index,self.get_random_activation_function())
+                }
+            }
+            cppn.assert_invariants();
+            assert_eq!(was_acyclic, cppn.is_acyclic());
+        }
+    }
 }
 
 
@@ -127,7 +159,7 @@ mod tests {
         let mut neat = Neat::<f64>::new_default(3, 4);
         let cppn = neat.new_cppn();
         let net = cppn.build_feed_forward_net();
-        let mut buff = net.new_input_buffer();
+        let mut buff = net.make_output_buffer();
         net.run(buff.as_mut_slice());
         neat.get_output_slice(buff.as_slice());
     }
@@ -137,8 +169,16 @@ mod tests {
         let mut neat = Neat::<f64>::new_default(2, 1);
         let cppn = neat.new_cppn();
         let net = cppn.build_feed_forward_net();
-        let mut buff = net.new_input_buffer();
+        let mut buff = net.make_output_buffer();
         net.run(buff.as_mut_slice());
         neat.get_output_slice(buff.as_slice());
+    }
+
+    #[test]
+    fn cppn_3() {
+        let mut neat = Neat::<f64>::new_default(2, 1);
+        let mut cppns = neat.new_cppns(16);
+        neat.mutate_population( cppns.iter_mut(),0.1,0.1,0.1,0.1);
+        let crossed_over = cppns[0].crossover(&cppns[1]);
     }
 }

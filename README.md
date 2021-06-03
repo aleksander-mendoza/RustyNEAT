@@ -92,7 +92,7 @@ actual_output = out.get_output()
 assert actual_output[0] != 0 and actual_output[1] != 0 and actual_output[2] != 0
 
 # You can see the total number of neurons in a network
-assert cppn.node_count() == input_neurons+output_neurons
+assert cppn.node_count() == input_neurons + output_neurons
 
 # There are also several edges
 assert cppn.edge_count() > 0
@@ -136,7 +136,7 @@ prev_inno = neat.current_innovation_number
 neat.add_node(cppn, edge_index)  # splits edge in two
 assert prev_inno < neat.current_innovation_number  # add_node increases innovation number
 # Now the number of edges has increased by one
-node_count = node_count+1
+node_count = node_count + 1
 assert node_count == cppn.node_count()
 
 # we can add a new connection to the newly added node
@@ -177,12 +177,67 @@ for cppn in population:
         # This is equivalent to
         # was_successful = neat1.add_connection(cppn, cppn.get_random_node(), cppn.get_random_node())
     for edge_index in range(cppn.edge_count()):
+        if random.random() < WEIGHT_MUTATION_PROB:
+            cppn.set_weight(edge_index, neat1.random_weight())
+    for node_idx in range(cppn.node_count()):
         if random.random() < ACTIVATION_MUTATION_PROB:
             neat1.set_random_activation_function(cppn, edge_index)
-        if random.random() < WEIGHT_MUTATION_PROB:
-            neat1.set_random_activation_function(cppn, edge_index)
-            cppn.set_weight(edge_index, neat1.random_weight())
 
+# This entire loop above could be shortened to just a single (slightly faster) equivalent call
+neat.mutate_population(population,
+                       NODE_ADDITION_PROB,
+                       EDGE_ADDITION_PROB,
+                       ACTIVATION_MUTATION_PROB,
+                       WEIGHT_MUTATION_PROB)
+
+# Aside from mutations, there is also the possibility of performing cross-over.
+# First choose one individual that is deemed to be fitter.
+fitter_cppn = population[0]  # index zero was chosen just for this example,
+# but normally you would have some fitness function.
+# Next we need another, less fit individual
+less_fit_cppn = population[1]
+child = fitter_cppn.crossover(less_fit_cppn)
+
+# These are all the essential functions for manipulating CPPNs.
+# We can try to apply them to a simple toy problem. Let's learn
+# a neural network that solves the XOR problem.
+
+neat = rusty_neat.Neat64(2, 1)  # two input bits and output XORed bit
+XOR_TABLE = [
+    [0, 0, 0],
+    [1, 0, 1],
+    [0, 1, 1],
+    [1, 1, 0],
+]
+
+
+def fitness(cppn, out_buffer) -> float:
+    net = cppn.build_feed_forward_net()
+    loss = 0
+    for in1, in2, expected in XOR_TABLE:
+        out_buffer.set_input([in1, in2])
+        net(out_buffer)
+        loss += (expected - out_buffer.get_output()[0]) ** 2
+    fitness_val = -loss  # we want that higher values mean better fitness
+    return fitness_val
+
+
+population = neat.new_cppns(16)
+TO_ELIMINATE = 8  # Number of weakest CPPNs to eliminate at each generation and replace with crossover of other CPPNs
+for generation in range(100):
+    out = neat.make_output_buffer(population)  # This allows us to create a single buffer large enough
+    # to be reusable by any CPPN in population. It is more efficient than calling net.make_output_buffer() each time
+    evaluated = [(fitness(cppn, out), cppn) for cppn in population]
+    evaluated.sort(key=lambda x: x[0])  # sort by fitness in ascending order
+    total_loss = sum(map(lambda x: x[0], evaluated))
+    average_loss = total_loss / len(population)
+    print("Generation=" + str(generation) + " avg loss=" + str(average_loss))
+    for i in range(TO_ELIMINATE):  # replace first few CPPNs with new ones
+        a = random.randrange(0, len(population))
+        b = random.randrange(0, len(population))
+        less_fit_cppn, fitter_cppn = population[min(a, b)], population[max(a, b)]
+        population[i] = fitter_cppn.crossover(less_fit_cppn)
+    neat.mutate_population(population, 0.1, 0.1, 0.1, 0.1)
 
 ```
 
