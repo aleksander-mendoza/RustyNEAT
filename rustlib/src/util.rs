@@ -7,3 +7,13 @@ pub trait Initializer<T> {
 }
 
 impl<T> Initializer<T> for Vec<T> {}
+
+
+pub trait RandRange{
+    fn random(&self)->Self;
+}
+impl RandRange for usize{
+    fn random(&self) -> usize{
+        (rand::random::<f32>() * (*self as f32)) as usize
+    }
+}

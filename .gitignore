@@ -1,2 +1,4 @@
 /target
+.idea
+rusty_neat.so
 Cargo.lock

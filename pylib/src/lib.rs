@@ -5,26 +5,22 @@ use pyo3::{wrap_pyfunction, PyObjectProtocol};
 use pyo3::PyResult;
 use rusty_neat_core::{cppn, neat};
 use std::collections::HashSet;
-use rusty_neat_core::activations::{identity, ALL_STR, ALL_F64, STR_TO_IDX};
+use rusty_neat_core::activations::{ STR_TO_IDX, ALL_ACT_FN};
 use pyo3::exceptions::PyValueError;
 use rusty_neat_core::cppn::CPPN;
 use std::iter::FromIterator;
 use pyo3::types::PyString;
+use rusty_neat_core::num::Num;
 
 #[pyfunction]
 pub fn random_activation_fn() -> String {
-    String::from(rusty_neat_core::activations::random_activation_fn_name())
+    String::from(rusty_neat_core::activations::random_activation_fn().name())
 }
 
-
-#[pyfunction]
-pub fn look(o:&PyAny) {
-    println!("Look={}",o.to_string());
-}
 
 #[pyfunction]
 pub fn activation_functions() -> Vec<String> {
-    Vec::from_iter(ALL_STR.iter().map(|&s| String::from(s)))
+    Vec::from_iter(ALL_ACT_FN.iter().map(|s| String::from(s.name())))
 }
 
 #[pyclass]
@@ -62,14 +58,23 @@ pub struct CPPN32 {
 
 #[pyclass]
 #[text_signature = "(input_size, output_size, activation_functions, /)"]
-pub struct Neat64 { neat: neat::Neat<f64> }
+pub struct Neat64 { neat: neat::Neat }
 
 #[pyclass]
-pub struct Neat32 { neat: neat::Neat<f32> }
+pub struct Neat32 { neat: neat::Neat }
 
 
 #[pymethods]
 impl Neat64 {
+
+    #[text_signature = "(/)"]
+    pub fn get_activation_functions(&self)->Vec<String>{
+        Vec::from_iter(self.neat.get_activation_functions().iter().map(|s|String::from(s.name())))
+    }
+    #[text_signature = "(/)"]
+    pub fn get_random_activation_function(&self)->String{
+        String::from(self.neat.get_random_activation_function().name())
+    }
     #[new]
     pub fn new(input_size: usize, output_size: usize, activations: Option<Vec<String>>) -> PyResult<Self> {
         let ac_fn =
@@ -79,13 +84,13 @@ impl Neat64 {
                     match STR_TO_IDX.get(&name) {
                         None => return Err(PyValueError::new_err(name + " is not a known function name")),
                         Some(&idx) => {
-                            ac_fn.push(ALL_F64[idx]);
+                            ac_fn.push(&ALL_ACT_FN[idx]);
                         }
                     }
                 }
                 ac_fn
             } else {
-                Vec::from(ALL_F64)
+                Vec::from_iter(ALL_ACT_FN.iter())
             };
         Ok(Neat64 { neat: neat::Neat::new(ac_fn, input_size, output_size) })
     }
@@ -159,14 +164,14 @@ impl Neat64 {
     }
     #[text_signature = "( /)"]
     pub fn random_weight(&self) -> f64 {
-        self.neat.random_weight_generator()
+        f64::random()
     }
-    #[text_signature = "(cppn, edge_index, /)"]
-    pub fn set_random_activation_function(&mut self, cppn: &mut CPPN64, edge:usize) -> PyResult<()>{
-        if edge >= cppn.edge_count() {
-            return Err(PyValueError::new_err(format!("CPPN has {} edges but provided index {}", cppn.edge_count(), edge)));
+    #[text_signature = "(cppn, node_index, /)"]
+    pub fn set_random_activation_function(&mut self, cppn: &mut CPPN64, node:usize) -> PyResult<bool>{
+        if node >= cppn.node_count() {
+            return Err(PyValueError::new_err(format!("CPPN has {} nodes but provided index {}", cppn.node_count(), node)));
         }
-        Ok(cppn.cppn.set_activation(edge, self.neat.get_random_activation_function()))
+        Ok(cppn.cppn.set_activation(node, self.neat.get_random_activation_function()))
     }
 
 
@@ -205,16 +210,23 @@ impl CPPN64 {
         }
     }
     #[text_signature = "(node_index, function_name, /)"]
-    fn set_activation_function(&mut self, node: usize, func: String) -> PyResult<()> {
+    fn set_activation_function(&mut self, node: usize, func: String) -> PyResult<bool> {
         if node >= self.node_count() {
             return Err(PyValueError::new_err(format!("CPPN has {} nodes but provided index {}", self.node_count(), node)));
         }
         if let Some(&func) = STR_TO_IDX.get(&func) {
-            self.cppn.set_activation(node, ALL_F64[func]);
-            Ok(())
+            Ok(self.cppn.set_activation(node, &ALL_ACT_FN[func]))
         } else {
             Err(PyValueError::new_err(format!("Unknown function {}", func)))
         }
+    }
+
+    #[text_signature = "(node_index, function_name, /)"]
+    fn get_activation_function(&mut self, node: usize) -> PyResult<Option<String>> {
+        if node >= self.node_count() {
+            return Err(PyValueError::new_err(format!("CPPN has {} nodes but provided index {}", self.node_count(), node)));
+        }
+        Ok(self.cppn.get_activation(node).map(|x|String::from(x.name())))
     }
 
     #[text_signature = "(/)"]
@@ -374,7 +386,6 @@ impl PyObjectProtocol for CPPN64 {
 fn rusty_neat(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(random_activation_fn, m)?)?;
     m.add_function(wrap_pyfunction!(activation_functions, m)?)?;
-    m.add_function(wrap_pyfunction!(look, m)?)?;
     m.add_class::<CPPN32>()?;
     m.add_class::<CPPN64>()?;
     m.add_class::<Neat32>()?;

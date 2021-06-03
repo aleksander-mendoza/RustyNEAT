@@ -40,7 +40,7 @@ Then open a Python shell in the same folder and you'll be able to `import rusty_
 import random
 import rusty_neat
 
-assert rusty_neat.activation_functions() == ["sigmoid", "relu", "sin", "cos", "tan", "tanh", "abs", "identity"]
+assert rusty_neat.activation_functions() == ["identity", "sigmoid", "relu", "sin", "cos", "tan", "tanh", "abs", "square", "inv", "step"]
 
 input_neurons = 4
 output_neurons = 3
@@ -56,13 +56,20 @@ neat = rusty_neat.Neat64(input_neurons, output_neurons)
 neat1 = rusty_neat.Neat64(input_neurons, output_neurons,
                           ["sigmoid", "relu", "sin", "cos", "tan", "tanh", "abs", "identity"])
 
+# You can later lookup functions used by NEAT
+assert neat1.get_activation_functions() == ["sigmoid", "relu", "sin", "cos", "tan", "tanh", "abs", "identity"];
+
+# By default all activation functions are allowed
+assert neat.get_activation_functions() == rusty_neat.activation_functions()
+
 # You can lookup the global innovation number (initially 0)
 assert neat.current_innovation_number == 0
+# You are not allowed to manually change it though
 
-# generate new blank CPPN
-cppn = neat.new_cppn()
+# Neat can be used to generate new random CPPN
+cppn = neat.new_cppn()  # This CPPN is has the minimal necessary number of nodes and edges
 
-# Every creation of CPPN will increase innovation number
+# Every creation of new CPPN will increase innovation number
 inno_num_after_new_cppn = neat.current_innovation_number
 assert inno_num_after_new_cppn > 0
 
@@ -106,24 +113,47 @@ for edge_index in range(cppn.edge_count()):
     assert cppn.edge_dest_node(edge_index) < cppn.node_count()
     # The innovation number of an edge
     inno = cppn.edge_innovation_number(edge_index)
-    # The edges are sorted by innovation number in increasing order
+    assert inno > prev_inno  # The edges are sorted by innovation number in increasing order
     # (This makes crossover operation easier to carry out)
-    assert inno > prev_inno
     prev_inno = inno
-    # You cannot lookup activation function of any edge, because it's stored
-    # in a non-readable format, but you can change it
-    cppn.set_activation_function(edge_index, random.choice(rusty_neat.activation_functions()))
-    # There is even a shorthand
-    cppn.set_activation_function(edge_index, rusty_neat.random_activation_fn())
-    # but it's recommended to use
-    neat.set_random_activation_function(cppn, edge_index)
-    # (This way we restrict the possible choices only to the functions provided to neat instance,
-    # instead of the global list of all implemented activations)
-    #
     # You can set weight of connection is a similar manner
     cppn.set_weight(edge_index, 2.3)
     # Or alternatively
     cppn.set_weight(edge_index, neat.random_weight())
+    # Every edge may be enabled or disabled. Edges are never fully removed from
+    # the network, because it would lead to losing information about innovation numbers
+    # (especially if later mutation re-added the same weight). This would make crossover
+    # more difficult. So the only way to get rid of an edge is by disabling it
+    cppn.set_enabled(edge_index, False)
+    # You can check if edge is enabled or not by using
+    assert not cppn.is_enabled(edge_index)
+    # You can later re-enable an edge with
+    cppn.set_enabled(edge_index, True)
+    assert cppn.is_enabled(edge_index)
+
+# You can iterate nodes in a similar way
+for node_index in range(cppn.node_count()):
+    # You can lookup activation function of any node
+    act_fn = cppn.get_activation_function(node_index)
+    if node_index < cppn.input_size:  # input nodes do not have any activations
+        assert act_fn is None
+    else:
+        assert act_fn is not None
+    new_act_fn = random.choice(rusty_neat.activation_functions())
+    was_successful = cppn.set_activation_function(node_index, new_act_fn)
+    act_fn = cppn.get_activation_function(node_index)
+    if node_index < cppn.input_size:
+        assert not was_successful
+        assert act_fn is None  # You cannot assign activation function to input node
+    else:
+        assert was_successful
+        assert act_fn == new_act_fn
+    # There is even a shorthand
+    cppn.set_activation_function(node_index, rusty_neat.random_activation_fn())
+    # but it's recommended to use
+    neat.set_random_activation_function(cppn, node_index)
+    # (This way we restrict the possible choices only to the functions provided to neat instance,
+    # instead of the global list of all implemented activations)
 
 # It's possible choose an edge randomly
 edge_index = cppn.get_random_edge()
@@ -138,6 +168,13 @@ assert prev_inno < neat.current_innovation_number  # add_node increases innovati
 # Now the number of edges has increased by one
 node_count = node_count + 1
 assert node_count == cppn.node_count()
+# You can verify that the original edge is now disabled
+assert not cppn.is_enabled(edge_index)
+# We can query an edge connecting two nodes (keep in mind that it's a linear search operation)
+incoming_to_new_node = cppn.search_connection_by_endpoints(cppn.edge_src_node(edge_index), new_node_index)
+outgoing_from_new_node = cppn.search_connection_by_endpoints(new_node_index, cppn.edge_dest_node(edge_index))
+assert cppn.is_enabled(incoming_to_new_node)
+assert cppn.is_enabled(outgoing_from_new_node)
 
 # we can add a new connection to the newly added node
 source_node = 0  # first input node
@@ -165,8 +202,9 @@ assert inno_num_after_new_cppn == neat1.current_innovation_number
 # Now that we have multiple CPPNs we can randomly mutate them in a batch
 NODE_ADDITION_PROB = 0.1
 EDGE_ADDITION_PROB = 0.1
-ACTIVATION_MUTATION_PROB = 0.1
+NODE_ACTIVATION_FN_MUTATION_PROB = 0.1
 WEIGHT_MUTATION_PROB = 0.1
+EDGE_ACTIVATION_FLIP_PROB = 0.1
 for cppn in population:
     if random.random() < NODE_ADDITION_PROB:
         neat1.add_random_node(cppn)
@@ -180,14 +218,14 @@ for cppn in population:
         if random.random() < WEIGHT_MUTATION_PROB:
             cppn.set_weight(edge_index, neat1.random_weight())
     for node_idx in range(cppn.node_count()):
-        if random.random() < ACTIVATION_MUTATION_PROB:
-            neat1.set_random_activation_function(cppn, edge_index)
+        if random.random() < NODE_ACTIVATION_FN_MUTATION_PROB:
+            neat1.set_random_activation_function(cppn, node_idx)
 
 # This entire loop above could be shortened to just a single (slightly faster) equivalent call
 neat.mutate_population(population,
                        NODE_ADDITION_PROB,
                        EDGE_ADDITION_PROB,
-                       ACTIVATION_MUTATION_PROB,
+                       NODE_ACTIVATION_FN_MUTATION_PROB,
                        WEIGHT_MUTATION_PROB)
 
 # Aside from mutations, there is also the possibility of performing cross-over.
@@ -202,7 +240,8 @@ child = fitter_cppn.crossover(less_fit_cppn)
 # We can try to apply them to a simple toy problem. Let's learn
 # a neural network that solves the XOR problem.
 
-neat = rusty_neat.Neat64(2, 1)  # two input bits and output XORed bit
+neat = rusty_neat.Neat64(2, 1,  # two input bits and output XORed bit
+                         ["sigmoid", "identity", "relu", "sin", "cos", "tan", "tanh", "abs"])
 XOR_TABLE = [
     [0, 0, 0],
     [1, 0, 1],
@@ -229,15 +268,18 @@ for generation in range(100):
     # to be reusable by any CPPN in population. It is more efficient than calling net.make_output_buffer() each time
     evaluated = [(fitness(cppn, out), cppn) for cppn in population]
     evaluated.sort(key=lambda x: x[0])  # sort by fitness in ascending order
-    total_loss = sum(map(lambda x: x[0], evaluated))
-    average_loss = total_loss / len(population)
-    print("Generation=" + str(generation) + " avg loss=" + str(average_loss))
+    total_fitness = sum(map(lambda x: x[0], evaluated))
+    max_fitness = max(map(lambda x: x[0], evaluated))
+    average_fitness = total_fitness / len(population)
+    print("Generation=" + str(generation) + ", avg fitness=" + str(average_fitness) + ", max fitness=" +str(max_fitness))
     for i in range(TO_ELIMINATE):  # replace first few CPPNs with new ones
         a = random.randrange(0, len(population))
         b = random.randrange(0, len(population))
         less_fit_cppn, fitter_cppn = population[min(a, b)], population[max(a, b)]
         population[i] = fitter_cppn.crossover(less_fit_cppn)
     neat.mutate_population(population, 0.1, 0.1, 0.1, 0.1)
+
+assert max_fitness > -2  # If everything is implemented correctly, this result should be achieved with ease
 
 ```
 

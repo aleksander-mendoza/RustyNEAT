@@ -1,23 +1,31 @@
 use rand::prelude::Distribution;
-use crate::activations::{ALL_F64, ALL_STR, ALL_F32};
 use std::fmt::Display;
+use crate::activations::ActFn;
 
-pub trait Num: num_traits::Num + Copy + Display{
-    fn find_name_by_fn_ptr(fn_ptr:fn(Self)->Self) -> &'static str;
+pub trait Num: num_traits::Num + Copy + Display {
+    fn act_fn(f:&ActFn)->fn(Self)->Self;
+    fn random() -> Self;
 }
 
 impl Num for f64 {
-    fn find_name_by_fn_ptr(fn_ptr: fn(Self) -> Self) -> &'static str {
-        ALL_F64.iter().position(|&f|f==fn_ptr).map(|p|ALL_STR[p]).unwrap_or("CUSTOM")
+    fn act_fn(f: &ActFn) -> fn(Self) -> Self {
+        f.fn64()
+    }
+    fn random() -> Self{
+        rand::random()
     }
 }
 
 impl Num for f32 {
-    fn find_name_by_fn_ptr(fn_ptr: fn(Self) -> Self) -> &'static str {
-        ALL_F32.iter().position(|&f|f==fn_ptr).map(|p|ALL_STR[p]).unwrap_or("CUSTOM")
+    fn act_fn(f: &ActFn) -> fn(Self) -> Self {
+        f.fn32()
+    }
+    fn random() -> Self{
+        rand::random()
     }
 }
-//
+
+
 // impl Num for i64 {}
 //
 // impl Num for i32 {}

@@ -1,12 +1,14 @@
 use crate::num::Num;
-use crate::util::Initializer;
+use crate::util::{Initializer, RandRange};
 use rand::Rng;
 use crate::activations;
 use std::fmt::{Display, Formatter};
+use std::num::NonZeroUsize;
+use crate::activations::{ActFn};
 
 
 enum EdgeOrNode<X> {
-    Node(usize, fn(X) -> X),
+    Node(usize, &'static ActFn),
     Edge(usize, X, usize),
 }
 
@@ -24,7 +26,7 @@ impl<X: Num> FeedForwardNet<X> {
         for instruction in &self.net {
             match *instruction {
                 EdgeOrNode::Edge(from, w, to) => input_buffer[to] = input_buffer[to] + w * input_buffer[from],
-                EdgeOrNode::Node(from, activation) => input_buffer[from] = activation(input_buffer[from]),
+                EdgeOrNode::Node(from, activation) => input_buffer[from] = X::act_fn(activation)(input_buffer[from]),
             }
         }
     }
@@ -32,14 +34,14 @@ impl<X: Num> FeedForwardNet<X> {
 
 
 #[derive(Clone)]
-struct Node<X: Num> {
+struct Node {
     /**Initial nodes do not have any activation*/
-    activation: Option<fn(X) -> X>,
+    activation: Option<&'static ActFn>,
 }
 
 #[derive(Clone)]
 pub struct CPPN<X: Num> {
-    nodes: Vec<Node<X>>,
+    nodes: Vec<Node>,
     edges: Vec<Edge<X>>,
 }
 
@@ -77,21 +79,21 @@ impl<X: Num> CPPN<X> {
     }
 
     /**returns new instance along with new innovation number*/
-    pub fn new<F: FnMut() -> X>(input_size: usize, output_size: usize, mut innovation_no: usize, mut weight_generator: F) -> (Self, usize) {
+    pub fn new(input_size: usize, output_size: usize, mut innovation_no: usize) -> (Self, usize) {
         let mut nodes = vec![Node { activation: None }; input_size];
-        nodes.append(&mut vec![Node { activation: Some(activations::identity) }; output_size]);
+        nodes.append(&mut vec![Node { activation: Some(activations::IDENTITY) }; output_size]);
         let mut edges = Vec::with_capacity(output_size.max(input_size));
         if input_size > output_size {
             for (dst_node, src_node) in (0..input_size).enumerate() {
                 let dst_node = input_size + dst_node % output_size;
                 innovation_no += 1;
-                edges.push(Edge { from: src_node, weight: weight_generator(), to: dst_node, enabled: true, innovation_no })
+                edges.push(Edge { from: src_node, weight: X::random(), to: dst_node, enabled: true, innovation_no })
             }
         } else {
             for (src_node, dst_node) in (input_size..(input_size + output_size)).enumerate() {
                 let src_node = src_node % input_size;
                 innovation_no += 1;
-                edges.push(Edge { from: src_node, weight: weight_generator(), to: dst_node, enabled: true, innovation_no })
+                edges.push(Edge { from: src_node, weight: X::random(), to: dst_node, enabled: true, innovation_no })
             }
         }
         let s = Self { nodes, edges };
@@ -191,18 +193,16 @@ impl<X: Num> CPPN<X> {
         assert!(self.edges.iter().all(|e| e.from < nodes), "Source of edge points to non-existent node:\n{}",self);
     }
     pub fn get_random_node(&self) -> usize {
-        let r: f32 = rand::random();
-        self.node_count() * r as usize
+        self.node_count().random()
     }
     pub fn get_random_edge(&self) -> usize {
-        let r: f32 = rand::random();
-        self.edge_count() * r as usize
+        self.edge_count().random()
     }
     /**Splits an edge in half and introduces a new node in the middle. As a side effect, two
     new connections are added (representing the two halves of old edge) and
     the original edge becomes disabled. Two new innovation numbers are added.
     Returns new innovation number.*/
-    pub fn add_node(&mut self, edge_index: usize, activation: fn(X) -> X, mut innovation_no: usize) -> usize {
+    pub fn add_node(&mut self, edge_index: usize, activation: &'static ActFn, mut innovation_no: usize) -> usize {
         let was_acyclic = self.is_acyclic();
         let from = self.edges[edge_index].from;
         let to = self.edges[edge_index].to;
@@ -234,18 +234,16 @@ impl<X: Num> CPPN<X> {
         assert_eq!(was_acyclic, self.is_acyclic());
         innovation_no
     }
-    pub fn has_activation(&mut self, node_idx: usize) -> bool {
-        self.nodes[node_idx].activation == None
+    pub fn get_activation(&mut self, node_idx: usize) -> Option<&'static ActFn> {
+        self.nodes[node_idx].activation
     }
-    pub fn set_activation(&mut self, node_idx: usize, f: fn(X) -> X) {
-        self.nodes[node_idx].activation = Some(f)
-    }
-    pub fn replace_activation_if_present(&mut self, node_idx: usize, f: fn(X) -> X) -> bool {
-        if self.has_activation(node_idx) {
-            self.set_activation(node_idx, f);
-            true
-        } else {
-            false
+    /**Sets new activation function for a node. If the node is an input node, then it has no
+    activation and hence it cannot be changed. Returns true if change was successful,
+    false if it was input node that couldn't be mutated.*/
+    pub fn set_activation(&mut self, node_idx: usize, f: &'static ActFn) -> bool{
+        match &mut self.nodes[node_idx].activation{
+            None => {false}
+            Some(old) => {*old = f; true}
         }
     }
     pub fn set_weight(&mut self, edge_idx: usize, weight: X) {
@@ -283,8 +281,7 @@ impl<X: Num> CPPN<X> {
         let mut j = 0; // index of edge in the other
 
         'outer: for edge in self.edges.iter_mut() {
-            let r: f32 = rand::random();
-            if r < 0.5f32 { // sometimes edge weight will be crossed-over and sometimes not
+            if f32::random() < 0.5f32 { // sometimes edge weight will be crossed-over and sometimes not
                 while other.edges[j].innovation_no < edge.innovation_no {
                     j += 1;
                     if j >= other.edges.len() {
@@ -302,8 +299,7 @@ impl<X: Num> CPPN<X> {
             // (equal innovation number means equal source and destination). Therefore
             // we can cross-over the nodes as well, without much risk (it is still possible to
             // cross-over two unrelated nodes, but it's less likely)
-            let r: f32 = rand::random();
-            if r < 0.5f32 {
+            if f32::random() < 0.5f32 {
                 my_node.activation = other_node.activation.clone();
             }
         }
@@ -369,8 +365,8 @@ impl<X: Num> CPPN<X> {
 impl <X:Num> Display for CPPN<X>{
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         for (idx,node) in self.nodes.iter().enumerate(){
-            if let Some(a_f) = node.activation {
-                writeln!(f, "Node {} is {}", idx, X::find_name_by_fn_ptr(a_f));
+            if let Some(a_f) = node.activation{
+                writeln!(f, "Node {} is {}", idx, a_f.name());
             }else{
                 writeln!(f, "Input node {}", idx);
             }
