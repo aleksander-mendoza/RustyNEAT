@@ -1,7 +1,8 @@
 import random
 import rusty_neat
 
-assert rusty_neat.activation_functions() == ["identity", "sigmoid", "relu", "sin", "cos", "tan", "tanh", "abs", "square", "inv", "step"]
+assert rusty_neat.activation_functions() == ["identity", "sigmoid", "relu", "sin", "cos", "tan", "tanh", "abs",
+                                             "square", "inv", "step"]
 
 input_neurons = 4
 output_neurons = 3
@@ -10,11 +11,11 @@ output_neurons = 3
 # Neat64 operates on double-precision floating points,
 # while Neat32 uses single-precision floats
 
-neat = rusty_neat.Neat64(input_neurons, output_neurons)
+neat = rusty_neat.Neat32(input_neurons, output_neurons)
 
 # Optionally you may specify a list of activation functions
 
-neat1 = rusty_neat.Neat64(input_neurons, output_neurons,
+neat1 = rusty_neat.Neat32(input_neurons, output_neurons,
                           ["sigmoid", "relu", "sin", "cos", "tan", "tanh", "abs", "identity"])
 
 # You can later lookup functions used by NEAT
@@ -37,27 +38,11 @@ assert inno_num_after_new_cppn > 0
 # compile CPPN to feed-forward network
 net = cppn.build_feed_forward_net()
 
-# Before running the network you need to prepare buffer that will hold
-# activation values of all neurons (here the feed-forward network is not divided into layers but
-# instead it is an arbitrary directed acyclic graph and its neurons are evaluated in topological order)
-out = net.make_output_buffer()
-
-# write some input
-out.set_input([1, 2, 3, 4])
-
-# You can later query the input as well
-assert out.get_input() == [1, 2, 3, 4]
-
-# By default the output is set to zero
-random_output_before = out.get_output()
-assert random_output_before == [0, 0, 0]
-
-# but if you run the network
-net(out)
+# you can run the network
+out = net([1, 2, 3, 4])
 
 # get the output will change
-actual_output = out.get_output()
-assert actual_output[0] != 0 and actual_output[1] != 0 and actual_output[2] != 0
+assert out[0] != 0 and out[1] != 0 and out[2] != 0
 
 # You can see the total number of neurons in a network
 assert cppn.node_count() == input_neurons + output_neurons
@@ -201,7 +186,7 @@ child = fitter_cppn.crossover(less_fit_cppn)
 # We can try to apply them to a simple toy problem. Let's learn
 # a neural network that solves the XOR problem.
 
-neat = rusty_neat.Neat64(2, 1,  # two input bits and output XORed bit
+neat = rusty_neat.Neat32(2, 1,  # two input bits and output XORed bit
                          ["sigmoid", "identity", "relu", "sin", "cos", "tan", "tanh", "abs"])
 XOR_TABLE = [
     [0, 0, 0],
@@ -211,13 +196,11 @@ XOR_TABLE = [
 ]
 
 
-def fitness(cppn, out_buffer) -> float:
+def fitness(cppn) -> float:
     net = cppn.build_feed_forward_net()
     loss = 0
     for in1, in2, expected in XOR_TABLE:
-        out_buffer.set_input([in1, in2])
-        net(out_buffer)
-        loss += (expected - out_buffer.get_output()[0]) ** 2
+        loss += (expected - net([in1, in2])[0]) ** 2
     fitness_val = -loss  # we want that higher values mean better fitness
     return fitness_val
 
@@ -225,14 +208,14 @@ def fitness(cppn, out_buffer) -> float:
 population = neat.new_cppns(16)
 TO_ELIMINATE = 8  # Number of weakest CPPNs to eliminate at each generation and replace with crossover of other CPPNs
 for generation in range(100):
-    out = neat.make_output_buffer(population)  # This allows us to create a single buffer large enough
-    # to be reusable by any CPPN in population. It is more efficient than calling net.make_output_buffer() each time
-    evaluated = [(fitness(cppn, out), cppn) for cppn in population]
+    evaluated = [(fitness(cppn), cppn) for cppn in population]
     evaluated.sort(key=lambda x: x[0])  # sort by fitness in ascending order
     total_fitness = sum(map(lambda x: x[0], evaluated))
     max_fitness = max(map(lambda x: x[0], evaluated))
     average_fitness = total_fitness / len(population)
-    print("Generation=" + str(generation) + ", avg fitness=" + str(average_fitness) + ", max fitness=" +str(max_fitness))
+    print("Generation=" + str(generation) +
+          ", avg fitness=" + str(average_fitness) +
+          ", max fitness=" + str(max_fitness))
     for i in range(TO_ELIMINATE):  # replace first few CPPNs with new ones
         a = random.randrange(0, len(population))
         b = random.randrange(0, len(population))
@@ -241,3 +224,20 @@ for generation in range(100):
     neat.mutate_population(population, 0.1, 0.1, 0.1, 0.1)
 
 assert max_fitness > -2  # If everything is implemented correctly, this result should be achieved with ease
+# This concludes the short end-to-end example of evolution algorithm with RustyNEAT. Next we will move on to
+# parallel processing.
+
+# RustyNEAT comes with GPU support. What's more is that instead of CUDA, it uses
+# OpenCL as it's backend and can work with any hardware. You can query installed OpenCL
+# platforms using
+platform_list = rusty_neat.platforms()
+assert len(platform_list) > 0, "No OpenCL available!"
+
+# You can also get a list of all available computing devices (both GPUs and CPUs)
+device_list = rusty_neat.devices()
+assert len(device_list) > 0
+
+# If you have multiple versions of OpenCL installed, then you may query devices
+# accessible to a specific version
+assert list(map(str, rusty_neat.devices(platform_list[0]))) == list(map(str, rusty_neat.devices()))
+

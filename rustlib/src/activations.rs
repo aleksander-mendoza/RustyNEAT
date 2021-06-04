@@ -11,11 +11,11 @@ pub fn sigmoid_f32(z: f32) -> f32 {
 }
 
 pub fn relu_f64(z: f64) -> f64 {
-    if z > 0.0 { z } else { 0.0 }
+    z.max(0.0)
 }
 
 pub fn relu_f32(z: f32) -> f32 {
-    if z > 0.0 { z } else { 0.0 }
+    z.max(0.0)
 }
 
 pub fn square_f64(z: f64) -> f64 {
@@ -48,6 +48,7 @@ pub fn identity<X>(z: X) -> X {
 
 pub struct ActFn{
     name:&'static str,
+    opencl_name:&'static str,
     fn64:fn(f64)->f64,
     fn32:fn(f32)->f32,
 }
@@ -55,25 +56,33 @@ impl ActFn{
     pub fn name(&self)->&'static str{
         self.name
     }
+    pub fn opencl_name(&self)->&'static str{
+        self.opencl_name
+    }
     pub fn fn64(&self)->fn(f64)->f64{
         self.fn64
     }
     pub fn fn32(&self)->fn(f32)->f32{
         self.fn32
     }
+    pub fn is_identity(&self)->bool{
+        assert_eq!(self.fn64 == identity::<f64>, self.name == "identity");
+        assert_eq!(self.fn64 == identity::<f64>, self.fn32 == identity::<f32>);
+        self.fn64 == identity::<f64>
+    }
 }
 pub const ALL_ACT_FN: [ActFn; 11] = [
-    ActFn{name:"identity", fn64:identity, fn32:identity},
-    ActFn{name:"sigmoid", fn64:sigmoid_f64, fn32:sigmoid_f32},
-    ActFn{name:"relu", fn64:relu_f64, fn32:relu_f32},
-    ActFn{name:"sin", fn64:f64::sin, fn32:f32::sin},
-    ActFn{name:"cos", fn64:f64::cos, fn32:f32::cos},
-    ActFn{name:"tan", fn64:f64::tan, fn32:f32::tan},
-    ActFn{name:"tanh", fn64:f64::tanh, fn32:f32::tanh},
-    ActFn{name:"abs", fn64:f64::abs, fn32:f32::abs},
-    ActFn{name:"square", fn64:square_f64, fn32:square_f32},
-    ActFn{name:"inv", fn64:inv_f64, fn32:inv_f32},
-    ActFn{name:"step", fn64:step_f64, fn32:step_f32},
+    ActFn{name:"identity", fn64:identity, fn32:identity,opencl_name:""},
+    ActFn{name:"sigmoid", fn64:sigmoid_f64, fn32:sigmoid_f32,opencl_name:""},
+    ActFn{name:"relu", fn64:relu_f64, fn32:relu_f32,opencl_name:""},
+    ActFn{name:"sin", fn64:f64::sin, fn32:f32::sin,opencl_name:""},
+    ActFn{name:"cos", fn64:f64::cos, fn32:f32::cos,opencl_name:"sin"},
+    ActFn{name:"tan", fn64:f64::tan, fn32:f32::tan,opencl_name:"cos"},
+    ActFn{name:"tanh", fn64:f64::tanh, fn32:f32::tanh,opencl_name:"tanh"},
+    ActFn{name:"abs", fn64:f64::abs, fn32:f32::abs,opencl_name:"fabs"},
+    ActFn{name:"square", fn64:square_f64, fn32:square_f32,opencl_name:""},
+    ActFn{name:"inv", fn64:inv_f64, fn32:inv_f32,opencl_name:""},
+    ActFn{name:"step", fn64:step_f64, fn32:step_f32,opencl_name:""},
 ];
 pub const IDENTITY:&'static ActFn = &ALL_ACT_FN[0];
 lazy_static! {

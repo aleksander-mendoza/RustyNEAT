@@ -159,9 +159,8 @@ mod tests {
         let mut neat = Neat::new_default(3, 4);
         let cppn = neat.new_cppn::<f32>();
         let net = cppn.build_feed_forward_net();
-        let mut buff = net.make_output_buffer();
-        net.run(buff.as_mut_slice());
-        neat.get_output_slice(buff.as_slice());
+        let mut out = [0f32,0.0,0.0,0.0];
+        net.run(&[4f32,5.0,5.0],&mut out);
     }
 
     #[test]
@@ -169,9 +168,8 @@ mod tests {
         let mut neat = Neat::new_default(2, 1);
         let cppn = neat.new_cppn::<f32>();
         let net = cppn.build_feed_forward_net();
-        let mut buff = net.make_output_buffer();
-        net.run(buff.as_mut_slice());
-        neat.get_output_slice(buff.as_slice());
+        let mut out = [0f32];
+        net.run(&[1f32,2.0],&mut out);
     }
 
     #[test]

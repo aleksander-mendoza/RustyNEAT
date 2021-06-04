@@ -2,7 +2,7 @@ use rand::prelude::Distribution;
 use std::fmt::Display;
 use crate::activations::ActFn;
 
-pub trait Num: num_traits::Num + Copy + Display {
+pub trait Num: num_traits::Num + Copy + Display + std::ops::AddAssign{
     fn act_fn(f:&ActFn)->fn(Self)->Self;
     fn random() -> Self;
 }
