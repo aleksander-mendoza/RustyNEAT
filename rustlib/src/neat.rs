@@ -153,7 +153,7 @@ impl Neat {
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use crate::gpu::FeedForwardNetOpenCL;
     #[test]
     fn cppn_1() {
         let mut neat = Neat::new_default(3, 4);
@@ -178,5 +178,23 @@ mod tests {
         let mut cppns = neat.new_cppns::<f64>(16);
         neat.mutate_population( cppns.iter_mut(),0.1,0.1,0.1,0.1);
         let crossed_over = cppns[0].crossover(&cppns[1]);
+    }
+
+    #[test]
+    fn cppn_4() -> Result<(),ocl::error::Error>{
+        let mut neat = Neat::new_default(3, 4);
+        let cppn = neat.new_cppn::<f32>();
+        let net = cppn.build_feed_forward_net();
+        let mut out = [0f32,0.0,0.0,0.0];
+        let input = [4f32,5.0,5.0];
+        net.run(&input,&mut out);
+        println!("{}",net);
+        let gpu = FeedForwardNetOpenCL::new(net)?;
+        let out3 = gpu.run(&input,true)?;
+        assert_eq!(out, out3.as_slice(), "row major");
+        let out2 = gpu.run(&input,false)?;
+        assert_eq!(out, out2.as_slice(), "column major");
+
+        Ok(())
     }
 }

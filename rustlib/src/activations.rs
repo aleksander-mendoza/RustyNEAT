@@ -73,16 +73,16 @@ impl ActFn{
 }
 pub const ALL_ACT_FN: [ActFn; 11] = [
     ActFn{name:"identity", fn64:identity, fn32:identity,opencl_name:""},
-    ActFn{name:"sigmoid", fn64:sigmoid_f64, fn32:sigmoid_f32,opencl_name:""},
-    ActFn{name:"relu", fn64:relu_f64, fn32:relu_f32,opencl_name:""},
-    ActFn{name:"sin", fn64:f64::sin, fn32:f32::sin,opencl_name:""},
-    ActFn{name:"cos", fn64:f64::cos, fn32:f32::cos,opencl_name:"sin"},
-    ActFn{name:"tan", fn64:f64::tan, fn32:f32::tan,opencl_name:"cos"},
+    ActFn{name:"sigmoid", fn64:sigmoid_f64, fn32:sigmoid_f32,opencl_name:"sigmoid32"},
+    ActFn{name:"relu", fn64:relu_f64, fn32:relu_f32,opencl_name:"relu32"},
+    ActFn{name:"sin", fn64:f64::sin, fn32:f32::sin,opencl_name:"sin"},
+    ActFn{name:"cos", fn64:f64::cos, fn32:f32::cos,opencl_name:"cos"},
+    ActFn{name:"tan", fn64:f64::tan, fn32:f32::tan,opencl_name:"tan"},
     ActFn{name:"tanh", fn64:f64::tanh, fn32:f32::tanh,opencl_name:"tanh"},
     ActFn{name:"abs", fn64:f64::abs, fn32:f32::abs,opencl_name:"fabs"},
-    ActFn{name:"square", fn64:square_f64, fn32:square_f32,opencl_name:""},
-    ActFn{name:"inv", fn64:inv_f64, fn32:inv_f32,opencl_name:""},
-    ActFn{name:"step", fn64:step_f64, fn32:step_f32,opencl_name:""},
+    ActFn{name:"square", fn64:square_f64, fn32:square_f32,opencl_name:"square32"},
+    ActFn{name:"inv", fn64:inv_f64, fn32:inv_f32,opencl_name:"1.0f/"},
+    ActFn{name:"step", fn64:step_f64, fn32:step_f32,opencl_name:"step32"},
 ];
 pub const IDENTITY:&'static ActFn = &ALL_ACT_FN[0];
 lazy_static! {

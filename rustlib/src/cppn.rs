@@ -7,9 +7,6 @@ use std::num::NonZeroUsize;
 use crate::activations::{ActFn};
 
 
-pub struct FeedForwardNetOpenCL{
-
-}
 
 enum EdgeOrNode<X> {
     Node(usize, &'static ActFn),
@@ -76,7 +73,7 @@ impl<X: Num> FeedForwardNet<X> {
                 &EdgeOrNode::Node(idx, act_fn) => {
                     assert!(idx>self.input_size);
                     if idx < inout_size{
-                        writeln!(f, "out[get_global_id(0)*out_row_stride+{}*out_col_stride] = {}(out[get_global_id(0)*out_row_stride+{}*out_col_stride]);", idx, act_fn.opencl_name(), idx)
+                        writeln!(f, "out[get_global_id(0)*out_row_stride+{}*out_col_stride] = {}(out[get_global_id(0)*out_row_stride+{}*out_col_stride]);", idx-self.input_size, act_fn.opencl_name(), idx-self.input_size)
                     }else{
                         writeln!(f, "register{} = {}(register{});", idx, act_fn.opencl_name(), idx)
                     }
@@ -84,8 +81,13 @@ impl<X: Num> FeedForwardNet<X> {
                 &EdgeOrNode::Edge(from, weight, to) => {
                     assert!(to >= self.input_size); //cannot write to input node
                     if to < inout_size{
-                        assert!(!was_written_to[to]); // this does not need to change
-                        write!(f, "out[get_global_id(0)*out_row_stride+{}*out_col_stride] += ",to);
+                        write!(f, "out[get_global_id(0)*out_row_stride+{}*out_col_stride]",to-self.input_size);
+                        if was_written_to[to]{
+                            write!(f, " += ");
+                        }else{
+                            was_written_to[to] = true;
+                            write!(f, " = ");
+                        }
                     }else if was_written_to[to] { // variable already declared before
                         write!(f, "register{} += ", to);
                     } else { // first time write means that variable declaration is necessary
@@ -96,8 +98,9 @@ impl<X: Num> FeedForwardNet<X> {
                         assert!(!was_written_to[from]); // input registers are never written to
                         write!(f, "in[get_global_id(0)*in_row_stride+{}*in_col_stride]",from);
                     }else if from < inout_size{
+                        assert!(from>=self.input_size);
                         assert!(!was_written_to[from]); // this does not need to change
-                        write!(f, "out[get_global_id(0)*out_row_stride+{}*out_col_stride]",from);
+                        write!(f, "out[get_global_id(0)*out_row_stride+{}*out_col_stride]",from-self.input_size);
                     }else{
                         assert!(was_written_to[from]);
                         write!(f, "register{}", from);

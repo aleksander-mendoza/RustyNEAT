@@ -341,4 +341,5 @@ mod tests {
         println!("The value at index [{}] is now '{}'!", 4, vec[4]);
         Ok(())
     }
+
 }
