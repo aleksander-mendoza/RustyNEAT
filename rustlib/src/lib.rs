@@ -1,3 +1,4 @@
+#![feature(option_result_contains)]
 #[macro_use]
 extern crate maplit;
 #[macro_use]
@@ -14,8 +15,10 @@ pub mod gpu;
 
 extern crate ocl;
 
-use ocl::ProQue;
+use ocl::{ProQue, DeviceType};
 pub use ocl::{Platform, Device};
+use std::any::Any;
+use ocl::core::{DeviceInfo, DeviceInfoResult};
 
 
 pub fn opencl_platforms() -> Vec<Platform> {
@@ -24,6 +27,18 @@ pub fn opencl_platforms() -> Vec<Platform> {
 
 pub fn device_list(platform: &Platform) -> Vec<Device> {
     Device::list_all(platform).unwrap_or_else(|_| vec![])
+}
+
+pub fn opencl_default_platform() -> Platform {
+    Platform::default()
+}
+
+pub fn default_device(platform: &Platform) -> Option<Device> {
+    let d = Device::list_all(platform).ok().and_then(|dl|dl.into_iter().find(|d|match d.info(DeviceInfo::Type){
+        Ok(DeviceInfoResult::Type(DeviceType::GPU)) => true,
+        _ => false
+    }));
+    d.or_else(||Device::first(platform).ok())
 }
 
 #[cfg(test)]

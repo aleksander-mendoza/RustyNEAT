@@ -1,4 +1,5 @@
 import random
+import numpy as np
 import rusty_neat
 
 assert rusty_neat.activation_functions() == ["identity", "sigmoid", "relu", "sin", "cos", "tan", "tanh", "abs",
@@ -237,7 +238,38 @@ assert len(platform_list) > 0, "No OpenCL available!"
 device_list = rusty_neat.devices()
 assert len(device_list) > 0
 
+# You can get the default platform by either
+platform = platform_list[0]
+# or just
+platform = rusty_neat.Platform()
+assert rusty_neat.Platform() == platform_list[0]
+
 # If you have multiple versions of OpenCL installed, then you may query devices
 # accessible to a specific version
-assert list(map(str, rusty_neat.devices(platform_list[0]))) == list(map(str, rusty_neat.devices()))
+assert rusty_neat.devices(platform_list[0]) == rusty_neat.devices()
 
+# You can also easily get the default device
+device = rusty_neat.Device()  # If you have a GPU, it will be taken as the default instead of CPU
+
+# You can compile your feed-forward network to run on GPU
+gpu_net = net.to(platform=platform, device=device)
+out = net([1, 2, 3, 4])  # This was computer on CPU
+gpu_out = gpu_net([1, 2, 3, 4])  # This was computer on GPU
+assert gpu_out == out
+# You can query device used by a network
+assert gpu_net.device == device
+
+# It's also possible to use numpy matrices to perform computations in batches
+out_numpy = gpu_net.numpy(np.array([
+    [1, 2, 3, 4],  # First set of inputs
+    [1, 2, 3, 4]  # another set of inputs (normally every row would be different)
+    # ... and so on
+    # All of those inputs rows are independent of each other and will be computer in parallel on GPU
+], dtype=np.float32))
+assert (out_numpy[0] == out).all()
+assert (out_numpy[1] == out).all()
+
+
+# Note that CPPN are not the right tool if you wish to evolve large neural networks.
+# Instead you may compile a CPPN to a dense layer of larger neural network using HyperHEAT.
+# Alternatively you may use L-systems to evolve fractal neural networks.

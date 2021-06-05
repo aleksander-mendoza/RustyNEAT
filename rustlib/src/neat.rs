@@ -189,11 +189,34 @@ mod tests {
         let input = [4f32,5.0,5.0];
         net.run(&input,&mut out);
         println!("{}",net);
-        let gpu = FeedForwardNetOpenCL::new(net)?;
+        let p = crate::opencl_default_platform();
+        let gpu = FeedForwardNetOpenCL::new(&net, p, crate::default_device(&p).unwrap())?;
         let out3 = gpu.run(&input,true)?;
         assert_eq!(out, out3.as_slice(), "row major");
         let out2 = gpu.run(&input,false)?;
         assert_eq!(out, out2.as_slice(), "column major");
+
+        Ok(())
+    }
+
+    #[test]
+    fn cppn_5() -> Result<(),ocl::error::Error>{
+        let mut neat = Neat::new_default(3, 4);
+        let cppn = neat.new_cppn::<f32>();
+        let net = cppn.build_feed_forward_net();
+        let mut out = [0f32,0.0,0.0,0.0,0.0,0.0,0.0,0.0];
+        let input = [0f32,1.0,2.0,3.0,4.0,5.0];
+        net.run(&input[0..3],&mut out[0..4]);
+        net.run(&input[3..6],&mut out[4..8]);
+        println!("{}",net);
+        let p = crate::opencl_default_platform();
+        let gpu = FeedForwardNetOpenCL::new(&net, p, crate::default_device(&p).unwrap())?;
+        let out3 = gpu.run(&input,true)?;
+        assert_eq!(out, out3.as_slice(), "row major");
+        let input = [0f32,3.0,1.0,4.0,2.0,5.0];
+        let out2 = gpu.run(&input,false)?;
+        let mut out_transposed = [out[0],out[4],out[1],out[5],out[2],out[6],out[3],out[7]];
+        assert_eq!(out_transposed, out2.as_slice(), "column major");
 
         Ok(())
     }

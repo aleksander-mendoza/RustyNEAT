@@ -1,17 +1,18 @@
 use crate::cppn::FeedForwardNet;
 use std::io::Write;
-use ocl::{ProQue, Kernel, Buffer, flags, SpatialDims};
+use ocl::{ProQue, Kernel, Buffer, flags, SpatialDims, Platform, Device};
 use ocl::Error;
+use ocl::core::ClVersions;
 
 
 pub struct FeedForwardNetOpenCL {
-    in_columns:usize,
-    out_columns:usize,
-    pro_que:ProQue
+    in_columns: usize,
+    out_columns: usize,
+    pro_que: ProQue,
 }
 
 impl FeedForwardNetOpenCL {
-    pub fn new(net: FeedForwardNet<f32>) -> Result<Self, Error> {
+    pub fn new(net: &FeedForwardNet<f32>, platform: Platform, device: Device) -> Result<Self, Error> {
         let src = format!(r#"
         float relu32(float x) {{
             return max(x, 0.f);
@@ -23,27 +24,43 @@ impl FeedForwardNetOpenCL {
             return x*x;
         }}
         {}
-"#,net);
+"#, net);
         let pro_que = ProQue::builder()
+            .platform(platform)
+            .device(device)
             .src(src)
             .dims(SpatialDims::Unspecified)
             .build()?;
-        Ok(FeedForwardNetOpenCL {in_columns:net.get_input_size(),out_columns:net.get_output_size(),pro_que})
+        Ok(FeedForwardNetOpenCL { in_columns: net.get_input_size(), out_columns: net.get_output_size(), pro_que })
     }
-    pub fn run(&self,input:&[f32],row_major:bool)->Result<Vec<f32>, Error>{
-        if input.len() % self.in_columns != 0{
-            return Err(Error::from(format!("Input buffer has length {} which is not divisible by number of expected input nodes {}",input.len(), self.in_columns)));
+    pub fn get_input_size(&self) -> usize {
+        self.in_columns
+    }
+    pub fn get_device(&self) -> Device {
+        self.pro_que.device()
+    }
+    pub fn get_output_size(&self) -> usize {
+        self.out_columns
+    }
+    pub fn run(&self, input: &[f32], row_major: bool) -> Result<Vec<f32>, Error> {
+        let rows = input.len() / self.in_columns;
+        let (in_col_stride, in_row_stride) = if row_major { (1, self.in_columns) } else { (rows, 1) };
+        let (out_col_stride, out_row_stride) = if row_major { (1, self.out_columns) } else { (rows, 1) };
+        self.run_with_strides(input,in_col_stride, in_row_stride,out_col_stride, out_row_stride)
+    }
+    pub fn run_with_strides(&self, input: &[f32],
+               in_col_stride: usize, in_row_stride: usize,
+               out_col_stride: usize, out_row_stride: usize) -> Result<Vec<f32>, Error> {
+        let rows = input.len() / self.in_columns;
+        if input.len() % self.in_columns != 0 {
+            return Err(Error::from(format!("Input buffer has length {} which is not divisible by number of expected input nodes {}", input.len(), self.in_columns)));
         }
-        let rows = input.len()/self.in_columns;
-        let (in_col_stride,in_row_stride) = if row_major{(1, self.in_columns)}else{(rows,1)};
-        let (out_col_stride,out_row_stride) = if row_major{(1, self.out_columns)}else{(rows,1)};
-
         let in_buffer = self.pro_que.buffer_builder::<f32>()
             .flags(flags::MEM_READ_ONLY)
             .len(input.len())
             .build()?;
 
-        let out_len = self.out_columns*rows;
+        let out_len = self.out_columns * rows;
 
         let out_buffer = self.pro_que.buffer_builder::<f32>()
             .flags(flags::MEM_READ_WRITE)
@@ -63,7 +80,7 @@ impl FeedForwardNetOpenCL {
             in_buffer.cmd()
                 .queue(&self.pro_que.queue())
                 .offset(0)
-                .write( input)
+                .write(input)
                 .enq()?;
         }
         unsafe {
@@ -82,7 +99,6 @@ impl FeedForwardNetOpenCL {
                 .offset(0)
                 .read(&mut output)
                 .enq()?;
-
         }
         Ok(output)
     }

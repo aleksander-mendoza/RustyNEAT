@@ -3,7 +3,7 @@
 use pyo3::prelude::*;
 use pyo3::{wrap_pyfunction, PyObjectProtocol};
 use pyo3::PyResult;
-use rusty_neat_core::{cppn, neat};
+use rusty_neat_core::{cppn, neat, gpu};
 use std::collections::HashSet;
 use rusty_neat_core::activations::{ STR_TO_IDX, ALL_ACT_FN};
 use pyo3::exceptions::PyValueError;
@@ -11,6 +11,11 @@ use rusty_neat_core::cppn::CPPN;
 use std::iter::FromIterator;
 use pyo3::types::PyString;
 use rusty_neat_core::num::Num;
+use rusty_neat_core::gpu::FeedForwardNetOpenCL;
+use pyo3::basic::CompareOp;
+use ndarray::ArrayViewD;
+use numpy::{PyReadonlyArrayDyn, PyArrayDyn, IntoPyArray, PyArray};
+use numpy::npyffi::NPY_ORDER;
 
 #[pyfunction]
 pub fn random_activation_fn() -> String {
@@ -24,6 +29,7 @@ pub fn activation_functions() -> Vec<String> {
 }
 
 #[pyclass]
+#[derive(Clone,Copy)]
 pub struct Platform {
     p:rusty_neat_core::Platform
 }
@@ -34,6 +40,8 @@ pub fn platforms() -> Vec<Platform> {
 }
 
 #[pyclass]
+#[text_signature = "(platform, /)"]
+#[derive(Clone,Copy)]
 pub struct Device {
     d:rusty_neat_core::Device
 }
@@ -74,6 +82,34 @@ pub struct CPPN32 {
 #[text_signature = "(input_size, output_size, activation_functions, /)"]
 pub struct Neat32 { neat: neat::Neat }
 
+#[pyclass]
+pub struct FeedForwardNetOpenCL32 {
+    net: gpu::FeedForwardNetOpenCL,
+}
+
+#[pymethods]
+impl Platform {
+    #[text_signature = "( /)"]
+    fn info(&self) -> String {
+        self.p.to_string()
+    }
+    #[new]
+    pub fn new() -> Self {
+        Platform{p:rusty_neat_core::opencl_default_platform()}
+    }
+}
+
+#[pymethods]
+impl Device {
+    #[text_signature = "( /)"]
+    fn info(&self)->String {
+        self.d.to_string()
+    }
+    #[new]
+    pub fn new(p:Option<Platform>) -> PyResult<Self> {
+        rusty_neat_core::default_device(&p.map(|p|p.p).unwrap_or_else(||rusty_neat_core::opencl_default_platform())).map(|d|Device{d}).ok_or_else(||PyValueError::new_err("No device for default platform"))
+    }
+}
 
 #[pymethods]
 impl Neat32 {
@@ -325,6 +361,9 @@ impl CPPN32 {
     }
 }
 
+
+
+
 #[pymethods]
 impl FeedForwardNet32 {
     #[call]
@@ -337,6 +376,14 @@ impl FeedForwardNet32 {
             Ok(out)
         }
     }
+
+    #[text_signature = "(platform, device, /)"]
+    fn to(&mut self, platform:Option<Platform>, device:Option<Device>) -> PyResult<FeedForwardNetOpenCL32> {
+        let p = platform.map(|p|p.p).unwrap_or_else(||rusty_neat_core::opencl_default_platform());
+        let d = device.map(|d|d.d).or_else(||rusty_neat_core::default_device(&p)).ok_or_else(||PyValueError::new_err(format!("No device for {}",&p)))?;
+        let n = FeedForwardNetOpenCL::new(&self.net,p, d).map_err(|e|PyValueError::new_err(e.to_string()))?;
+        Ok(FeedForwardNetOpenCL32{net:n})
+    }
     #[getter]
     fn get_input_size(&self)->usize{
         self.net.get_input_size()
@@ -346,7 +393,53 @@ impl FeedForwardNet32 {
         self.net.get_output_size()
     }
 }
-
+#[pymethods]
+impl FeedForwardNetOpenCL32 {
+    #[getter]
+    fn get_input_size(&self)->usize{
+        self.net.get_input_size()
+    }
+    #[getter]
+    fn get_device(&self)->Device{
+        Device{d:self.net.get_device()}
+    }
+    #[getter]
+    fn get_output_size(&self)->usize{
+        self.net.get_output_size()
+    }
+    #[call]
+    fn __call__(&self, input: Vec<f32>) -> PyResult<Vec<f32>> {
+        if input.len() != self.get_input_size(){
+            Err(PyValueError::new_err(format!("Expected input of size {} but got {}", self.get_input_size(), input.len())))
+        }else {
+            self.net.run(input.as_slice(), true).map_err(|e|PyValueError::new_err(e.to_string()))
+        }
+    }
+    #[text_signature = "(input_matrix, /)"]
+    fn numpy<'py>(&self, py: Python<'py>, input: PyReadonlyArrayDyn<'_, f32>)-> PyResult<&'py PyArrayDyn<f32>> {
+        let s = input.shape();
+        if s.len() != 2{
+            Err(PyValueError::new_err(format!("Expected input to be a 2 dimensional matrix but got {} dimensions", s.len())))
+        } else if s[1] != self.get_input_size() {
+            Err(PyValueError::new_err(format!("Expected input to have {} columns but got {}", self.get_input_size(), s[1])))
+        }else if let Ok(data) = input.as_slice(){
+            let strides = input.strides();
+            let row = strides[0] as usize / std::mem::size_of::<f32>();
+            let col = strides[1] as usize / std::mem::size_of::<f32>();
+            if col < 0 || row < 0{
+                return Err(PyValueError::new_err(format!("Negative strides are not supported")))
+            }
+            let out = self.net.run_with_strides(data,col,row, 1, self.get_output_size())
+                .map_err(|e|PyValueError::new_err(e.to_string()))?;
+            let out = out.into_pyarray(py);
+            let out = out.reshape([s[0],self.get_output_size()])?;
+            let out = out.to_dyn();
+            Ok(out)
+        }else{
+            Err(PyValueError::new_err(format!("Provided input is not contiguous")))
+        }
+    }
+}
 //
 // #[pymethods]
 // impl Output32 {
@@ -394,6 +487,13 @@ impl PyObjectProtocol for CPPN32 {
 
 #[pyproto]
 impl PyObjectProtocol for Platform {
+    fn __richcmp__(&self, other:PyRef<Platform>, op: CompareOp) -> PyResult<bool>{
+        match op{
+            CompareOp::Eq => Ok(self.p.as_core() == other.p.as_core()),
+            CompareOp::Ne => Ok(self.p.as_core() != other.p.as_core()),
+            op => Err(PyValueError::new_err("Cannot compare platforms"))
+        }
+    }
     fn __str__(&self) -> PyResult<String>{
         Ok(format!("Platform('{}')",self.p.name().unwrap_or_else(|e|e.to_string())))
     }
@@ -404,6 +504,13 @@ impl PyObjectProtocol for Platform {
 
 #[pyproto]
 impl PyObjectProtocol for Device {
+    fn __richcmp__(&self, other:PyRef<Device>, op: CompareOp) -> PyResult<bool>{
+        match op{
+            CompareOp::Eq => Ok(self.d == other.d),
+            CompareOp::Ne => Ok(self.d != other.d),
+            op => Err(PyValueError::new_err("Cannot compare platforms"))
+        }
+    }
     fn __str__(&self) -> PyResult<String>{
         Ok(format!("Device('{}')",self.d.name().unwrap_or_else(|e|e.to_string())))
     }
@@ -428,6 +535,8 @@ fn rusty_neat(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(activation_functions, m)?)?;
     m.add_function(wrap_pyfunction!(platforms, m)?)?;
     m.add_function(wrap_pyfunction!(devices, m)?)?;
+    m.add_class::<Device>()?;
+    m.add_class::<Platform>()?;
     m.add_class::<CPPN32>()?;
     m.add_class::<Neat32>()?;
     m.add_class::<FeedForwardNet32>()?;
