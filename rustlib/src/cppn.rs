@@ -2,7 +2,7 @@ use crate::num::Num;
 use crate::util::{Initializer, RandRange};
 use rand::Rng;
 use crate::activations;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Display, Formatter, Error};
 use std::num::NonZeroUsize;
 use crate::activations::{ActFn};
 
@@ -28,7 +28,7 @@ impl<X: Num> FeedForwardNet<X> {
         self.output_size
     }
     pub fn run(&self, input_buffer: &[X], output_buffer: &mut [X]) {
-        assert!(input_buffer.len() == self.get_input_size());
+        assert_eq!(input_buffer.len(), self.get_input_size());
         let inout_size = self.input_size + self.output_size;
         let mut intermediate_buffer = vec![X::zero(); self.len - inout_size];
         for instruction in &self.net {
@@ -61,6 +61,7 @@ impl<X: Num> FeedForwardNet<X> {
             }
         }
     }
+
     pub fn compile_for_opencl(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "__kernel void feedforward(__global float * in,__global float * out,");
         writeln!(f, "                          size_t in_row_stride, size_t in_col_stride, ");
@@ -72,6 +73,7 @@ impl<X: Num> FeedForwardNet<X> {
             match instruction {
                 &EdgeOrNode::Node(idx, act_fn) => {
                     assert!(idx>self.input_size);
+                    assert!(was_written_to[idx]);
                     if idx < inout_size{
                         writeln!(f, "out[get_global_id(0)*out_row_stride+{}*out_col_stride] = {}(out[get_global_id(0)*out_row_stride+{}*out_col_stride]);", idx-self.input_size, act_fn.opencl_name(), idx-self.input_size)
                     }else{
@@ -113,11 +115,113 @@ impl<X: Num> FeedForwardNet<X> {
         Ok(())
     }
 
+    pub fn compile_for_picbreeder(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+
+        writeln!(f, "__kernel void picbreeder(__global float * out,");
+        writeln!(f, "                         __global size_t * dimensions, ");
+        writeln!(f, "                         __global float * pixel_size_per_dimension, ");
+        writeln!(f, "                         __global float * offset_per_dimension) {{");
+        writeln!(f, "    size_t elements_in_hyper_plane0 = 1;");
+        for dim in 0..self.input_size{
+            writeln!(f, "    size_t elements_in_hyper_plane{} = dimensions[{}] * elements_in_hyper_plane{};",dim+1,dim,dim);
+        }
+        for dim in (0..self.input_size).rev(){
+            writeln!(f, "    size_t pixel_coordinate{} = (get_global_id(0) % elements_in_hyper_plane{}) / elements_in_hyper_plane{};",dim,dim+1,dim);
+        }
+        for dim in 0..self.input_size{
+            writeln!(f, "    float spacial_coordinate{} = offset_per_dimension[{}] + pixel_size_per_dimension[{}]*pixel_coordinate{};",dim,dim,dim,dim);
+        }
+        let mut was_written_to = vec![false; self.len];
+        let inout_size = self.input_size + self.output_size;
+        for instruction in &self.net {
+            write!(f, "   ");
+            match instruction {
+                &EdgeOrNode::Node(idx, act_fn) => {
+                    assert!(idx>=self.input_size);
+                    assert!(was_written_to[idx]);
+                    if idx < inout_size{
+                        writeln!(f, "out[get_global_id(0)*{}+{}] = {}(out[get_global_id(0)*{}+{}]);", self.output_size, idx-self.input_size, act_fn.opencl_name(), self.output_size, idx-self.input_size)
+                    }else{
+                        writeln!(f, "register{} = {}(register{});", idx, act_fn.opencl_name(), idx)
+                    }
+                },
+                &EdgeOrNode::Edge(from, weight, to) => {
+                    assert!(to >= self.input_size); //cannot write to input node
+                    if to < inout_size{
+                        write!(f, "out[get_global_id(0)*{}+{}]",self.output_size,to-self.input_size);
+                        if was_written_to[to]{
+                            write!(f, " += ");
+                        }else{
+                            was_written_to[to] = true;
+                            write!(f, " = ");
+                        }
+                    }else if was_written_to[to] { // variable already declared before
+                        write!(f, "register{} += ", to);
+                    } else { // first time write means that variable declaration is necessary
+                        was_written_to[to] = true;
+                        write!(f, "float register{} = ", to);
+                    }
+                    if from < self.input_size{
+                        assert!(!was_written_to[from]); // input registers are never written to
+                        write!(f, "spacial_coordinate{}",from);
+                    }else if from < inout_size{
+                        assert!(from>=self.input_size);
+                        assert!(was_written_to[from]);
+                        write!(f, "out[get_global_id(0)*{}+{}]",self.output_size,from-self.input_size);
+                    }else{
+                        assert!(was_written_to[from]);
+                        write!(f, "register{}", from);
+                    }
+                    writeln!(f, " * {};", weight)
+                }
+            };
+        }
+        write!(f, "}}");
+        Ok(())
+    }
+    pub fn opencl_view(&self)->FeedForwardNetOpenCLView<X>{
+        FeedForwardNetOpenCLView(&self)
+    }
+    pub fn picbreeder_view(&self)->FeedForwardNetPicbreederView<X>{
+        FeedForwardNetPicbreederView(&self)
+    }
+
 }
 
-impl<X: Num> Display for FeedForwardNet<X> {
+impl <X:Num> Display for FeedForwardNet<X>{
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.compile_for_opencl(f)
+        writeln!(f, "FeedForwardNet() {{");
+        for instruction in &self.net {
+            write!(f, "   ");
+            match instruction {
+                &EdgeOrNode::Node(idx, act_fn) => {
+                    assert!(idx>=self.input_size);
+                    writeln!(f, "register{} = {}(register{});", idx, act_fn.opencl_name(), idx)
+                },
+                &EdgeOrNode::Edge(from, weight, to) => {
+                    assert!(to >= self.input_size); //cannot write to input node
+                    writeln!(f, "register{} += register{} * {};", to, from, weight)
+                }
+            };
+        }
+        write!(f, "}}");
+        Ok(())
+    }
+}
+pub struct FeedForwardNetOpenCLView<'a ,X: Num>(&'a FeedForwardNet<X>);
+
+impl<'a, X: Num> Display for FeedForwardNetOpenCLView<'a, X> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.compile_for_opencl(f)
+    }
+}
+
+
+pub struct FeedForwardNetPicbreederView<'a ,X: Num>(&'a FeedForwardNet<X>);
+
+impl<'a, X: Num> Display for FeedForwardNetPicbreederView<'a, X> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.compile_for_picbreeder(f)
     }
 }
 
@@ -192,7 +296,7 @@ impl<X: Num> CPPN<X> {
             }
         }
         let s = Self { nodes, edges, input_size, output_size };
-        s.assert_invariants();
+        s.assert_invariants("initialization");
         assert!(s.is_acyclic());
         (s, innovation_no)
     }
@@ -258,6 +362,7 @@ impl<X: Num> CPPN<X> {
         if self.can_connect(from, to) {
             let inno = self.add_connection_forcefully(from, to, weight, innovation_no);
             assert!(self.is_acyclic(), "{}", self);
+            assert!(innovation_no<inno,"Was {} and updated to {}",innovation_no,inno);
             inno
         } else {
             innovation_no
@@ -276,17 +381,17 @@ impl<X: Num> CPPN<X> {
             weight,
             to,
         });
-        self.assert_invariants();
+        self.assert_invariants("after add connection forcefully");
         innovation_no
     }
     pub fn search_connection_by_endpoints(&mut self, from: usize, to: usize) -> Option<usize> {
         self.edges.iter().position(|e| e.from == from && e.to == to)
     }
-    pub fn assert_invariants(&self) {
-        assert!(self.edges.windows(2).all(|e| e[0].innovation_no < e[1].innovation_no), "Edges are not sorted by innovation number:\n{}", self);
+    pub fn assert_invariants(&self, msg:&'static str) {
+        assert!(self.edges.windows(2).all(|e| e[0].innovation_no < e[1].innovation_no), "{} Edges are not sorted by innovation number:\n{}", msg, self,);
         let nodes = self.node_count();
-        assert!(self.edges.iter().all(|e| e.to < nodes), "Destination of edge points to non-existent node:\n{}", self);
-        assert!(self.edges.iter().all(|e| e.from < nodes), "Source of edge points to non-existent node:\n{}", self);
+        assert!(self.edges.iter().all(|e| e.to < nodes), "{} Destination of edge points to non-existent node:\n{}", msg, self);
+        assert!(self.edges.iter().all(|e| e.from < nodes), "{} Source of edge points to non-existent node:\n{}",msg, self);
     }
     pub fn get_random_node(&self) -> usize {
         self.node_count().random()
@@ -329,7 +434,7 @@ impl<X: Num> CPPN<X> {
         self.edges.push(incoming_edge);
         self.edges.push(outgoing_edge);
         self.edges[edge_index].enabled = false;
-        self.assert_invariants();
+        self.assert_invariants("after add node");
         assert_eq!(was_acyclic, self.is_acyclic());
         innovation_no
     }
@@ -344,6 +449,7 @@ impl<X: Num> CPPN<X> {
             None => { false }
             Some(old) => {
                 *old = f;
+                assert!(node_idx>=self.input_size);
                 true
             }
         }
@@ -375,10 +481,17 @@ impl<X: Num> CPPN<X> {
     pub fn set_enabled(&mut self, edge_idx: usize, enabled: bool) {
         self.edges[edge_idx].enabled = enabled
     }
+    pub fn flip_enabled(&mut self, edge_idx: usize) -> bool {
+        let val = !self.edges[edge_idx].enabled;
+        self.edges[edge_idx].enabled = val;
+        val
+    }
     /**It is assumed that this network is more fit than the other and hence it will retain all
     it's original connections.
     */
     pub fn crossover_in_place(&mut self, other: &Self) {
+        assert_eq!(self.input_size, other.input_size);
+        assert_eq!(self.output_size, other.output_size);
         let was_acyclic = self.is_acyclic();
         let mut j = 0; // index of edge in the other
 
@@ -395,6 +508,8 @@ impl<X: Num> CPPN<X> {
                 }
             }
         }
+        assert!(self.nodes[0..self.input_size].iter().all(|e|e.activation.is_none()));
+        assert!(other.nodes[0..self.input_size].iter().all(|e|e.activation.is_none()));
         for (my_node, other_node) in self.nodes.iter_mut().zip(other.nodes.iter()) {
             // Note that because all the edges are crossed over according to their innovation number,
             // the source and destination nodes remain unaffected by such operation
@@ -405,7 +520,7 @@ impl<X: Num> CPPN<X> {
                 my_node.activation = other_node.activation.clone();
             }
         }
-        self.assert_invariants();
+        self.assert_invariants("after crossover");
         assert_eq!(was_acyclic, self.is_acyclic(), "{}", self)
     }
 
@@ -419,12 +534,12 @@ impl<X: Num> CPPN<X> {
     fn topological_sort(&self) -> (Vec<usize>, Vec<Vec<(usize, usize)>>) {
         assert!(self.is_acyclic(), "{}", self);
         let mut visited = vec![false; self.nodes.len()];
-        let mut min_unvisited_idx = 0;
+        let mut min_unvisited_input_idx = 0;
         let mut topological_order = Vec::new();
         let lookup = self.build_enabled_edge_only_lookup_table();
-        while let Some(unvisited_idx) = visited[min_unvisited_idx..].iter().position(|&x| !x) {
-            let unvisited_idx = min_unvisited_idx + unvisited_idx;
-            min_unvisited_idx = unvisited_idx + 1;
+        while let Some(unvisited_input_idx) = visited[min_unvisited_input_idx..self.input_size].iter().position(|&x| !x) {
+            let unvisited_input_idx = min_unvisited_input_idx + unvisited_input_idx;
+            min_unvisited_input_idx = unvisited_input_idx + 1;
             fn rec(lookup: &Vec<Vec<(usize, usize)>>, visited: &mut Vec<bool>,
                    topological_order: &mut Vec<usize>, node: usize) {
                 for &(dst_node, _) in &lookup[node] {
@@ -437,11 +552,14 @@ impl<X: Num> CPPN<X> {
                 topological_order.push(node);
                 visited[node] = true;
             }
-            rec(&lookup, &mut visited, &mut topological_order, unvisited_idx);
+            rec(&lookup, &mut visited, &mut topological_order, unvisited_input_idx);
         }
-        assert!(self.edges.iter().all(|edge|
-            topological_order.iter().position(|&n| n == edge.to) <
-                topological_order.iter().position(|&n| n == edge.from)));
+        assert!(self.edges.iter().all(|edge| {
+            if !edge.enabled {return true;}
+            let to_pos = topological_order.iter().position(|&n| n == edge.to);
+            let from_pos = topological_order.iter().position(|&n| n == edge.from);
+            to_pos.and_then(|to| from_pos.map( |from| to < from )).unwrap_or(true)
+        }), "topological_order={:?}\nSelf={}", topological_order,self);
         (topological_order, lookup)
     }
     /**The the current genotype (the CPPN) and compile it into a phenotype (feed-forward network)*/

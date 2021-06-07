@@ -1,17 +1,15 @@
-
-
 use pyo3::prelude::*;
 use pyo3::{wrap_pyfunction, PyObjectProtocol};
 use pyo3::PyResult;
 use rusty_neat_core::{cppn, neat, gpu};
 use std::collections::HashSet;
-use rusty_neat_core::activations::{ STR_TO_IDX, ALL_ACT_FN};
+use rusty_neat_core::activations::{STR_TO_IDX, ALL_ACT_FN};
 use pyo3::exceptions::PyValueError;
 use rusty_neat_core::cppn::CPPN;
 use std::iter::FromIterator;
 use pyo3::types::PyString;
 use rusty_neat_core::num::Num;
-use rusty_neat_core::gpu::FeedForwardNetOpenCL;
+use rusty_neat_core::gpu::{FeedForwardNetOpenCL, FeedForwardNetPicbreeder};
 use pyo3::basic::CompareOp;
 use ndarray::ArrayViewD;
 use numpy::{PyReadonlyArrayDyn, PyArrayDyn, IntoPyArray, PyArray};
@@ -29,34 +27,34 @@ pub fn activation_functions() -> Vec<String> {
 }
 
 #[pyclass]
-#[derive(Clone,Copy)]
+#[derive(Clone, Copy)]
 pub struct Platform {
-    p:rusty_neat_core::Platform
+    p: rusty_neat_core::Platform
 }
 
 #[pyfunction]
 pub fn platforms() -> Vec<Platform> {
-    rusty_neat_core::opencl_platforms().into_iter().map(|p|Platform{p}).collect()
+    rusty_neat_core::opencl_platforms().into_iter().map(|p| Platform { p }).collect()
 }
 
 #[pyclass]
 #[text_signature = "(platform, /)"]
-#[derive(Clone,Copy)]
+#[derive(Clone, Copy)]
 pub struct Device {
-    d:rusty_neat_core::Device
+    d: rusty_neat_core::Device
 }
 
 #[pyfunction]
 #[text_signature = "(platform,/)"]
-pub fn devices(p:Option<&Platform>) -> Vec<Device> {
-    let d:Vec<rusty_neat_core::Device> = if let Some(p) = p{
+pub fn devices(p: Option<&Platform>) -> Vec<Device> {
+    let d: Vec<rusty_neat_core::Device> = if let Some(p) = p {
         rusty_neat_core::device_list(&p.p)
-    }else if let Some(p) = rusty_neat_core::opencl_platforms().into_iter().next(){
+    } else if let Some(p) = rusty_neat_core::opencl_platforms().into_iter().next() {
         rusty_neat_core::device_list(&p)
-    }else{
+    } else {
         vec![]
     };
-    d.into_iter().map(|d|Device{d}).collect()
+    d.into_iter().map(|d| Device { d }).collect()
 }
 
 // #[pyclass]
@@ -87,6 +85,11 @@ pub struct FeedForwardNetOpenCL32 {
     net: gpu::FeedForwardNetOpenCL,
 }
 
+#[pyclass]
+pub struct FeedForwardNetPicbreeder32 {
+    net: gpu::FeedForwardNetPicbreeder,
+}
+
 #[pymethods]
 impl Platform {
     #[text_signature = "( /)"]
@@ -95,31 +98,30 @@ impl Platform {
     }
     #[new]
     pub fn new() -> Self {
-        Platform{p:rusty_neat_core::opencl_default_platform()}
+        Platform { p: rusty_neat_core::opencl_default_platform() }
     }
 }
 
 #[pymethods]
 impl Device {
     #[text_signature = "( /)"]
-    fn info(&self)->String {
+    fn info(&self) -> String {
         self.d.to_string()
     }
     #[new]
-    pub fn new(p:Option<Platform>) -> PyResult<Self> {
-        rusty_neat_core::default_device(&p.map(|p|p.p).unwrap_or_else(||rusty_neat_core::opencl_default_platform())).map(|d|Device{d}).ok_or_else(||PyValueError::new_err("No device for default platform"))
+    pub fn new(p: Option<Platform>) -> PyResult<Self> {
+        rusty_neat_core::default_device(&p.map(|p| p.p).unwrap_or_else(|| rusty_neat_core::opencl_default_platform())).map(|d| Device { d }).ok_or_else(|| PyValueError::new_err("No device for default platform"))
     }
 }
 
 #[pymethods]
 impl Neat32 {
-
     #[text_signature = "(/)"]
-    pub fn get_activation_functions(&self)->Vec<String>{
-        Vec::from_iter(self.neat.get_activation_functions().iter().map(|s|String::from(s.name())))
+    pub fn get_activation_functions(&self) -> Vec<String> {
+        Vec::from_iter(self.neat.get_activation_functions().iter().map(|s| String::from(s.name())))
     }
     #[text_signature = "(/)"]
-    pub fn get_random_activation_function(&self)->String{
+    pub fn get_random_activation_function(&self) -> String {
         String::from(self.neat.get_random_activation_function().name())
     }
     #[new]
@@ -191,16 +193,36 @@ impl Neat32 {
         Ok(self.neat.add_node(&mut cppn.cppn, edge))
     }
 
-    #[text_signature = "(population,node_insertion_prob,edge_insertion_prob,activation_fn_mutation_prob,weight_mutation_prob /)"]
+    #[text_signature = "(population,node_insertion_prob,edge_insertion_prob,activation_fn_mutation_prob,weight_mutation_prob,enable_edge_prob,disable_edge_prob /)"]
     fn mutate_population(&mut self, mut cppn: Vec<PyRefMut<CPPN32>>, node_insertion_prob: f32,
                          edge_insertion_prob: f32,
                          activation_fn_mutation_prob: f32,
-                         weight_mutation_prob: f32){
+                         weight_mutation_prob: f32,
+                         enable_edge_prob: f32,
+                         disable_edge_prob: f32) {
         self.neat.mutate_population(cppn.iter_mut().map(|c| &mut c.cppn),
                                     node_insertion_prob,
                                     edge_insertion_prob,
                                     activation_fn_mutation_prob,
-                                    weight_mutation_prob)
+                                    weight_mutation_prob,
+                                    enable_edge_prob,
+                                    disable_edge_prob)
+    }
+
+    #[text_signature = "(population,node_insertion_prob,edge_insertion_prob,activation_fn_mutation_prob,weight_mutation_prob,enable_edge_prob,disable_edge_prob /)"]
+    fn mutate(&mut self, cppn: &mut CPPN32, node_insertion_prob: f32,
+              edge_insertion_prob: f32,
+              activation_fn_mutation_prob: f32,
+              weight_mutation_prob: f32,
+              enable_edge_prob: f32,
+              disable_edge_prob: f32) {
+        self.neat.mutate(&mut cppn.cppn,
+                         node_insertion_prob,
+                         edge_insertion_prob,
+                         activation_fn_mutation_prob,
+                         weight_mutation_prob,
+                         enable_edge_prob,
+                         disable_edge_prob)
     }
 
     #[text_signature = "(cppn, /)"]
@@ -212,26 +234,23 @@ impl Neat32 {
         f32::random()
     }
     #[text_signature = "(cppn, node_index, /)"]
-    pub fn set_random_activation_function(&mut self, cppn: &mut CPPN32, node:usize) -> PyResult<bool>{
+    pub fn set_random_activation_function(&mut self, cppn: &mut CPPN32, node: usize) -> PyResult<bool> {
         if node >= cppn.node_count() {
             return Err(PyValueError::new_err(format!("CPPN has {} nodes but provided index {}", cppn.node_count(), node)));
         }
         Ok(cppn.cppn.set_activation(node, self.neat.get_random_activation_function()))
     }
-
-
-
 }
 
 
 #[pymethods]
 impl CPPN32 {
     #[getter]
-    fn get_input_size(&self)->usize{
+    fn get_input_size(&self) -> usize {
         self.cppn.get_input_size()
     }
     #[getter]
-    fn get_output_size(&self)->usize{
+    fn get_output_size(&self) -> usize {
         self.cppn.get_output_size()
     }
     #[text_signature = "(less_fit, /)"]
@@ -269,7 +288,7 @@ impl CPPN32 {
         if node >= self.node_count() {
             return Err(PyValueError::new_err(format!("CPPN has {} nodes but provided index {}", self.node_count(), node)));
         }
-        Ok(self.cppn.get_activation(node).map(|x|String::from(x.name())))
+        Ok(self.cppn.get_activation(node).map(|x| String::from(x.name())))
     }
 
     #[text_signature = "(/)"]
@@ -318,6 +337,14 @@ impl CPPN32 {
         Ok(self.cppn.search_connection_by_endpoints(source_node, destination_node))
     }
 
+    #[text_signature = "(edge_index, /)"]
+    fn flip_enabled(&mut self, edge: usize) -> PyResult<bool> {
+        if edge >= self.edge_count() {
+            return Err(PyValueError::new_err(format!("CPPN has {} edges but provided index {}", self.edge_count(), edge)));
+        }
+        Ok(self.cppn.flip_enabled(edge))
+    }
+
     #[text_signature = "(edge_index, enabled, /)"]
     fn set_enabled(&mut self, edge: usize, enabled: bool) -> PyResult<()> {
         if edge >= self.edge_count() {
@@ -325,7 +352,6 @@ impl CPPN32 {
         }
         Ok(self.cppn.set_enabled(edge, enabled))
     }
-
 
 
     #[text_signature = "(edge_index, /)"]
@@ -362,15 +388,13 @@ impl CPPN32 {
 }
 
 
-
-
 #[pymethods]
 impl FeedForwardNet32 {
     #[call]
     fn __call__(&self, input: Vec<f32>) -> PyResult<Vec<f32>> {
-        if input.len() != self.get_input_size(){
+        if input.len() != self.get_input_size() {
             Err(PyValueError::new_err(format!("Expected input of size {} but got {}", self.get_input_size(), input.len())))
-        }else {
+        } else {
             let mut out = vec![0f32; self.get_output_size()];
             self.net.run(input.as_slice(), out.as_mut_slice());
             Ok(out)
@@ -378,64 +402,119 @@ impl FeedForwardNet32 {
     }
 
     #[text_signature = "(platform, device, /)"]
-    fn to(&mut self, platform:Option<Platform>, device:Option<Device>) -> PyResult<FeedForwardNetOpenCL32> {
-        let p = platform.map(|p|p.p).unwrap_or_else(||rusty_neat_core::opencl_default_platform());
-        let d = device.map(|d|d.d).or_else(||rusty_neat_core::default_device(&p)).ok_or_else(||PyValueError::new_err(format!("No device for {}",&p)))?;
-        let n = FeedForwardNetOpenCL::new(&self.net,p, d).map_err(|e|PyValueError::new_err(e.to_string()))?;
-        Ok(FeedForwardNetOpenCL32{net:n})
+    fn to(&self, platform: Option<Platform>, device: Option<Device>) -> PyResult<FeedForwardNetOpenCL32> {
+        let p = platform.map(|p| p.p).unwrap_or_else(|| rusty_neat_core::opencl_default_platform());
+        let d = device.map(|d| d.d).or_else(|| rusty_neat_core::default_device(&p)).ok_or_else(|| PyValueError::new_err(format!("No device for {}", &p)))?;
+        let n = FeedForwardNetOpenCL::new(&self.net, p, d).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(FeedForwardNetOpenCL32 { net: n })
+    }
+    #[text_signature = "(platform, device, /)"]
+    fn to_picbreeder(&self, platform: Option<Platform>, device: Option<Device>) -> PyResult<FeedForwardNetPicbreeder32> {
+        let p = platform.map(|p| p.p).unwrap_or_else(|| rusty_neat_core::opencl_default_platform());
+        let d = device.map(|d| d.d).or_else(|| rusty_neat_core::default_device(&p)).ok_or_else(|| PyValueError::new_err(format!("No device for {}", &p)))?;
+        let n = FeedForwardNetPicbreeder::new(&self.net, p, d).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(FeedForwardNetPicbreeder32 { net: n })
     }
     #[getter]
-    fn get_input_size(&self)->usize{
+    fn get_input_size(&self) -> usize {
         self.net.get_input_size()
     }
     #[getter]
-    fn get_output_size(&self)->usize{
+    fn get_output_size(&self) -> usize {
         self.net.get_output_size()
     }
+    #[text_signature = "( /)"]
+    fn opencl_view(&self) -> String {
+        format!("{}", self.net.opencl_view())
+    }
+    #[text_signature = "( /)"]
+    fn picbreeder_view(&self) -> String {
+        format!("{}", self.net.picbreeder_view())
+    }
 }
+
 #[pymethods]
-impl FeedForwardNetOpenCL32 {
+impl FeedForwardNetPicbreeder32 {
     #[getter]
-    fn get_input_size(&self)->usize{
+    fn get_input_size(&self) -> usize {
         self.net.get_input_size()
     }
     #[getter]
-    fn get_device(&self)->Device{
-        Device{d:self.net.get_device()}
+    fn get_device(&self) -> Device {
+        Device { d: self.net.get_device() }
     }
     #[getter]
-    fn get_output_size(&self)->usize{
+    fn get_output_size(&self) -> usize {
         self.net.get_output_size()
     }
     #[call]
-    fn __call__(&self, input: Vec<f32>) -> PyResult<Vec<f32>> {
-        if input.len() != self.get_input_size(){
-            Err(PyValueError::new_err(format!("Expected input of size {} but got {}", self.get_input_size(), input.len())))
-        }else {
-            self.net.run(input.as_slice(), true).map_err(|e|PyValueError::new_err(e.to_string()))
+    // #[text_signature = "(pixel_count_per_dimension, pixel_size_per_dimension, location_offset_per_dimension,/)"]
+    fn __call__<'py>(&self, py: Python<'py>, pixel_count_per_dimension: Vec<usize>, pixel_size_per_dimension: Option<Vec<f32>>, location_offset_per_dimension: Option<Vec<f32>>) -> PyResult<&'py PyArrayDyn<f32>> {
+        let pixel_size_per_dimension = pixel_size_per_dimension.unwrap_or_else(|| vec![1f32; self.get_input_size()]);
+        let location_offset_per_dimension = location_offset_per_dimension.unwrap_or_else(|| vec![0f32; self.get_input_size()]);
+        if pixel_count_per_dimension.len() != self.get_input_size() {
+            Err(PyValueError::new_err(format!("Expected pixel_count_per_dimension of size {} but got {}", self.get_input_size(), pixel_count_per_dimension.len())))
+        } else if pixel_size_per_dimension.len() != self.get_input_size() {
+            Err(PyValueError::new_err(format!("Expected pixel_size_per_dimension of size {} but got {}", self.get_input_size(), pixel_size_per_dimension.len())))
+        } else if location_offset_per_dimension.len() != self.get_input_size() {
+            Err(PyValueError::new_err(format!("Expected location_offset_per_dimension of size {} but got {}", self.get_input_size(), location_offset_per_dimension.len())))
+        } else {
+            let out = self.net.run(pixel_count_per_dimension.as_slice(), pixel_size_per_dimension.as_slice(), location_offset_per_dimension.as_slice()).map_err(|e| PyValueError::new_err(e.to_string()))?;
+            let out = out.into_pyarray(py);
+            let mut shape = Vec::with_capacity(self.get_input_size() + /*channels*/1);
+            shape.extend_from_slice(pixel_count_per_dimension.as_slice());
+            shape.push(self.get_output_size());
+            let out = out.reshape(shape.as_slice())?;
+            let out = out.to_dyn();
+            Ok(out)
         }
     }
-    #[text_signature = "(input_matrix, /)"]
-    fn numpy<'py>(&self, py: Python<'py>, input: PyReadonlyArrayDyn<'_, f32>)-> PyResult<&'py PyArrayDyn<f32>> {
+}
+
+#[pymethods]
+impl FeedForwardNetOpenCL32 {
+    #[getter]
+    fn get_input_size(&self) -> usize {
+        self.net.get_input_size()
+    }
+    #[getter]
+    fn get_device(&self) -> Device {
+        Device { d: self.net.get_device() }
+    }
+    #[getter]
+    fn get_output_size(&self) -> usize {
+        self.net.get_output_size()
+    }
+    #[call]
+    // #[text_signature = "(input_list,/)"]
+    fn __call__(&self, input: Vec<f32>) -> PyResult<Vec<f32>> {
+        if input.len() != self.get_input_size() {
+            Err(PyValueError::new_err(format!("Expected input of size {} but got {}", self.get_input_size(), input.len())))
+        } else {
+            self.net.run(input.as_slice(), true).map_err(|e| PyValueError::new_err(e.to_string()))
+        }
+    }
+    #[text_signature = "(input_tensor, /)"]
+    fn numpy<'py>(&self, py: Python<'py>, input: PyReadonlyArrayDyn<'_, f32>) -> PyResult<&'py PyArrayDyn<f32>> {
         let s = input.shape();
-        if s.len() != 2{
+        if s.len() != 2 {
             Err(PyValueError::new_err(format!("Expected input to be a 2 dimensional matrix but got {} dimensions", s.len())))
         } else if s[1] != self.get_input_size() {
             Err(PyValueError::new_err(format!("Expected input to have {} columns but got {}", self.get_input_size(), s[1])))
-        }else if let Ok(data) = input.as_slice(){
+        } else if let Ok(data) = input.as_slice() {
             let strides = input.strides();
             let row = strides[0] as usize / std::mem::size_of::<f32>();
             let col = strides[1] as usize / std::mem::size_of::<f32>();
-            if col < 0 || row < 0{
-                return Err(PyValueError::new_err(format!("Negative strides are not supported")))
+            if col < 0 || row < 0 {
+                return Err(PyValueError::new_err(format!("Negative strides are not supported")));
             }
-            let out = self.net.run_with_strides(data,col,row, 1, self.get_output_size())
-                .map_err(|e|PyValueError::new_err(e.to_string()))?;
+            let out = self.net.run_with_strides(data, col, row, 1, self.get_output_size())
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
             let out = out.into_pyarray(py);
-            let out = out.reshape([s[0],self.get_output_size()])?;
+            let out = out.reshape([s[0], self.get_output_size()])?;
             let out = out.to_dyn();
             Ok(out)
-        }else{
+        } else {
             Err(PyValueError::new_err(format!("Provided input is not contiguous")))
         }
     }
@@ -477,8 +556,8 @@ impl FeedForwardNetOpenCL32 {
 
 #[pyproto]
 impl PyObjectProtocol for CPPN32 {
-    fn __str__(&self) -> PyResult<String>{
-        Ok(format!("{}",self.cppn))
+    fn __str__(&self) -> PyResult<String> {
+        Ok(format!("{}", self.cppn))
     }
     fn __repr__(&self) -> PyResult<String> {
         self.__str__()
@@ -487,15 +566,15 @@ impl PyObjectProtocol for CPPN32 {
 
 #[pyproto]
 impl PyObjectProtocol for Platform {
-    fn __richcmp__(&self, other:PyRef<Platform>, op: CompareOp) -> PyResult<bool>{
-        match op{
+    fn __richcmp__(&self, other: PyRef<Platform>, op: CompareOp) -> PyResult<bool> {
+        match op {
             CompareOp::Eq => Ok(self.p.as_core() == other.p.as_core()),
             CompareOp::Ne => Ok(self.p.as_core() != other.p.as_core()),
             op => Err(PyValueError::new_err("Cannot compare platforms"))
         }
     }
-    fn __str__(&self) -> PyResult<String>{
-        Ok(format!("Platform('{}')",self.p.name().unwrap_or_else(|e|e.to_string())))
+    fn __str__(&self) -> PyResult<String> {
+        Ok(format!("Platform('{}')", self.p.name().unwrap_or_else(|e| e.to_string())))
     }
     fn __repr__(&self) -> PyResult<String> {
         self.__str__()
@@ -504,24 +583,25 @@ impl PyObjectProtocol for Platform {
 
 #[pyproto]
 impl PyObjectProtocol for Device {
-    fn __richcmp__(&self, other:PyRef<Device>, op: CompareOp) -> PyResult<bool>{
-        match op{
+    fn __richcmp__(&self, other: PyRef<Device>, op: CompareOp) -> PyResult<bool> {
+        match op {
             CompareOp::Eq => Ok(self.d == other.d),
             CompareOp::Ne => Ok(self.d != other.d),
             op => Err(PyValueError::new_err("Cannot compare platforms"))
         }
     }
-    fn __str__(&self) -> PyResult<String>{
-        Ok(format!("Device('{}')",self.d.name().unwrap_or_else(|e|e.to_string())))
+    fn __str__(&self) -> PyResult<String> {
+        Ok(format!("Device('{}')", self.d.name().unwrap_or_else(|e| e.to_string())))
     }
     fn __repr__(&self) -> PyResult<String> {
         self.__str__()
     }
 }
+
 #[pyproto]
 impl PyObjectProtocol for FeedForwardNet32 {
-    fn __str__(&self) -> PyResult<String>{
-        Ok(format!("{}",self.net))
+    fn __str__(&self) -> PyResult<String> {
+        Ok(format!("{}", self.net))
     }
     fn __repr__(&self) -> PyResult<String> {
         self.__str__()

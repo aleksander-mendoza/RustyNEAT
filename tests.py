@@ -1,9 +1,10 @@
 import random
 import numpy as np
 import rusty_neat
+from matplotlib import pyplot as plt
 
 assert rusty_neat.activation_functions() == ["identity", "sigmoid", "relu", "sin", "cos", "tan", "tanh", "abs",
-                                             "square", "inv", "step"]
+                                             "square", "inv", "step", "ln", "neg"]
 
 input_neurons = 4
 output_neurons = 3
@@ -76,6 +77,11 @@ for edge_index in range(cppn.edge_count()):
     assert not cppn.is_enabled(edge_index)
     # You can later re-enable an edge with
     cppn.set_enabled(edge_index, True)
+    assert cppn.is_enabled(edge_index)
+    # It's also possible to flip an edge (if was enabled, the becomes disabled and vice versa)
+    cppn.flip_enabled(edge_index)
+    assert not cppn.is_enabled(edge_index)
+    cppn.flip_enabled(edge_index)
     assert cppn.is_enabled(edge_index)
 
 # You can iterate nodes in a similar way
@@ -151,7 +157,8 @@ NODE_ADDITION_PROB = 0.1
 EDGE_ADDITION_PROB = 0.1
 NODE_ACTIVATION_FN_MUTATION_PROB = 0.1
 WEIGHT_MUTATION_PROB = 0.1
-EDGE_ACTIVATION_FLIP_PROB = 0.1
+ENABLE_EDGE_PROB = 0.1
+DISABLE_EDGE_PROB = 0.1
 for cppn in population:
     if random.random() < NODE_ADDITION_PROB:
         neat1.add_random_node(cppn)
@@ -164,16 +171,32 @@ for cppn in population:
     for edge_index in range(cppn.edge_count()):
         if random.random() < WEIGHT_MUTATION_PROB:
             cppn.set_weight(edge_index, neat1.random_weight())
+        if cppn.is_enabled(edge_index):
+            if random.random() < DISABLE_EDGE_PROB:
+                cppn.set_enabled(edge_index, False)
+        else:
+            if random.random() < ENABLE_EDGE_PROB:
+                cppn.set_enabled(edge_index, True)
     for node_idx in range(cppn.node_count()):
         if random.random() < NODE_ACTIVATION_FN_MUTATION_PROB:
             neat1.set_random_activation_function(cppn, node_idx)
+    # This entire iteration above could be shortened to
+    neat.mutate(cppn,
+                NODE_ADDITION_PROB,
+                EDGE_ADDITION_PROB,
+                NODE_ACTIVATION_FN_MUTATION_PROB,
+                WEIGHT_MUTATION_PROB,
+                ENABLE_EDGE_PROB,
+                DISABLE_EDGE_PROB)
 
 # This entire loop above could be shortened to just a single (slightly faster) equivalent call
 neat.mutate_population(population,
                        NODE_ADDITION_PROB,
                        EDGE_ADDITION_PROB,
                        NODE_ACTIVATION_FN_MUTATION_PROB,
-                       WEIGHT_MUTATION_PROB)
+                       WEIGHT_MUTATION_PROB,
+                       ENABLE_EDGE_PROB,
+                       DISABLE_EDGE_PROB)
 
 # Aside from mutations, there is also the possibility of performing cross-over.
 # First choose one individual that is deemed to be fitter.
@@ -222,7 +245,7 @@ for generation in range(100):
         b = random.randrange(0, len(population))
         less_fit_cppn, fitter_cppn = population[min(a, b)], population[max(a, b)]
         population[i] = fitter_cppn.crossover(less_fit_cppn)
-    neat.mutate_population(population, 0.1, 0.1, 0.1, 0.1)
+    neat.mutate_population(population, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1)
 
 assert max_fitness > -2  # If everything is implemented correctly, this result should be achieved with ease
 # This concludes the short end-to-end example of evolution algorithm with RustyNEAT. Next we will move on to
@@ -269,7 +292,49 @@ out_numpy = gpu_net.numpy(np.array([
 assert (out_numpy[0] == out).all()
 assert (out_numpy[1] == out).all()
 
-
 # Note that CPPN are not the right tool if you wish to evolve large neural networks.
 # Instead you may compile a CPPN to a dense layer of larger neural network using HyperHEAT.
 # Alternatively you may use L-systems to evolve fractal neural networks.
+
+# A great introduction to HyperNEAT is by first exploring picbreeder. You can generate images
+# from CPPNs by treating spacial coordinates (x,y) as input to network and colors (r,g,b) as its outputs
+# RustyNEAT allows you to easily visualise this kind of networks.
+
+neat = rusty_neat.Neat32(2,  # two input dimensions (x,y)
+                         3)  # three output dimensions (r,g,b)
+cppn = neat.new_cppn()
+for _ in range(10):
+    neat.mutate(cppn, 0.1, 0.1, 0.1, 0.1, 0.1, 0.01)
+net = cppn.build_feed_forward_net()
+# Now instead of calling .to() we shall call .to_picbreeder()
+gpu_net = net.to_picbreeder(platform=platform, device=device)
+# Let's choose the width and height
+picture_width = 64
+picture_height = 64
+pixel_count_per_dimension = [picture_width, picture_height]
+# Now we can zoom-in and -out by scaling size of individual pixels
+pixel_width = 1  # let's leave it default
+pixel_height = 1  # let's leave it default
+pixel_size_per_dimension = [pixel_width, pixel_height]
+# We can also move the picture around by specifying offsets
+picture_offset_x = -32  # Let's center the picture
+picture_offset_y = -32  # Let's center the picture
+location_offset_per_dimension = [picture_offset_x, picture_offset_y]
+# Now we are ready to render the picture
+picture = gpu_net(pixel_count_per_dimension,
+                  pixel_size_per_dimension,  # We could have omitted this argument (it would take default values anyway)
+                  location_offset_per_dimension)  # We could have omitted this argument (it would take default values anyway)
+
+assert picture.shape == (64, 64, 3)
+
+
+# The values might exceed allowed 0-1 range for float RGB values, so let's normalise it first
+
+
+def sigmoid(x: np.ndarray):
+    return 1 / (1 + np.exp(-x))
+
+
+picture = sigmoid(picture)
+plt.imshow(picture)
+plt.show()

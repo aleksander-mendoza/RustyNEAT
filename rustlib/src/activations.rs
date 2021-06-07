@@ -42,6 +42,14 @@ pub fn step_f32(z: f32) -> f32 {
     if z > 0.0 {1.0}else{0.0}
 }
 
+pub fn neg_f64(z: f64) -> f64 {
+    -z
+}
+
+pub fn neg_f32(z: f32) -> f32 {
+    -z
+}
+
 pub fn identity<X>(z: X) -> X {
     z
 }
@@ -71,7 +79,7 @@ impl ActFn{
         self.fn64 == identity::<f64>
     }
 }
-pub const ALL_ACT_FN: [ActFn; 11] = [
+pub const ALL_ACT_FN: [ActFn; 13] = [
     ActFn{name:"identity", fn64:identity, fn32:identity,opencl_name:""},
     ActFn{name:"sigmoid", fn64:sigmoid_f64, fn32:sigmoid_f32,opencl_name:"sigmoid32"},
     ActFn{name:"relu", fn64:relu_f64, fn32:relu_f32,opencl_name:"relu32"},
@@ -83,6 +91,8 @@ pub const ALL_ACT_FN: [ActFn; 11] = [
     ActFn{name:"square", fn64:square_f64, fn32:square_f32,opencl_name:"square32"},
     ActFn{name:"inv", fn64:inv_f64, fn32:inv_f32,opencl_name:"1.0f/"},
     ActFn{name:"step", fn64:step_f64, fn32:step_f32,opencl_name:"step32"},
+    ActFn{name:"ln", fn64:f64::ln, fn32:f32::ln,opencl_name:"ln"},
+    ActFn{name:"neg", fn64:neg_f64, fn32:neg_f32,opencl_name:"-"},
 ];
 pub const IDENTITY:&'static ActFn = &ALL_ACT_FN[0];
 lazy_static! {
