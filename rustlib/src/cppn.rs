@@ -359,6 +359,7 @@ impl<X: Num> CPPN<X> {
     Testing whether connection was successfully added, can be easily achieved by checking if old value of innovation number is different from
     the returned one.*/
     pub fn add_connection_if_possible(&mut self, from: usize, to: usize, weight: X, innovation_no: usize) -> usize {
+        assert!(self.edges.iter().all(|e|e.innovation_no<= innovation_no),"inno={}\n{}",innovation_no,self);
         if self.can_connect(from, to) {
             let inno = self.add_connection_forcefully(from, to, weight, innovation_no);
             assert!(self.is_acyclic(), "{}", self);
@@ -373,7 +374,9 @@ impl<X: Num> CPPN<X> {
     without any checks). This function returns an incremented innovation number.
     */
     pub fn add_connection_forcefully(&mut self, from: usize, to: usize, weight: X, mut innovation_no: usize) -> usize {
+        assert!(self.edges.iter().all(|e|e.innovation_no<= innovation_no));
         innovation_no += 1;
+        self.assert_invariants("before add connection forcefully");
         self.edges.push(Edge {
             innovation_no,
             enabled: true,
@@ -407,6 +410,8 @@ impl<X: Num> CPPN<X> {
     the original edge becomes disabled. Two new innovation numbers are added.
     Returns new innovation number.*/
     pub fn add_node(&mut self, edge_index: usize, activation: &'static ActFn, mut innovation_no: usize) -> usize {
+        assert!(self.edges.iter().all(|e|e.innovation_no<= innovation_no));
+        self.assert_invariants("before add node");
         let was_acyclic = self.is_acyclic();
         let from = self.edges[edge_index].from;
         let to = self.edges[edge_index].to;

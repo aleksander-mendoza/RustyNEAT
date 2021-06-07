@@ -4,7 +4,7 @@ import rusty_neat
 from matplotlib import pyplot as plt
 
 assert rusty_neat.activation_functions() == ["identity", "sigmoid", "relu", "sin", "cos", "tan", "tanh", "abs",
-                                             "square", "inv", "step", "ln", "neg"]
+                                             "square", "inv", "step", "ln", "const1", "neg"]
 
 input_neurons = 4
 output_neurons = 3
@@ -303,7 +303,7 @@ assert (out_numpy[1] == out).all()
 neat = rusty_neat.Neat32(2,  # two input dimensions (x,y)
                          3)  # three output dimensions (r,g,b)
 cppn = neat.new_cppn()
-for _ in range(10):
+for _ in range(100):
     neat.mutate(cppn, 0.1, 0.1, 0.1, 0.1, 0.1, 0.01)
 net = cppn.build_feed_forward_net()
 # Now instead of calling .to() we shall call .to_picbreeder()

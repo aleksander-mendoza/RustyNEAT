@@ -18,6 +18,9 @@ pub const PREAMBLE:&'static str = r#"
         float step32(float x) {
             return x <= 0 ? 0 : 1;
         }
+        float const1_32(float x) {
+            return 1.;
+        }
 "#;
 
 pub struct FeedForwardNetOpenCL {
