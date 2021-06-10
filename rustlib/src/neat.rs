@@ -266,9 +266,9 @@ mod tests {
         net.run(&[0f32, 1.0], &mut out[2..3]);
         net.run(&[1f32, 1.0], &mut out[3..4]);
         println!("{}", net);
-        println!("{}", net.picbreeder_view());
+        println!("{}", net.picbreeder_view(None, false).unwrap());
         let p = crate::opencl_default_platform();
-        let gpu = FeedForwardNetPicbreeder::new(&net, p, crate::default_device(&p).unwrap())?;
+        let gpu = FeedForwardNetPicbreeder::new(&net, None, false, p, crate::default_device(&p).unwrap())?;
         let out2 = gpu.run(&dimensions, &pixel_sizes, &pixel_offsets)?;
         assert_eq!(out, out2.as_slice());
         Ok(())
@@ -292,9 +292,9 @@ mod tests {
         net.run(&[0f32 * pixel_sizes[0] + pixel_offsets[0], 1.0 * pixel_sizes[1] + pixel_offsets[1], 1. * pixel_sizes[2] + pixel_offsets[2]], &mut out[12..14]);
         net.run(&[1f32 * pixel_sizes[0] + pixel_offsets[0], 1.0 * pixel_sizes[1] + pixel_offsets[1], 1. * pixel_sizes[2] + pixel_offsets[2]], &mut out[14..16]);
         println!("{}", net);
-        println!("{}", net.picbreeder_view());
+        println!("{}", net.picbreeder_view(None,false).unwrap());
         let p = crate::opencl_default_platform();
-        let gpu = FeedForwardNetPicbreeder::new(&net, p, crate::default_device(&p).unwrap())?;
+        let gpu = FeedForwardNetPicbreeder::new(&net, None, false, p, crate::default_device(&p).unwrap())?;
         let out2 = gpu.run(&dimensions, &pixel_sizes, &pixel_offsets)?;
         assert_eq!(out, out2.as_slice());
         Ok(())

@@ -18,8 +18,26 @@ pub const PREAMBLE:&'static str = r#"
         float step32(float x) {
             return x <= 0 ? 0 : 1;
         }
-        float const1_32(float x) {
+        float const_1_32(float x) {
             return 1.;
+        }
+        float exp32(float x) {
+            return exp(x);
+        }
+        float const_e_32(float x) {
+            return 2.71828182845904523536028747135266250;
+        }
+        float const_pi_32(float x) {
+            return 3.14159265358979323846264338327950288;
+        }
+        float const_neg1_32(float x) {
+            return -1.;
+        }
+        float gaussian32(float z) {
+            return 1./(const_pi_32(0)*0.5*0.5)*exp32(-z*z/(2.*0.5*0.5));
+        }
+        float fraction32(float z) {
+            return z - (long)z;
         }
 "#;
 
@@ -121,16 +139,17 @@ pub struct FeedForwardNetPicbreeder {
 }
 
 impl FeedForwardNetPicbreeder {
-    pub fn new(net: &FeedForwardNet<f32>, platform: Platform, device: Device) -> Result<Self, Error> {
+    pub fn new(net: &FeedForwardNet<f32>, with_distance_from_center:Option<&[f32]>, with_bias:bool, platform: Platform, device: Device) -> Result<Self, Error> {
         let mut src = String::from(PREAMBLE);
-        write!(src,"{}", net.picbreeder_view());
+        write!(src,"{}", net.picbreeder_view(with_distance_from_center, with_bias).map_err(Error::from)?);
         let pro_que = ProQue::builder()
             .platform(platform)
             .device(device)
             .src(src)
             .dims(SpatialDims::Unspecified)
             .build()?;
-        Ok(FeedForwardNetPicbreeder { in_dimensions: net.get_input_size(), out_dimensions: net.get_output_size(), pro_que })
+        let spacial_dimensions = net.get_input_size() - if with_distance_from_center.is_some(){1}else{0} - if with_bias{1}else{0};
+        Ok(FeedForwardNetPicbreeder { in_dimensions: spacial_dimensions, out_dimensions: net.get_output_size(), pro_que })
     }
     pub fn get_input_size(&self) -> usize {
         self.in_dimensions

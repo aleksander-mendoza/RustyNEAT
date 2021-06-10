@@ -115,21 +115,43 @@ impl<X: Num> FeedForwardNet<X> {
         Ok(())
     }
 
-    pub fn compile_for_picbreeder(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    pub fn compile_for_picbreeder(&self, distance_from_center:Option<&[X]>, with_bias:bool, f: &mut Formatter<'_>) -> std::fmt::Result {
 
         writeln!(f, "__kernel void picbreeder(__global float * out,");
         writeln!(f, "                         __global size_t * dimensions, ");
         writeln!(f, "                         __global float * pixel_size_per_dimension, ");
         writeln!(f, "                         __global float * offset_per_dimension) {{");
         writeln!(f, "    size_t elements_in_hyper_plane0 = 1;");
-        for dim in 0..self.input_size{
+        let spacial_dims = self.input_size - if with_bias{1}else{0} - if distance_from_center.is_some(){1}else{0};
+
+        for dim in 0..spacial_dims{
             writeln!(f, "    size_t elements_in_hyper_plane{} = dimensions[{}] * elements_in_hyper_plane{};",dim+1,dim,dim);
         }
-        for dim in (0..self.input_size).rev(){
+        for dim in (0..spacial_dims).rev(){
             writeln!(f, "    size_t pixel_coordinate{} = (get_global_id(0) % elements_in_hyper_plane{}) / elements_in_hyper_plane{};",dim,dim+1,dim);
         }
-        for dim in 0..self.input_size{
+        for dim in 0..spacial_dims{
             writeln!(f, "    float spacial_coordinate{} = offset_per_dimension[{}] + pixel_size_per_dimension[{}]*pixel_coordinate{};",dim,dim,dim,dim);
+        }
+        for dim in 0..spacial_dims{
+            writeln!(f, "    float input{} = spacial_coordinate{};",dim,dim);
+        }
+        if with_bias{
+            writeln!(f, "    float input{} = 1;",spacial_dims);
+        }
+        if let Some(center) = distance_from_center{
+            assert!(spacial_dims>0);
+            assert_eq!(center.len(), spacial_dims);
+            for (dim,c) in (0..spacial_dims).zip(center) {
+                writeln!(f, "    float dist_from_center{} = {}-spacial_coordinate{};", dim, c, dim);
+            }
+            write!(f, "    float dist_from_center = ");
+            write!(f, "dist_from_center{}*dist_from_center{}", 0, 0);
+            for dim in 1..spacial_dims {
+                write!(f, " + dist_from_center{}*dist_from_center{}", dim, dim);
+            }
+            writeln!(f, ";");
+            writeln!(f, "    float input{} = sqrt(dist_from_center);",spacial_dims+1);
         }
         let mut was_written_to = vec![false; self.len];
         let inout_size = self.input_size + self.output_size;
@@ -163,7 +185,7 @@ impl<X: Num> FeedForwardNet<X> {
                     }
                     if from < self.input_size{
                         assert!(!was_written_to[from]); // input registers are never written to
-                        write!(f, "spacial_coordinate{}",from);
+                        write!(f, "input{}",from);
                     }else if from < inout_size{
                         assert!(from>=self.input_size);
                         assert!(was_written_to[from]);
@@ -182,8 +204,19 @@ impl<X: Num> FeedForwardNet<X> {
     pub fn opencl_view(&self)->FeedForwardNetOpenCLView<X>{
         FeedForwardNetOpenCLView(&self)
     }
-    pub fn picbreeder_view(&self)->FeedForwardNetPicbreederView<X>{
-        FeedForwardNetPicbreederView(&self)
+    pub fn picbreeder_view<'a,'b>(&'a self, with_dist_from_center:Option<&'b [X]>,with_bias:bool)->Result<FeedForwardNetPicbreederView<'a,'b, X>,String>{
+        let non_spacial_dimensions = if with_bias{1}else{0} + if with_dist_from_center.is_some(){1}else{0};
+
+        if non_spacial_dimensions >= self.input_size{
+            return Err(format!("Number of dimensions of CPPN is {} and number of non-spacial dimensions (bias+distance from center) is {}. That doesn't leave any spacial dimensions!",self.input_size, non_spacial_dimensions))
+        }
+        let spacial_dimensions = self.input_size-non_spacial_dimensions;
+        if let Some(center) = with_dist_from_center{
+            if center.len() != spacial_dimensions{
+                return Err(format!("Number of spacial dimensions is {} but provided center had {}",spacial_dimensions,center.len()));
+            }
+        }
+        Ok(FeedForwardNetPicbreederView(&self,with_bias,with_dist_from_center))
     }
 
 }
@@ -217,11 +250,11 @@ impl<'a, X: Num> Display for FeedForwardNetOpenCLView<'a, X> {
 }
 
 
-pub struct FeedForwardNetPicbreederView<'a ,X: Num>(&'a FeedForwardNet<X>);
+pub struct FeedForwardNetPicbreederView<'a, 'b ,X: Num>(&'a FeedForwardNet<X>, bool, Option<&'b[X]>);
 
-impl<'a, X: Num> Display for FeedForwardNetPicbreederView<'a, X> {
+impl<'a, 'b, X: Num> Display for FeedForwardNetPicbreederView<'a, 'b, X> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.0.compile_for_picbreeder(f)
+        self.0.compile_for_picbreeder(self.2,self.1, f)
     }
 }
 

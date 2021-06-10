@@ -209,7 +209,7 @@ impl Neat32 {
                                     disable_edge_prob)
     }
 
-    #[text_signature = "(population,node_insertion_prob,edge_insertion_prob,activation_fn_mutation_prob,weight_mutation_prob,enable_edge_prob,disable_edge_prob /)"]
+    #[text_signature = "(cppn,node_insertion_prob,edge_insertion_prob,activation_fn_mutation_prob,weight_mutation_prob,enable_edge_prob,disable_edge_prob /)"]
     fn mutate(&mut self, cppn: &mut CPPN32, node_insertion_prob: f32,
               edge_insertion_prob: f32,
               activation_fn_mutation_prob: f32,
@@ -409,10 +409,10 @@ impl FeedForwardNet32 {
         Ok(FeedForwardNetOpenCL32 { net: n })
     }
     #[text_signature = "(platform, device, /)"]
-    fn to_picbreeder(&self, platform: Option<Platform>, device: Option<Device>) -> PyResult<FeedForwardNetPicbreeder32> {
+    fn to_picbreeder(&self, center:Option<Vec<f32>>, bias:Option<bool>, platform: Option<Platform>, device: Option<Device>) -> PyResult<FeedForwardNetPicbreeder32> {
         let p = platform.map(|p| p.p).unwrap_or_else(|| rusty_neat_core::opencl_default_platform());
         let d = device.map(|d| d.d).or_else(|| rusty_neat_core::default_device(&p)).ok_or_else(|| PyValueError::new_err(format!("No device for {}", &p)))?;
-        let n = FeedForwardNetPicbreeder::new(&self.net, p, d).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let n = FeedForwardNetPicbreeder::new(&self.net, center.as_ref().map(|v|v.as_slice()),bias.unwrap_or(false), p, d).map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(FeedForwardNetPicbreeder32 { net: n })
     }
     #[getter]
@@ -428,8 +428,9 @@ impl FeedForwardNet32 {
         format!("{}", self.net.opencl_view())
     }
     #[text_signature = "( /)"]
-    fn picbreeder_view(&self) -> String {
-        format!("{}", self.net.picbreeder_view())
+    fn picbreeder_view(&self, center:Option<Vec<f32>>, bias:bool) -> PyResult<String> {
+        let p = self.net.picbreeder_view(center.as_ref().map(|v|v.as_slice()),bias).map_err(|e|PyValueError::new_err(e))?;
+        Ok(format!("{}", p))
     }
 }
 
