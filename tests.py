@@ -3,6 +3,15 @@ import numpy as np
 import rusty_neat
 from matplotlib import pyplot as plt
 
+# Here are some settings for testing
+# (This tutorial is also a test script at the same time)
+VISUALISE_PICBREEDER_2D = False
+VISUALISE_PICBREEDER_2D_PLUS_BIAS_AND_CENTER_DIST = False
+USE_PYTORCH = True
+
+if USE_PYTORCH:
+    import torch
+
 assert rusty_neat.activation_functions() == ["identity", "sigmoid", "relu", "sin", "cos", "tan", "tanh", "abs",
                                              "square", "inv", "step", "ln", "exp", "gaussian", "floor", "fraction",
                                              "const_1", "const_pi", "const_e", "const_-1", "neg"]
@@ -297,90 +306,176 @@ assert (out_numpy[1] == out).all()
 # Instead you may compile a CPPN to a dense layer of larger neural network using HyperHEAT.
 # Alternatively you may use L-systems to evolve fractal neural networks.
 
-RUN_PICBREEDER_2D = False
-RUN_PICBREEDER_2D_PLUS_BIAS_AND_CENTER_DIST = True
-def sigmoid(x: np.ndarray): # This function will be necessary later to normalise pixel values
-        return 1 / (1 + np.exp(-x))
-
-if RUN_PICBREEDER_2D:
-    # A great introduction to HyperNEAT is by first exploring picbreeder. You can generate images
-    # from CPPNs by treating spacial coordinates (x,y) as input to network and colors (r,g,b) as its outputs
-    # RustyNEAT allows you to easily visualise this kind of networks.
-
-    neat = rusty_neat.Neat32(2,  # two input dimensions (x,y)
-                             3,  # three output dimensions (r,g,b)
-                             ["identity", "sigmoid", "sin", "abs", "square", # Some cool-looking functions
-                             "gaussian", "floor", "fraction", "const_1", "const_-1", "neg"]
-                             )
-    cppn = neat.new_cppn()
-    for _ in range(100):
-        neat.mutate(cppn,
-            node_insertion_prob=0.1,
-            edge_insertion_prob=0.2,
-            activation_fn_mutation_prob=0.1,
-            weight_mutation_prob=0.1,
-            enable_edge_prob=0.1,
-            disable_edge_prob=0.01)
-    net = cppn.build_feed_forward_net()
-    # Now instead of calling .to() we shall call .to_picbreeder()
-    gpu_net = net.to_picbreeder(platform=platform, device=device)
-    # Let's choose the width and height
-    picture_width = 64
-    picture_height = 64
-    pixel_count_per_dimension = [picture_width, picture_height]
-    # Now we can zoom-in and -out by scaling size of individual pixels
-    pixel_width = 1  # let's leave it default
-    pixel_height = 1  # let's leave it default
-    pixel_size_per_dimension = [pixel_width, pixel_height]
-    # We can also move the picture around by specifying offsets
-    picture_offset_x = -32  # Let's center the picture
-    picture_offset_y = -32  # Let's center the picture
-    location_offset_per_dimension = [picture_offset_x, picture_offset_y]
-    # Now we are ready to render the picture
-    picture = gpu_net(pixel_count_per_dimension,
-                      pixel_size_per_dimension,  # We could have omitted this argument (it would take default values anyway)
-                      location_offset_per_dimension)  # We could have omitted this argument (it would take default values anyway)
-
-    assert picture.shape == (64, 64, 3)
 
 
+def sigmoid(x: np.ndarray):  # This function will be necessary later to normalise pixel values
+    return 1 / (1 + np.exp(-x))
+
+
+# A great introduction to HyperNEAT is by first exploring picbreeder. You can generate images
+# from CPPNs by treating spacial coordinates (x,y) as input to network and colors (r,g,b) as its outputs
+# RustyNEAT allows you to easily visualise this kind of networks.
+
+neat = rusty_neat.Neat32(2,  # two input dimensions (x,y)
+                         3,  # three output dimensions (r,g,b)
+                         ["identity", "sigmoid", "sin", "abs", "square",  # Some cool-looking functions
+                          "gaussian", "floor", "fraction", "const_1", "const_-1", "neg"]
+                         )
+cppn = neat.new_cppn()
+for _ in range(100):
+    neat.mutate(cppn,
+                node_insertion_prob=0.1,
+                edge_insertion_prob=0.2,
+                activation_fn_mutation_prob=0.1,
+                weight_mutation_prob=0.1,
+                enable_edge_prob=0.1,
+                disable_edge_prob=0.01)
+net = cppn.build_feed_forward_net()
+# Now instead of calling .to() we shall call .to_picbreeder()
+gpu_net = net.to_picbreeder(platform=platform, device=device)
+# Let's choose the width and height
+picture_width = 64
+picture_height = 64
+pixel_count_per_dimension = [picture_width, picture_height]
+# Now we can zoom-in and -out by scaling size of individual pixels
+pixel_width = 1  # let's leave it default
+pixel_height = 1  # let's leave it default
+pixel_size_per_dimension = [pixel_width, pixel_height]
+# We can also move the picture around by specifying offsets
+picture_offset_x = -32  # Let's center the picture
+picture_offset_y = -32  # Let's center the picture
+location_offset_per_dimension = [picture_offset_x, picture_offset_y]
+# Now we are ready to render the picture
+picture = gpu_net(pixel_count_per_dimension,
+                  pixel_size_per_dimension,  # We could have omitted this argument (it would take default values anyway)
+                  location_offset_per_dimension)  # We could have omitted this argument (it would take default values anyway)
+
+assert picture.shape == (64, 64, 3)
+
+if VISUALISE_PICBREEDER_2D:
     # The values might exceed allowed 0-1 range for float RGB values, so let's normalise it first
     picture = sigmoid(picture)
     plt.imshow(picture)
     plt.show()
 
-
-if RUN_PICBREEDER_2D_PLUS_BIAS_AND_CENTER_DIST:
-    # This code is almost identical to the one above with one tiny twist.
-    # This time we evolve CPPN with 4 inputs. Two spacial dimensions, one bias
-    # and one value for distance from center point
+# Now, the following code is almost identical to the one above with one tiny twist.
+# This time we evolve CPPN with 4 inputs. Two spacial dimensions, one bias
+# and one value for distance from center point
 
 
-    neat = rusty_neat.Neat32(4,  # two spacial input dimensions, bias and distance to center (x,y,1,d)
-                             3,  # three output dimensions (r,g,b)
-                             ["identity", "sigmoid", "sin", "abs", "square", # We can get rid of the constant functions
-                             "gaussian", "floor", "fraction", "neg"] # since we now have bias instead
-                             )
-    cppn = neat.new_cppn()
-    for _ in range(100):
-        neat.mutate(cppn,
-            node_insertion_prob=0.1,
-            edge_insertion_prob=0.2,
-            activation_fn_mutation_prob=0.1,
-            weight_mutation_prob=0.1,
-            enable_edge_prob=0.1,
-            disable_edge_prob=0.01)
-    net = cppn.build_feed_forward_net()
+neat = rusty_neat.Neat32(4,  # two spacial input dimensions, bias and distance to center (x,y,1,d)
+                         3,  # three output dimensions (r,g,b)
+                         ["identity", "sigmoid", "sin", "abs", "square",  # We can get rid of the constant functions
+                          "gaussian", "floor", "fraction", "neg"]  # since we now have bias instead
+                         )
+cppn = neat.new_cppn()
+for _ in range(100):
+    neat.mutate(cppn,
+                node_insertion_prob=0.1,
+                edge_insertion_prob=0.2,
+                activation_fn_mutation_prob=0.1,
+                weight_mutation_prob=0.1,
+                enable_edge_prob=0.1,
+                disable_edge_prob=0.01)
+net = cppn.build_feed_forward_net()
 
-    gpu_net = net.to_picbreeder(center=[0,0], # This defines the center point of picture
-                                bias=True, # This option adds bias
-                                platform=platform,
-                                device=device)
-    # Here nothing changes
-    picture = gpu_net([64,64], # pixel_count_per_dimension
-                      [1,1],  # pixel_size_per_dimension
-                      [-32,-32]) #location_offset_per_dimension
-    assert picture.shape == (64, 64, 3)
+gpu_net = net.to_picbreeder(center=[0, 0],  # This defines the center point of picture
+                            bias=True,  # This option adds bias
+                            platform=platform,
+                            device=device)
+# Here nothing changes
+picture = gpu_net([64, 64],  # pixel_count_per_dimension
+                  [1, 1],  # pixel_size_per_dimension
+                  [-32, -32])  # location_offset_per_dimension
+assert picture.shape == (64, 64, 3)
+
+if VISUALISE_PICBREEDER_2D_PLUS_BIAS_AND_CENTER_DIST:
     picture = sigmoid(picture)
     plt.imshow(picture)
     plt.show()
+
+# Now that we've seen picbreeder it will be easier to understand HyperNEAT.
+# Image you have two pictures. Each of them will be treated like a layer of neural
+# network. CPPN will take spacial coordinates in the input later (first picture)
+# and output layer (second picture), run them through its compositional pattern
+# and the finally produce weight values. Its works just like picbreeder, except that
+# now the input has four dimensions (although you can configure it in RustyNEAT)
+# and the output has one. Input consts of 2 dimensions of first layer spacial coordinates
+# plus another 2 for output layer. Instead of producing RGB values the result is interpreted
+# as weights of densely connected network.
+#
+# A neural network must have only a fixed number of neurons, but
+# pictures are continuous entities. For this reason, the user must pick a few
+# point in both input and output pictures. Then the coordinates of those points
+# will be fed to HyperNEAT. Next RustyNEAT will compute weight for every pair of points
+# in opposite layers.
+#
+# User is not limited to strictly running HyperNEAT with 2D layers. Feel free to specify
+# any number that you wish. For example it's possible to use 3D layers of the form (x,y,1) in order to add bias
+# or 4D (x,y,r,d) for angle r and distance d from center. Those values are provided by user
+# so it allows for maximum flexibility.
+#
+# The weights also don't have to be 1D. You can specify any number of outputs. For
+# instance you could generate one weight per layer and then use HyperNEAT to generate deep
+# neural networks in a single go on GPU. Deep networks can be easily achieved by producing
+# multiple layers and then feeding output of first into the input of second. Evolving
+# all neurons using a single CPPN has the additional advantage that HyperNEAT will naturally
+# impose geometrical regularities between weights of different layers.
+
+neat = rusty_neat.Neat32(4,  # 4D HyperNEAT
+                         1,  # one produced weight
+                         ["identity", "sigmoid", "sin", "abs", "square",
+                          "gaussian", "floor", "fraction", "neg"]
+                         )
+cppn = neat.new_cppn()
+for _ in range(100):
+    neat.mutate(cppn,
+                node_insertion_prob=0.1,
+                edge_insertion_prob=0.2,
+                activation_fn_mutation_prob=0.1,
+                weight_mutation_prob=0.1,
+                enable_edge_prob=0.1,
+                disable_edge_prob=0.01)
+net = cppn.build_feed_forward_net()
+
+gpu_net = net.to_substrate(input_dimensions=2,  # First (input) picture (layer) is 2D
+                           output_dimensions=2,  # Second (output) picture (layer) is 2D
+                           # Notice that 2D+2D=4D, since our HyperNEAT is 4D in total.
+                           # The sum of dimensions must add up or otherwise we get an error.
+                           # For this reason, output_dimensions can actually be omitted and RustyNEAT
+                           # will infer it automatically from input_dimensions and total input dimensionality of CPPN
+                           platform=platform,
+                           device=device)
+
+input_neurons = np.array([
+    [1, 1],  # (x,y) coordinate of first point
+    [1, 2],  # (x,y) coordinate of second point
+    [2, 1],  # and so on...
+    [2, 2],
+], dtype=np.float32)
+output_neurons = np.array([
+    [-1, -1],  # (x,y) coordinate of first point
+    [-1, -2],  # (x,y) coordinate of second point
+    [-2, -1],  # and so on...
+    [-2, -2],
+    [1, 1],
+    [1, 2],
+    [2, 1],
+    [2, 2],
+], dtype=np.float32)
+# There are 4 input neurons and 8 output neurons. You can make as many as you like.
+weights = gpu_net(input_neurons, output_neurons)  # location_offset_per_dimension
+assert weights.shape == (len(output_neurons), len(input_neurons), 1)
+# weights matrix is a numpy array as usual. You can easily import it and use with torch or tensorflow.
+if USE_PYTORCH:
+    weights = torch.from_numpy(weights)
+    weights = weights.squeeze(2)
+    linear = torch.nn.Linear(in_features=len(input_neurons), out_features=len(output_neurons))
+    linear.weight.data = weights
+    # Voila! This is a linear layer in pytorch evolved with HyperNEAT!
+
+# Now that we know about HyperNEAT we can evolve more complex systems.
+
+
+
+

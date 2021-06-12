@@ -10,7 +10,6 @@ pub mod activations;
 pub mod num;
 pub mod util;
 pub mod cppn;
-pub mod substrate;
 pub mod gpu;
 
 extern crate ocl;

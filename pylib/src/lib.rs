@@ -1,3 +1,5 @@
+mod slice_box;
+
 use pyo3::prelude::*;
 use pyo3::{wrap_pyfunction, PyObjectProtocol};
 use pyo3::PyResult;
@@ -9,11 +11,12 @@ use rusty_neat_core::cppn::CPPN;
 use std::iter::FromIterator;
 use pyo3::types::PyString;
 use rusty_neat_core::num::Num;
-use rusty_neat_core::gpu::{FeedForwardNetOpenCL, FeedForwardNetPicbreeder};
+use rusty_neat_core::gpu::{FeedForwardNetOpenCL, FeedForwardNetPicbreeder, FeedForwardNetSubstrate};
 use pyo3::basic::CompareOp;
-use ndarray::ArrayViewD;
-use numpy::{PyReadonlyArrayDyn, PyArrayDyn, IntoPyArray, PyArray};
-use numpy::npyffi::NPY_ORDER;
+use ndarray::{ArrayViewD, IntoDimension, Dimension};
+use numpy::{PyReadonlyArrayDyn, PyArrayDyn, IntoPyArray, PyArray, PY_ARRAY_API, npyffi, Element, ToNpyDims};
+use numpy::npyffi::{NPY_ORDER, npy_intp, NPY_ARRAY_WRITEABLE};
+use std::os::raw::c_int;
 
 #[pyfunction]
 pub fn random_activation_fn() -> String {
@@ -29,7 +32,7 @@ pub fn activation_functions() -> Vec<String> {
 #[pyclass]
 #[derive(Clone, Copy)]
 pub struct Platform {
-    p: rusty_neat_core::Platform
+    p: rusty_neat_core::Platform,
 }
 
 #[pyfunction]
@@ -41,7 +44,7 @@ pub fn platforms() -> Vec<Platform> {
 #[text_signature = "(platform, /)"]
 #[derive(Clone, Copy)]
 pub struct Device {
-    d: rusty_neat_core::Device
+    d: rusty_neat_core::Device,
 }
 
 #[pyfunction]
@@ -78,7 +81,9 @@ pub struct CPPN32 {
 
 #[pyclass]
 #[text_signature = "(input_size, output_size, activation_functions, /)"]
-pub struct Neat32 { neat: neat::Neat }
+pub struct Neat32 {
+    neat: neat::Neat,
+}
 
 #[pyclass]
 pub struct FeedForwardNetOpenCL32 {
@@ -89,6 +94,12 @@ pub struct FeedForwardNetOpenCL32 {
 pub struct FeedForwardNetPicbreeder32 {
     net: gpu::FeedForwardNetPicbreeder,
 }
+
+#[pyclass]
+pub struct FeedForwardNetSubstrate32 {
+    net: gpu::FeedForwardNetSubstrate,
+}
+
 
 #[pymethods]
 impl Platform {
@@ -387,6 +398,9 @@ impl CPPN32 {
     }
 }
 
+fn ocl_err_to_py_ex(e: impl ToString) -> PyErr {
+    PyValueError::new_err(e.to_string())
+}
 
 #[pymethods]
 impl FeedForwardNet32 {
@@ -405,15 +419,20 @@ impl FeedForwardNet32 {
     fn to(&self, platform: Option<Platform>, device: Option<Device>) -> PyResult<FeedForwardNetOpenCL32> {
         let p = platform.map(|p| p.p).unwrap_or_else(|| rusty_neat_core::opencl_default_platform());
         let d = device.map(|d| d.d).or_else(|| rusty_neat_core::default_device(&p)).ok_or_else(|| PyValueError::new_err(format!("No device for {}", &p)))?;
-        let n = FeedForwardNetOpenCL::new(&self.net, p, d).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let n = self.net.to(p, d).map_err(ocl_err_to_py_ex)?;
         Ok(FeedForwardNetOpenCL32 { net: n })
     }
     #[text_signature = "(platform, device, /)"]
-    fn to_picbreeder(&self, center:Option<Vec<f32>>, bias:Option<bool>, platform: Option<Platform>, device: Option<Device>) -> PyResult<FeedForwardNetPicbreeder32> {
+    fn to_picbreeder(&self, center: Option<Vec<f32>>, bias: Option<bool>, platform: Option<Platform>, device: Option<Device>) -> PyResult<FeedForwardNetPicbreeder32> {
         let p = platform.map(|p| p.p).unwrap_or_else(|| rusty_neat_core::opencl_default_platform());
         let d = device.map(|d| d.d).or_else(|| rusty_neat_core::default_device(&p)).ok_or_else(|| PyValueError::new_err(format!("No device for {}", &p)))?;
-        let n = FeedForwardNetPicbreeder::new(&self.net, center.as_ref().map(|v|v.as_slice()),bias.unwrap_or(false), p, d).map_err(|e| PyValueError::new_err(e.to_string()))?;
-        Ok(FeedForwardNetPicbreeder32 { net: n })
+        Ok(FeedForwardNetPicbreeder32 { net: self.net.to_picbreeder(center.as_ref(), bias.unwrap_or(false), p, d).map_err(ocl_err_to_py_ex)? })
+    }
+    #[text_signature = "(input_dimensions, output_dimensions, platform, device, /)"]
+    fn to_substrate(&self, input_dimensions: usize, output_dimensions: Option<usize>, platform: Option<Platform>, device: Option<Device>) -> PyResult<FeedForwardNetSubstrate32> {
+        let p = platform.map(|p| p.p).unwrap_or_else(|| rusty_neat_core::opencl_default_platform());
+        let d = device.map(|d| d.d).or_else(|| rusty_neat_core::default_device(&p)).ok_or_else(|| PyValueError::new_err(format!("No device for {}", &p)))?;
+        Ok(FeedForwardNetSubstrate32 { net: self.net.to_substrate(input_dimensions, output_dimensions, p, d).map_err(ocl_err_to_py_ex)? })
     }
     #[getter]
     fn get_input_size(&self) -> usize {
@@ -428,8 +447,15 @@ impl FeedForwardNet32 {
         format!("{}", self.net.opencl_view())
     }
     #[text_signature = "( /)"]
-    fn picbreeder_view(&self, center:Option<Vec<f32>>, bias:bool) -> PyResult<String> {
-        let p = self.net.picbreeder_view(center.as_ref().map(|v|v.as_slice()),bias).map_err(|e|PyValueError::new_err(e))?;
+    fn picbreeder_view(&self, center: Option<Vec<f32>>, bias: bool) -> PyResult<String> {
+        let p = self.net.picbreeder_view(center.as_ref().map(|v| v.as_slice()), bias).map_err(|e| PyValueError::new_err(e))?;
+        Ok(format!("{}", p))
+    }
+    #[text_signature = "( /)"]
+    fn substrate_view(&self, input_dimensions: usize, output_dimensions: Option<usize>) -> PyResult<String> {
+        let expected_out_dims = self.net.get_input_size().checked_sub(input_dimensions).ok_or_else(|| PyValueError::new_err(format!("Substrate input dimensions {} is larger than CPPN's {}", input_dimensions, self.net.get_input_size())))?;
+        let output_dimensions = output_dimensions.unwrap_or(expected_out_dims);
+        let p = self.net.substrate_view(input_dimensions, output_dimensions).map_err(|e| PyValueError::new_err(e))?;
         Ok(format!("{}", p))
     }
 }
@@ -461,13 +487,10 @@ impl FeedForwardNetPicbreeder32 {
             Err(PyValueError::new_err(format!("Expected location_offset_per_dimension of size {} but got {}", self.get_input_size(), location_offset_per_dimension.len())))
         } else {
             let out = self.net.run(pixel_count_per_dimension.as_slice(), pixel_size_per_dimension.as_slice(), location_offset_per_dimension.as_slice()).map_err(|e| PyValueError::new_err(e.to_string()))?;
-            let out = out.into_pyarray(py);
             let mut shape = Vec::with_capacity(self.get_input_size() + /*channels*/1);
             shape.extend_from_slice(pixel_count_per_dimension.as_slice());
             shape.push(self.get_output_size());
-            let out = out.reshape(shape.as_slice())?;
-            let out = out.to_dyn();
-            Ok(out)
+            new_ndarray(py,shape.as_slice(), out).map(|v|v.to_dyn())
         }
     }
 }
@@ -487,7 +510,6 @@ impl FeedForwardNetOpenCL32 {
         self.net.get_output_size()
     }
     #[call]
-    // #[text_signature = "(input_list,/)"]
     fn __call__(&self, input: Vec<f32>) -> PyResult<Vec<f32>> {
         if input.len() != self.get_input_size() {
             Err(PyValueError::new_err(format!("Expected input of size {} but got {}", self.get_input_size(), input.len())))
@@ -504,20 +526,117 @@ impl FeedForwardNetOpenCL32 {
             Err(PyValueError::new_err(format!("Expected input to have {} columns but got {}", self.get_input_size(), s[1])))
         } else if let Ok(data) = input.as_slice() {
             let strides = input.strides();
-            let row = strides[0] as usize / std::mem::size_of::<f32>();
-            let col = strides[1] as usize / std::mem::size_of::<f32>();
-            if col < 0 || row < 0 {
+            if strides[0] < 0 || strides[1] < 0 {
                 return Err(PyValueError::new_err(format!("Negative strides are not supported")));
             }
+            let row = strides[0] as usize / std::mem::size_of::<f32>();
+            let col = strides[1] as usize / std::mem::size_of::<f32>();
             let out = self.net.run_with_strides(data, col, row, 1, self.get_output_size())
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
-            let out = out.into_pyarray(py);
-            let out = out.reshape([s[0], self.get_output_size()])?;
-            let out = out.to_dyn();
-            Ok(out)
+            new_ndarray(py,[s[0], self.get_output_size()],out).map(|v|v.to_dyn())
         } else {
             Err(PyValueError::new_err(format!("Provided input is not contiguous")))
         }
+    }
+}
+
+unsafe fn from_boxed_slice<T: Element, D: Dimension, ID>(
+    py: Python,
+    dims: ID,
+    flags: c_int,
+    strides: *const npy_intp,
+    slice: Box<[T]>,
+) -> & PyArray<T, D>
+    where
+        ID: IntoDimension<Dim=D>,
+{
+    let dims = dims.into_dimension();
+    let container = slice_box::SliceBox::new(slice);
+    let data_ptr = container.data;
+    let cell = pyo3::PyClassInitializer::from(container)
+        .create_cell(py)
+        .expect("Object creation failed.");
+    let ptr = PY_ARRAY_API.PyArray_New(
+        PY_ARRAY_API.get_type_object(npyffi::NpyTypes::PyArray_Type),
+        dims.ndim_cint(),
+        dims.as_dims_ptr(),
+        T::npy_type() as i32,
+        strides as *mut _,          // strides
+        data_ptr as _,              // data
+        std::mem::size_of::<T>() as i32, // itemsize
+        flags,                          // flag
+        std::ptr::null_mut(),            //obj
+    );
+    PY_ARRAY_API.PyArray_SetBaseObject(ptr as *mut npyffi::PyArrayObject, cell as _);
+    PyArray::from_owned_ptr(py, ptr)
+}
+pub fn new_ndarray<T:Element, D: Dimension, ID>(py: Python, dims: ID, vec:Vec<T>) -> PyResult<&PyArray<T, D>>
+    where ID: IntoDimension<Dim = D>{
+    let vec = vec.into_boxed_slice();
+    let len = vec.len();
+    let strides = [std::mem::size_of::<T>() as npy_intp];
+    let vec = unsafe { from_boxed_slice(py, [len], NPY_ARRAY_WRITEABLE,strides.as_ptr(), vec) };
+    vec.reshape(dims)
+}
+
+
+#[pymethods]
+impl FeedForwardNetSubstrate32 {
+    #[getter]
+    fn get_input_size(&self) -> usize {
+        self.net.get_input_size()
+    }
+    #[getter]
+    fn get_device(&self) -> Device {
+        Device { d: self.net.get_device() }
+    }
+    #[getter]
+    fn get_output_size(&self) -> usize {
+        self.net.get_output_size()
+    }
+    #[getter]
+    fn get_weight_size(&self) -> usize {
+        self.net.get_weight_size()
+    }
+    #[call]
+    fn __call__<'py>(&self, py: Python<'py>, input_neurons: PyReadonlyArrayDyn<'_, f32>, output_neurons: PyReadonlyArrayDyn<'_, f32>) -> PyResult<&'py PyArrayDyn<f32>> {
+        let s = input_neurons.shape();
+        if s.len() != 2 {
+            return Err(PyValueError::new_err(format!("Expected input to be a 2 dimensional matrix but got {} dimensions", s.len())));
+        }
+        let in_neurons_count = s[0];
+        if s[1] != self.get_input_size() {
+            return Err(PyValueError::new_err(format!("Expected input to have {} columns but got {}", self.get_input_size(), s[1])));
+        }
+        let s = output_neurons.shape();
+        if s.len() != 2 {
+            return Err(PyValueError::new_err(format!("Expected output to be a 2 dimensional matrix but got {} dimensions", s.len())));
+        }
+        let out_neurons_count = s[0];
+        if s[1] != self.get_input_size() {
+            return Err(PyValueError::new_err(format!("Expected output to have {} columns but got {}", self.get_output_size(), s[1])));
+        }
+        let in_data = input_neurons.as_slice().map_err(|e| PyValueError::new_err(format!("Provided input neurons are not contiguous")))?;
+        let out_data = output_neurons.as_slice().map_err(|e| PyValueError::new_err(format!("Provided output neurons are not contiguous")))?;
+        let in_strides = input_neurons.strides();
+        let out_strides = output_neurons.strides();
+        if in_strides[0] < 0 || in_strides[1] < 0 || out_strides[0] < 0 || out_strides[1] < 0 {
+            return Err(PyValueError::new_err(format!("Negative strides are not supported")));
+        }
+        let in_row_stride = in_strides[0] as usize / std::mem::size_of::<f32>();
+        let in_col_stride = in_strides[1] as usize / std::mem::size_of::<f32>();
+        let out_row_stride = out_strides[0] as usize / std::mem::size_of::<f32>();
+        let out_col_stride = out_strides[1] as usize / std::mem::size_of::<f32>();
+        let weights_depth_stride = 1;
+        let weights_col_stride = self.get_weight_size() * weights_depth_stride;
+        let weights_row_stride = weights_col_stride * in_neurons_count;
+        let mut out = self.net.run(in_data, out_data,
+                                   weights_row_stride, weights_col_stride, weights_depth_stride,
+                                   in_col_stride, out_col_stride,
+                                   in_row_stride, out_row_stride)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let shape = [out_neurons_count, in_neurons_count, self.get_weight_size()];
+        new_ndarray(py,shape,out).map(|v|v.to_dyn())
     }
 }
 //
@@ -621,6 +740,9 @@ fn rusty_neat(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<CPPN32>()?;
     m.add_class::<Neat32>()?;
     m.add_class::<FeedForwardNet32>()?;
+    m.add_class::<FeedForwardNetSubstrate32>()?;
+    m.add_class::<FeedForwardNetOpenCL32>()?;
+    m.add_class::<FeedForwardNetPicbreeder32>()?;
     Ok(())
 }
 

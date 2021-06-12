@@ -2,5 +2,6 @@
 
 members = [
     "rustlib",
-    "pylib"
+    "pylib",
+    "envs"
 ]

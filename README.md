@@ -6,10 +6,13 @@ A Python library written in Rust
 ### Implemented features:
 
 - Compositional Pattern Producing Networks (CPPN) with crossover
+- Picbreeder 
+- HyperNEAT 
+- numpy integration
+- GPU acceleration (with OpenCL)
 
 ### Planned:
 
-- HyperNEAT
 - ES-HyperNEAT
 - Plastic Hyper-HEAT
 - Continous-time recurrent neural networks (CTRNN)

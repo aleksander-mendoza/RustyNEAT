@@ -183,6 +183,8 @@ mod tests {
     use super::*;
     use crate::gpu::{FeedForwardNetOpenCL, FeedForwardNetPicbreeder};
     use rand::random;
+    use ocl::core::default_platform;
+    use crate::{opencl_default_platform, default_device};
 
     #[test]
     fn cppn_1() {
@@ -315,5 +317,31 @@ mod tests {
 
         }
         let crossed_over = cppns[0].crossover(&cppns[1]);
+    }
+
+    #[test]
+    fn cppn_9() {
+        let mut neat = Neat::new_default(4, 1);
+        let mut cppn = neat.new_cppn::<f32>();
+        for _ in 0..16 {
+            neat.mutate(&mut cppn, 0.1, 0.2, 0.1, 0.1, 0.1, 0.01);
+        }
+        let net = cppn.build_feed_forward_net();
+        let p = opencl_default_platform();
+        let d = default_device(&p).unwrap();
+        println!("{}",net.substrate_view(2,2).unwrap());
+        let gpu_net = net.to_substrate(2,Some(2),p,d).unwrap();
+        let in_neurons = [1f32,2.,3.,4.,5.,6.];
+        let out_neurons = [0.1f32,0.2,0.3,0.4,0.5,0.6];
+        let ann = gpu_net.run(&in_neurons,&out_neurons,3,1,1,1,1,2,2).unwrap();
+        let mut ann2 = [0f32;3*3];
+        for (row, i) in in_neurons.chunks(2).enumerate(){
+            for (col, o) in out_neurons.chunks(2).enumerate(){
+                let input = [i[0],i[1],o[0],o[1]];
+                let idx = col*3+row;
+                net.run(&input,&mut ann2[idx..idx+1]);
+            }
+        }
+        assert_eq!(ann2,ann.as_slice());
     }
 }

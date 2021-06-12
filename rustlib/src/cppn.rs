@@ -5,7 +5,8 @@ use crate::activations;
 use std::fmt::{Display, Formatter, Error};
 use std::num::NonZeroUsize;
 use crate::activations::{ActFn};
-
+use ocl::{Platform, Device};
+use crate::gpu::{FeedForwardNetOpenCL, FeedForwardNetPicbreeder, FeedForwardNetSubstrate};
 
 
 enum EdgeOrNode<X> {
@@ -20,6 +21,20 @@ pub struct FeedForwardNet<X: Num> {
     output_size: usize,
 }
 
+impl FeedForwardNet<f32>{
+    pub fn to(&self, platform: Platform, device: Device) -> Result<FeedForwardNetOpenCL, ocl::Error> {
+        FeedForwardNetOpenCL::new(self, platform, device)
+    }
+    pub fn to_picbreeder(&self, center: Option<&Vec<f32>>, bias: bool, platform: Platform, device: Device) -> Result<FeedForwardNetPicbreeder, ocl::Error> {
+        FeedForwardNetPicbreeder::new(self,center.map(|v|v.as_slice()),bias, platform, device)
+    }
+    pub fn to_substrate(&self, input_dimensions: usize, output_dimensions: Option<usize>, platform: Platform, device: Device) -> Result<FeedForwardNetSubstrate, ocl::Error> {
+        let expected_out_dims = self.get_input_size().checked_sub(input_dimensions).ok_or_else(|| ocl::Error::from(format!("Substrate input dimensions {} is larger than CPPN's {}", input_dimensions, self.get_input_size())))?;
+        let output_dimensions = output_dimensions.unwrap_or(expected_out_dims);
+        FeedForwardNetSubstrate::new(self, input_dimensions, output_dimensions, platform, device)
+
+    }
+}
 impl<X: Num> FeedForwardNet<X> {
     pub fn get_input_size(&self) -> usize {
         self.input_size
@@ -27,6 +42,7 @@ impl<X: Num> FeedForwardNet<X> {
     pub fn get_output_size(&self) -> usize {
         self.output_size
     }
+
     pub fn run(&self, input_buffer: &[X], output_buffer: &mut [X]) {
         assert_eq!(input_buffer.len(), self.get_input_size());
         let inout_size = self.input_size + self.output_size;
@@ -34,26 +50,26 @@ impl<X: Num> FeedForwardNet<X> {
         for instruction in &self.net {
             match *instruction {
                 EdgeOrNode::Edge(from, w, to) => {
-                    let in_val = if from < self.input_size{
+                    let in_val = if from < self.input_size {
                         input_buffer[from]
-                    }else if from < inout_size{
-                        output_buffer[from-self.input_size]
-                    } else{
-                        intermediate_buffer[from-inout_size]
+                    } else if from < inout_size {
+                        output_buffer[from - self.input_size]
+                    } else {
+                        intermediate_buffer[from - inout_size]
                     };
-                    if to < inout_size{
-                        assert!(to>=self.input_size);
-                        output_buffer[to-self.input_size] += w * in_val;
-                    }else{
-                        intermediate_buffer[to-inout_size] += w * in_val;
+                    if to < inout_size {
+                        assert!(to >= self.input_size);
+                        output_buffer[to - self.input_size] += w * in_val;
+                    } else {
+                        intermediate_buffer[to - inout_size] += w * in_val;
                     }
-                },
-                EdgeOrNode::Node(from, activation) =>{
-                    assert!(from>=self.input_size);
-                    if from < inout_size{
+                }
+                EdgeOrNode::Node(from, activation) => {
+                    assert!(from >= self.input_size);
+                    if from < inout_size {
                         let from = from - self.input_size;
                         output_buffer[from] = X::act_fn(activation)(output_buffer[from]);
-                    }else {
+                    } else {
                         let from = from - inout_size;
                         intermediate_buffer[from] = X::act_fn(activation)(intermediate_buffer[from]);
                     }
@@ -63,174 +79,181 @@ impl<X: Num> FeedForwardNet<X> {
     }
 
     pub fn compile_for_opencl(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "__kernel void feedforward(__global float * in,__global float * out,");
-        writeln!(f, "                          size_t in_row_stride, size_t in_col_stride, ");
-        writeln!(f, "                          size_t out_row_stride, size_t out_col_stride) {{");
-        let mut was_written_to = vec![false; self.len];
-        let inout_size = self.input_size + self.output_size;
-        for instruction in &self.net {
-            write!(f, "   ");
-            match instruction {
-                &EdgeOrNode::Node(idx, act_fn) => {
-                    assert!(idx>self.input_size);
-                    assert!(was_written_to[idx]);
-                    if idx < inout_size{
-                        writeln!(f, "out[get_global_id(0)*out_row_stride+{}*out_col_stride] = {}(out[get_global_id(0)*out_row_stride+{}*out_col_stride]);", idx-self.input_size, act_fn.opencl_name(), idx-self.input_size)
-                    }else{
-                        writeln!(f, "register{} = {}(register{});", idx, act_fn.opencl_name(), idx)
-                    }
-                },
-                &EdgeOrNode::Edge(from, weight, to) => {
-                    assert!(to >= self.input_size); //cannot write to input node
-                    if to < inout_size{
-                        write!(f, "out[get_global_id(0)*out_row_stride+{}*out_col_stride]",to-self.input_size);
-                        if was_written_to[to]{
-                            write!(f, " += ");
-                        }else{
-                            was_written_to[to] = true;
-                            write!(f, " = ");
-                        }
-                    }else if was_written_to[to] { // variable already declared before
-                        write!(f, "register{} += ", to);
-                    } else { // first time write means that variable declaration is necessary
-                        was_written_to[to] = true;
-                        write!(f, "float register{} = ", to);
-                    }
-                    if from < self.input_size{
-                        assert!(!was_written_to[from]); // input registers are never written to
-                        write!(f, "in[get_global_id(0)*in_row_stride+{}*in_col_stride]",from);
-                    }else if from < inout_size{
-                        assert!(from>=self.input_size);
-                        assert!(!was_written_to[from]); // this does not need to change
-                        write!(f, "out[get_global_id(0)*out_row_stride+{}*out_col_stride]",from-self.input_size);
-                    }else{
-                        assert!(was_written_to[from]);
-                        write!(f, "register{}", from);
-                    }
-                    writeln!(f, " * {};", weight)
-                }
-            };
+        writeln!(f, "\
+__kernel void feedforward(__global float * in,__global float * out,
+        size_t in_row_stride, size_t in_col_stride,
+        size_t out_row_stride, size_t out_col_stride) {{")?;
+        for idx in 0..self.input_size {
+            writeln!(f, "float input{} = in[get_global_id(0)*in_row_stride+{}*in_col_stride];", idx, idx)?;
         }
+        for idx in 0..self.output_size {
+            writeln!(f, "size_t out_idx{} = get_global_id(0)*out_row_stride+{}*out_col_stride;", idx, idx)?;
+        }
+        self.compile_opencl_cppn_instructions(f)?;
         write!(f, "}}");
         Ok(())
     }
+    fn compile_opencl_cppn_instructions(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut was_written_to = vec![false; self.len];
+        let inout_size = self.input_size + self.output_size;
+        for instruction in &self.net {
+            write!(f, "    ");
+            match instruction {
+                &EdgeOrNode::Node(idx, act_fn) => {
+                    assert!(idx >= self.input_size);
+                    assert!(was_written_to[idx]);
+                    if idx < inout_size {
+                        writeln!(f, "out[out_idx{}] = {}(out[out_idx{}]);", idx - self.input_size, act_fn.opencl_name(), idx - self.input_size)?
+                    } else {
+                        writeln!(f, "register{} = {}(register{});", idx, act_fn.opencl_name(), idx)?
+                    }
+                }
+                &EdgeOrNode::Edge(from, weight, to) => {
+                    assert!(to >= self.input_size); //cannot write to input node
+                    if to < inout_size {
+                        write!(f, "out[out_idx{}]", to - self.input_size)?;
+                        if was_written_to[to] {
+                            write!(f, " += ")?;
+                        } else {
+                            was_written_to[to] = true;
+                            write!(f, " = ")?;
+                        }
+                    } else if was_written_to[to] { // variable already declared before
+                        write!(f, "register{} += ", to)?;
+                    } else { // first time write means that variable declaration is necessary
+                        was_written_to[to] = true;
+                        write!(f, "float register{} = ", to)?;
+                    }
+                    if from < self.input_size {
+                        assert!(!was_written_to[from]); // input registers are never written to
+                        write!(f, "input{}", from)?;
+                    } else if from < inout_size {
+                        assert!(from >= self.input_size);
+                        assert!(was_written_to[from]);
+                        write!(f, "out[out_idx{}]", from - self.input_size)?;
+                    } else {
+                        assert!(was_written_to[from]);
+                        write!(f, "register{}", from)?;
+                    }
+                    writeln!(f, " * {};", weight)?
+                }
+            };
+        }
+        Ok(())
+    }
+    pub fn compile_for_substrate(&self, input_dimensions: usize, output_dimensions: usize, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if input_dimensions + output_dimensions != self.input_size {
+            return Err(Error::default());
+        }
+        writeln!(f, "\
+// Output out is a matrix of weights.
+// Format of out is a 3D matrix where row specifies output neuron, column is the input neuron and depth carries one weight value per each CPPN output (for instance you can use it to generate multiple layers of ANN at once)
+// Format of input_neurons and output_neurons is a matrix where row specifies index of neuron and columns specify spacial coordinates in substrate
+__kernel void substrate(__global float * input_neurons, __global float * output_neurons, __global float * out,
+                          size_t out_row_stride, size_t out_col_stride, size_t out_depth_stride,
+                          size_t in_neuron_col_stride, size_t out_neuron_col_stride,
+                          size_t in_neuron_row_stride, size_t out_neuron_row_stride) {{
+    size_t in_neuron_idx = get_global_id(0);
+    size_t out_neuron_idx = get_global_id(1);")?;
+        for i in 0..input_dimensions {
+            writeln!(f, "    float input{} = input_neurons[in_neuron_row_stride*in_neuron_idx + in_neuron_col_stride*{}];", i, i)?;
+        }
+        for i in 0..output_dimensions {
+            writeln!(f, "    float input{} = output_neurons[out_neuron_row_stride*out_neuron_idx + out_neuron_col_stride*{}];", input_dimensions + i, i)?;
+        }
+        for i in 0..self.output_size {
+            writeln!(f, "    size_t out_idx{} = in_neuron_idx*out_col_stride+out_neuron_idx*out_row_stride+{}*out_depth_stride;", i, i)?;
+        }
+        self.compile_opencl_cppn_instructions(f)?;
+        write!(f, "}}")?;
+        Ok(())
+    }
 
-    pub fn compile_for_picbreeder(&self, distance_from_center:Option<&[X]>, with_bias:bool, f: &mut Formatter<'_>) -> std::fmt::Result {
+    pub fn compile_for_picbreeder(&self, distance_from_center: Option<&[X]>, with_bias: bool, f: &mut Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "\
+__kernel void picbreeder(__global float * out,
+                         __global size_t * dimensions,
+                         __global float * pixel_size_per_dimension,
+                         __global float * offset_per_dimension) {{
+    size_t elements_in_hyper_plane0 = 1;")?;
+        let spacial_dims = self.input_size - if with_bias { 1 } else { 0 } - if distance_from_center.is_some() { 1 } else { 0 };
 
-        writeln!(f, "__kernel void picbreeder(__global float * out,");
-        writeln!(f, "                         __global size_t * dimensions, ");
-        writeln!(f, "                         __global float * pixel_size_per_dimension, ");
-        writeln!(f, "                         __global float * offset_per_dimension) {{");
-        writeln!(f, "    size_t elements_in_hyper_plane0 = 1;");
-        let spacial_dims = self.input_size - if with_bias{1}else{0} - if distance_from_center.is_some(){1}else{0};
-
-        for dim in 0..spacial_dims{
-            writeln!(f, "    size_t elements_in_hyper_plane{} = dimensions[{}] * elements_in_hyper_plane{};",dim+1,dim,dim);
+        for dim in 0..spacial_dims {
+            writeln!(f, "    size_t elements_in_hyper_plane{} = dimensions[{}] * elements_in_hyper_plane{};", dim + 1, dim, dim)?;
         }
-        for dim in (0..spacial_dims).rev(){
-            writeln!(f, "    size_t pixel_coordinate{} = (get_global_id(0) % elements_in_hyper_plane{}) / elements_in_hyper_plane{};",dim,dim+1,dim);
+        for dim in (0..spacial_dims).rev() {
+            writeln!(f, "    size_t pixel_coordinate{} = (get_global_id(0) % elements_in_hyper_plane{}) / elements_in_hyper_plane{};", dim, dim + 1, dim)?;
         }
-        for dim in 0..spacial_dims{
-            writeln!(f, "    float spacial_coordinate{} = offset_per_dimension[{}] + pixel_size_per_dimension[{}]*pixel_coordinate{};",dim,dim,dim,dim);
+        for dim in 0..spacial_dims {
+            writeln!(f, "    float spacial_coordinate{} = offset_per_dimension[{}] + pixel_size_per_dimension[{}]*pixel_coordinate{};", dim, dim, dim, dim)?;
         }
-        for dim in 0..spacial_dims{
-            writeln!(f, "    float input{} = spacial_coordinate{};",dim,dim);
+        for dim in 0..spacial_dims {
+            writeln!(f, "    float input{} = spacial_coordinate{};", dim, dim)?;
         }
-        if with_bias{
-            writeln!(f, "    float input{} = 1;",spacial_dims);
+        if with_bias {
+            writeln!(f, "    float input{} = 1;", spacial_dims)?;
         }
-        if let Some(center) = distance_from_center{
-            assert!(spacial_dims>0);
+        if let Some(center) = distance_from_center {
+            assert!(spacial_dims > 0);
             assert_eq!(center.len(), spacial_dims);
-            for (dim,c) in (0..spacial_dims).zip(center) {
-                writeln!(f, "    float dist_from_center{} = {}-spacial_coordinate{};", dim, c, dim);
+            for (dim, c) in (0..spacial_dims).zip(center) {
+                writeln!(f, "    float dist_from_center{} = {}-spacial_coordinate{};", dim, c, dim)?;
             }
-            write!(f, "    float dist_from_center = ");
-            write!(f, "dist_from_center{}*dist_from_center{}", 0, 0);
+            write!(f, "    float dist_from_center = ")?;
+            write!(f, "dist_from_center{}*dist_from_center{}", 0, 0)?;
             for dim in 1..spacial_dims {
-                write!(f, " + dist_from_center{}*dist_from_center{}", dim, dim);
+                write!(f, " + dist_from_center{}*dist_from_center{}", dim, dim)?;
             }
-            writeln!(f, ";");
-            writeln!(f, "    float input{} = sqrt(dist_from_center);",spacial_dims+1);
+            writeln!(f, ";")?;
+            writeln!(f, "    float input{} = sqrt(dist_from_center);", spacial_dims + 1)?;
         }
-        let mut was_written_to = vec![false; self.len];
-        let inout_size = self.input_size + self.output_size;
-        for instruction in &self.net {
-            write!(f, "   ");
-            match instruction {
-                &EdgeOrNode::Node(idx, act_fn) => {
-                    assert!(idx>=self.input_size);
-                    assert!(was_written_to[idx]);
-                    if idx < inout_size{
-                        writeln!(f, "out[get_global_id(0)*{}+{}] = {}(out[get_global_id(0)*{}+{}]);", self.output_size, idx-self.input_size, act_fn.opencl_name(), self.output_size, idx-self.input_size)
-                    }else{
-                        writeln!(f, "register{} = {}(register{});", idx, act_fn.opencl_name(), idx)
-                    }
-                },
-                &EdgeOrNode::Edge(from, weight, to) => {
-                    assert!(to >= self.input_size); //cannot write to input node
-                    if to < inout_size{
-                        write!(f, "out[get_global_id(0)*{}+{}]",self.output_size,to-self.input_size);
-                        if was_written_to[to]{
-                            write!(f, " += ");
-                        }else{
-                            was_written_to[to] = true;
-                            write!(f, " = ");
-                        }
-                    }else if was_written_to[to] { // variable already declared before
-                        write!(f, "register{} += ", to);
-                    } else { // first time write means that variable declaration is necessary
-                        was_written_to[to] = true;
-                        write!(f, "float register{} = ", to);
-                    }
-                    if from < self.input_size{
-                        assert!(!was_written_to[from]); // input registers are never written to
-                        write!(f, "input{}",from);
-                    }else if from < inout_size{
-                        assert!(from>=self.input_size);
-                        assert!(was_written_to[from]);
-                        write!(f, "out[get_global_id(0)*{}+{}]",self.output_size,from-self.input_size);
-                    }else{
-                        assert!(was_written_to[from]);
-                        write!(f, "register{}", from);
-                    }
-                    writeln!(f, " * {};", weight)
-                }
-            };
+        for idx in 0..self.output_size {
+            writeln!(f, "size_t out_idx{} = get_global_id(0)*{}+{};", idx, self.output_size, idx)?;
         }
-        write!(f, "}}");
+        self.compile_opencl_cppn_instructions(f)?;
+        write!(f, "}}")?;
         Ok(())
     }
-    pub fn opencl_view(&self)->FeedForwardNetOpenCLView<X>{
+    pub fn substrate_view(&self, input_dimension: usize, output_dimension: usize) -> Result<FeedForwardNetSubstrateView<X>, String> {
+        if input_dimension + output_dimension != self.input_size {
+            Err(format!("Substrate's input dimensions {} and output dimensions {} must sum to CPPN's input dimension {}", input_dimension, output_dimension, self.input_size))
+        } else if input_dimension == 0 {
+            Err(format!("Substrate has zero input dimensions"))
+        } else if output_dimension == 0 {
+            Err(format!("Substrate has zero output dimensions"))
+        } else {
+            Ok(FeedForwardNetSubstrateView(input_dimension, output_dimension, &self))
+        }
+    }
+    pub fn opencl_view(&self) -> FeedForwardNetOpenCLView<X> {
         FeedForwardNetOpenCLView(&self)
     }
-    pub fn picbreeder_view<'a,'b>(&'a self, with_dist_from_center:Option<&'b [X]>,with_bias:bool)->Result<FeedForwardNetPicbreederView<'a,'b, X>,String>{
-        let non_spacial_dimensions = if with_bias{1}else{0} + if with_dist_from_center.is_some(){1}else{0};
+    pub fn picbreeder_view<'a, 'b>(&'a self, with_dist_from_center: Option<&'b [X]>, with_bias: bool) -> Result<FeedForwardNetPicbreederView<'a, 'b, X>, String> {
+        let non_spacial_dimensions = if with_bias { 1 } else { 0 } + if with_dist_from_center.is_some() { 1 } else { 0 };
 
-        if non_spacial_dimensions >= self.input_size{
-            return Err(format!("Number of dimensions of CPPN is {} and number of non-spacial dimensions (bias+distance from center) is {}. That doesn't leave any spacial dimensions!",self.input_size, non_spacial_dimensions))
+        if non_spacial_dimensions >= self.input_size {
+            return Err(format!("Number of dimensions of CPPN is {} and number of non-spacial dimensions (bias+distance from center) is {}. That doesn't leave any spacial dimensions!", self.input_size, non_spacial_dimensions));
         }
-        let spacial_dimensions = self.input_size-non_spacial_dimensions;
-        if let Some(center) = with_dist_from_center{
-            if center.len() != spacial_dimensions{
-                return Err(format!("Number of spacial dimensions is {} but provided center had {}",spacial_dimensions,center.len()));
+        let spacial_dimensions = self.input_size - non_spacial_dimensions;
+        if let Some(center) = with_dist_from_center {
+            if center.len() != spacial_dimensions {
+                return Err(format!("Number of spacial dimensions is {} but provided center had {}", spacial_dimensions, center.len()));
             }
         }
-        Ok(FeedForwardNetPicbreederView(&self,with_bias,with_dist_from_center))
+        Ok(FeedForwardNetPicbreederView(&self, with_bias, with_dist_from_center))
     }
-
 }
 
-impl <X:Num> Display for FeedForwardNet<X>{
+impl<X: Num> Display for FeedForwardNet<X> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "FeedForwardNet() {{");
         for instruction in &self.net {
             write!(f, "   ");
             match instruction {
                 &EdgeOrNode::Node(idx, act_fn) => {
-                    assert!(idx>=self.input_size);
+                    assert!(idx >= self.input_size);
                     writeln!(f, "register{} = {}(register{});", idx, act_fn.opencl_name(), idx)
-                },
+                }
                 &EdgeOrNode::Edge(from, weight, to) => {
                     assert!(to >= self.input_size); //cannot write to input node
                     writeln!(f, "register{} += register{} * {};", to, from, weight)
@@ -241,7 +264,16 @@ impl <X:Num> Display for FeedForwardNet<X>{
         Ok(())
     }
 }
-pub struct FeedForwardNetOpenCLView<'a ,X: Num>(&'a FeedForwardNet<X>);
+
+pub struct FeedForwardNetSubstrateView<'a, X: Num>(usize, usize, &'a FeedForwardNet<X>);
+
+impl<'a, X: Num> Display for FeedForwardNetSubstrateView<'a, X> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.2.compile_for_substrate(self.0, self.1, f)
+    }
+}
+
+pub struct FeedForwardNetOpenCLView<'a, X: Num>(&'a FeedForwardNet<X>);
 
 impl<'a, X: Num> Display for FeedForwardNetOpenCLView<'a, X> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -250,11 +282,11 @@ impl<'a, X: Num> Display for FeedForwardNetOpenCLView<'a, X> {
 }
 
 
-pub struct FeedForwardNetPicbreederView<'a, 'b ,X: Num>(&'a FeedForwardNet<X>, bool, Option<&'b[X]>);
+pub struct FeedForwardNetPicbreederView<'a, 'b, X: Num>(&'a FeedForwardNet<X>, bool, Option<&'b [X]>);
 
 impl<'a, 'b, X: Num> Display for FeedForwardNetPicbreederView<'a, 'b, X> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.0.compile_for_picbreeder(self.2,self.1, f)
+        self.0.compile_for_picbreeder(self.2, self.1, f)
     }
 }
 
@@ -392,11 +424,11 @@ impl<X: Num> CPPN<X> {
     Testing whether connection was successfully added, can be easily achieved by checking if old value of innovation number is different from
     the returned one.*/
     pub fn add_connection_if_possible(&mut self, from: usize, to: usize, weight: X, innovation_no: usize) -> usize {
-        assert!(self.edges.iter().all(|e|e.innovation_no<= innovation_no),"inno={}\n{}",innovation_no,self);
+        assert!(self.edges.iter().all(|e| e.innovation_no <= innovation_no), "inno={}\n{}", innovation_no, self);
         if self.can_connect(from, to) {
             let inno = self.add_connection_forcefully(from, to, weight, innovation_no);
             assert!(self.is_acyclic(), "{}", self);
-            assert!(innovation_no<inno,"Was {} and updated to {}",innovation_no,inno);
+            assert!(innovation_no < inno, "Was {} and updated to {}", innovation_no, inno);
             inno
         } else {
             innovation_no
@@ -407,7 +439,7 @@ impl<X: Num> CPPN<X> {
     without any checks). This function returns an incremented innovation number.
     */
     pub fn add_connection_forcefully(&mut self, from: usize, to: usize, weight: X, mut innovation_no: usize) -> usize {
-        assert!(self.edges.iter().all(|e|e.innovation_no<= innovation_no));
+        assert!(self.edges.iter().all(|e| e.innovation_no <= innovation_no));
         innovation_no += 1;
         self.assert_invariants("before add connection forcefully");
         self.edges.push(Edge {
@@ -418,16 +450,17 @@ impl<X: Num> CPPN<X> {
             to,
         });
         self.assert_invariants("after add connection forcefully");
+        assert!(self.edges.iter().all(|e| e.innovation_no <= innovation_no));
         innovation_no
     }
     pub fn search_connection_by_endpoints(&mut self, from: usize, to: usize) -> Option<usize> {
         self.edges.iter().position(|e| e.from == from && e.to == to)
     }
-    pub fn assert_invariants(&self, msg:&'static str) {
-        assert!(self.edges.windows(2).all(|e| e[0].innovation_no < e[1].innovation_no), "{} Edges are not sorted by innovation number:\n{}", msg, self,);
+    pub fn assert_invariants(&self, msg: &'static str) {
+        assert!(self.edges.windows(2).all(|e| e[0].innovation_no < e[1].innovation_no), "{} Edges are not sorted by innovation number:\n{}", msg, self, );
         let nodes = self.node_count();
         assert!(self.edges.iter().all(|e| e.to < nodes), "{} Destination of edge points to non-existent node:\n{}", msg, self);
-        assert!(self.edges.iter().all(|e| e.from < nodes), "{} Source of edge points to non-existent node:\n{}",msg, self);
+        assert!(self.edges.iter().all(|e| e.from < nodes), "{} Source of edge points to non-existent node:\n{}", msg, self);
     }
     pub fn get_random_node(&self) -> usize {
         self.node_count().random()
@@ -443,7 +476,7 @@ impl<X: Num> CPPN<X> {
     the original edge becomes disabled. Two new innovation numbers are added.
     Returns new innovation number.*/
     pub fn add_node(&mut self, edge_index: usize, activation: &'static ActFn, mut innovation_no: usize) -> usize {
-        assert!(self.edges.iter().all(|e|e.innovation_no<= innovation_no));
+        assert!(self.edges.iter().all(|e| e.innovation_no <= innovation_no));
         self.assert_invariants("before add node");
         let was_acyclic = self.is_acyclic();
         let from = self.edges[edge_index].from;
@@ -474,6 +507,7 @@ impl<X: Num> CPPN<X> {
         self.edges[edge_index].enabled = false;
         self.assert_invariants("after add node");
         assert_eq!(was_acyclic, self.is_acyclic());
+        assert!(self.edges.iter().all(|e| e.innovation_no <= innovation_no));
         innovation_no
     }
     pub fn get_activation(&mut self, node_idx: usize) -> Option<&'static ActFn> {
@@ -487,7 +521,7 @@ impl<X: Num> CPPN<X> {
             None => { false }
             Some(old) => {
                 *old = f;
-                assert!(node_idx>=self.input_size);
+                assert!(node_idx >= self.input_size);
                 true
             }
         }
@@ -546,8 +580,8 @@ impl<X: Num> CPPN<X> {
                 }
             }
         }
-        assert!(self.nodes[0..self.input_size].iter().all(|e|e.activation.is_none()));
-        assert!(other.nodes[0..self.input_size].iter().all(|e|e.activation.is_none()));
+        assert!(self.nodes[0..self.input_size].iter().all(|e| e.activation.is_none()));
+        assert!(other.nodes[0..self.input_size].iter().all(|e| e.activation.is_none()));
         for (my_node, other_node) in self.nodes.iter_mut().zip(other.nodes.iter()) {
             // Note that because all the edges are crossed over according to their innovation number,
             // the source and destination nodes remain unaffected by such operation
@@ -593,11 +627,11 @@ impl<X: Num> CPPN<X> {
             rec(&lookup, &mut visited, &mut topological_order, unvisited_input_idx);
         }
         assert!(self.edges.iter().all(|edge| {
-            if !edge.enabled {return true;}
+            if !edge.enabled { return true; }
             let to_pos = topological_order.iter().position(|&n| n == edge.to);
             let from_pos = topological_order.iter().position(|&n| n == edge.from);
-            to_pos.and_then(|to| from_pos.map( |from| to < from )).unwrap_or(true)
-        }), "topological_order={:?}\nSelf={}", topological_order,self);
+            to_pos.and_then(|to| from_pos.map(|from| to < from)).unwrap_or(true)
+        }), "topological_order={:?}\nSelf={}", topological_order, self);
         (topological_order, lookup)
     }
     /**The the current genotype (the CPPN) and compile it into a phenotype (feed-forward network)*/
