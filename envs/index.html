@@ -1,0 +1,33 @@
+<html xmlns="http://www.w3.org/1999/html">
+<head>
+    <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
+    <link rel="stylesheet" href="index.css">
+
+</head>
+<body>
+    <canvas id="canvas" height="150" width="150"></canvas>
+    <!-- Note the usage of `type=module` here as this is an ES6 module -->
+    <script type="module">
+        import init, {Env} from './pkg/RustyNEAT_envs.js';
+
+
+        async function run() {
+            var js = await init();
+            const resp = await fetch('map.png');
+            const buf = await resp.arrayBuffer();
+            const uint8View = new Uint8Array(buf);
+            var env = Env.new(uint8View);
+            var then = 0;
+            // Draw the scene repeatedly
+            function render(now) {
+              const deltaTime = now - then;
+              then = now;
+              env.draw(deltaTime);
+              requestAnimationFrame(render);
+            }
+            requestAnimationFrame(render);
+        }
+        run()
+    </script>
+</body>
+</html>

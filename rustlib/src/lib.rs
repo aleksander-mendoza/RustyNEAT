@@ -11,6 +11,7 @@ pub mod num;
 pub mod util;
 pub mod cppn;
 pub mod gpu;
+pub mod envs;
 
 extern crate ocl;
 

@@ -32,13 +32,15 @@ impl Neat {
 
     pub fn new_cppns<X: Num>(&mut self, num: usize) -> Vec<CPPN<X>> {
         let mut vec = Vec::with_capacity(num);
+        if num==0{return vec;}
         let inno = self.get_global_innovation_no();
-        let mut new_inno = 0;
-        for _ in 0..num {
+        let (cppn, new_inno) = CPPN::new(self.input_size, self.output_size, inno);
+        vec.push(cppn);
+        for _ in 1..num {
             // All the created CPPNs share the same innovation numbers
             // but only differ in randomly initialised weights
             let (cppn, updated_inno) = CPPN::new(self.input_size, self.output_size, inno);
-            new_inno = updated_inno;
+            assert_eq!(new_inno, updated_inno);
             vec.push(cppn);
         }
         self.set_global_innovation_no(new_inno);
@@ -109,12 +111,17 @@ impl Neat {
     /**Randomly adds a new connection, but may fail if such change would result in recurrent
     neural net instead of feed-forward one (so acyclicity must be preserved). Returns true if successfully
     added a new edge*/
-    pub fn attempt_to_add_random_connection<X: Num>(&mut self, cppn: &mut CPPN<X>) -> bool {
-        self.add_connection_if_possible(cppn, cppn.get_random_node(), cppn.get_random_node())
+    pub fn add_random_connection<X: Num>(&mut self, cppn: &mut CPPN<X>) -> bool {
+        assert!(cppn.edges().all(|e| e.innovation_no() <= self.get_global_innovation_no()));
+        let b = self.add_connection_if_possible(cppn, cppn.get_random_node(), cppn.get_random_node());
+        assert!(cppn.edges().all(|e| e.innovation_no() <= self.get_global_innovation_no()));
+        b
     }
 
     pub fn add_random_node<X: Num>(&mut self, cppn: &mut CPPN<X>) {
-        self.add_node(cppn, cppn.get_random_edge())
+        assert!(cppn.edges().all(|e| e.innovation_no() <= self.get_global_innovation_no()));
+        self.add_node(cppn, cppn.get_random_edge());
+        assert!(cppn.edges().all(|e| e.innovation_no() <= self.get_global_innovation_no()));
     }
 
     pub fn make_output_buffer<'b, 'x, X: Num + 'x, I: Iterator<Item=&'x CPPN<X>>>(&'b self, population: I) -> Option<Vec<X>> {
@@ -145,13 +152,16 @@ impl Neat {
                           enable_edge_prob: f32,
                           disable_edge_prob: f32) {
         let was_acyclic = cppn.is_acyclic();
+        assert!(cppn.edges().all(|e| e.innovation_no() <= self.get_global_innovation_no()));
         if f32::random() < node_insertion_prob {
             self.add_random_node(cppn)
         }
+        assert!(cppn.edges().all(|e| e.innovation_no() <= self.get_global_innovation_no()));
         cppn.assert_invariants("after add random node");
         if f32::random() < edge_insertion_prob {
-            self.attempt_to_add_random_connection(cppn);
+            self.add_random_connection(cppn);
         }
+        assert!(cppn.edges().all(|e| e.innovation_no() <= self.get_global_innovation_no()));
         cppn.assert_invariants("after add random connection");
         for edge_index in 0..cppn.edge_count() {
             if f32::random() < weight_mutation_prob {
@@ -167,11 +177,13 @@ impl Neat {
                 }
             }
         }
+        assert!(cppn.edges().all(|e| e.innovation_no() <= self.get_global_innovation_no()));
         for node_index in 0..cppn.node_count() {
             if f32::random() < activation_fn_mutation_prob {
                 cppn.set_activation(node_index, self.get_random_activation_function());
             }
         }
+        assert!(cppn.edges().all(|e| e.innovation_no() <= self.get_global_innovation_no()));
         cppn.assert_invariants("after mutate");
         assert_eq!(was_acyclic, cppn.is_acyclic());
     }

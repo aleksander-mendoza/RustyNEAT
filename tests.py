@@ -191,22 +191,22 @@ for cppn in population:
         if random.random() < NODE_ACTIVATION_FN_MUTATION_PROB:
             neat1.set_random_activation_function(cppn, node_idx)
     # This entire iteration above could be shortened to
-    neat.mutate(cppn,
-                NODE_ADDITION_PROB,
-                EDGE_ADDITION_PROB,
-                NODE_ACTIVATION_FN_MUTATION_PROB,
-                WEIGHT_MUTATION_PROB,
-                ENABLE_EDGE_PROB,
-                DISABLE_EDGE_PROB)
+    neat1.mutate(cppn,
+                 NODE_ADDITION_PROB,
+                 EDGE_ADDITION_PROB,
+                 NODE_ACTIVATION_FN_MUTATION_PROB,
+                 WEIGHT_MUTATION_PROB,
+                 ENABLE_EDGE_PROB,
+                 DISABLE_EDGE_PROB)
 
 # This entire loop above could be shortened to just a single (slightly faster) equivalent call
-neat.mutate_population(population,
-                       NODE_ADDITION_PROB,
-                       EDGE_ADDITION_PROB,
-                       NODE_ACTIVATION_FN_MUTATION_PROB,
-                       WEIGHT_MUTATION_PROB,
-                       ENABLE_EDGE_PROB,
-                       DISABLE_EDGE_PROB)
+neat1.mutate_population(population,
+                        NODE_ADDITION_PROB,
+                        EDGE_ADDITION_PROB,
+                        NODE_ACTIVATION_FN_MUTATION_PROB,
+                        WEIGHT_MUTATION_PROB,
+                        ENABLE_EDGE_PROB,
+                        DISABLE_EDGE_PROB)
 
 # Aside from mutations, there is also the possibility of performing cross-over.
 # First choose one individual that is deemed to be fitter.
@@ -302,10 +302,10 @@ out_numpy = gpu_net.numpy(np.array([
 assert (out_numpy[0] == out).all()
 assert (out_numpy[1] == out).all()
 
+
 # Note that CPPN are not the right tool if you wish to evolve large neural networks.
 # Instead you may compile a CPPN to a dense layer of larger neural network using HyperHEAT.
 # Alternatively you may use L-systems to evolve fractal neural networks.
-
 
 
 def sigmoid(x: np.ndarray):  # This function will be necessary later to normalise pixel values
@@ -422,8 +422,9 @@ if VISUALISE_PICBREEDER_2D_PLUS_BIAS_AND_CENTER_DIST:
 # all neurons using a single CPPN has the additional advantage that HyperNEAT will naturally
 # impose geometrical regularities between weights of different layers.
 
+weights_dimensions = 1  # one produced weight
 neat = rusty_neat.Neat32(4,  # 4D HyperNEAT
-                         1,  # one produced weight
+                         weights_dimensions,
                          ["identity", "sigmoid", "sin", "abs", "square",
                           "gaussian", "floor", "fraction", "neg"]
                          )
@@ -465,7 +466,7 @@ output_neurons = np.array([
 ], dtype=np.float32)
 # There are 4 input neurons and 8 output neurons. You can make as many as you like.
 weights = gpu_net(input_neurons, output_neurons)  # location_offset_per_dimension
-assert weights.shape == (len(output_neurons), len(input_neurons), 1)
+assert weights.shape == (len(output_neurons), len(input_neurons), weights_dimensions)
 # weights matrix is a numpy array as usual. You can easily import it and use with torch or tensorflow.
 if USE_PYTORCH:
     weights = torch.from_numpy(weights)
@@ -475,7 +476,3 @@ if USE_PYTORCH:
     # Voila! This is a linear layer in pytorch evolved with HyperNEAT!
 
 # Now that we know about HyperNEAT we can evolve more complex systems.
-
-
-
-

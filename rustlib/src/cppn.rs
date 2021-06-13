@@ -7,6 +7,7 @@ use std::num::NonZeroUsize;
 use crate::activations::{ActFn};
 use ocl::{Platform, Device};
 use crate::gpu::{FeedForwardNetOpenCL, FeedForwardNetPicbreeder, FeedForwardNetSubstrate};
+use std::slice::Iter;
 
 
 enum EdgeOrNode<X> {
@@ -305,7 +306,7 @@ pub struct CPPN<X: Num> {
 }
 
 #[derive(Clone)]
-struct Edge<X: Num> {
+pub struct Edge<X: Num> {
     innovation_no: usize,
     enabled: bool,
     from: usize,
@@ -313,8 +314,17 @@ struct Edge<X: Num> {
     to: usize,
 }
 
+impl <X: Num> Edge<X>{
+    pub fn innovation_no(&self)->usize{
+        self.innovation_no
+    }
+}
+
 
 impl<X: Num> CPPN<X> {
+    pub fn edges(&self) -> Iter<'_, Edge<X>> {
+        self.edges.iter()
+    }
     fn build_edge_lookup_table(&self) -> Vec<Vec<(usize, usize)>> {
         let mut edge_lookup = Vec::initialize(self.nodes.len(), |_| Vec::new());
         for (edge_idx, edge) in self.edges.iter().enumerate() {
