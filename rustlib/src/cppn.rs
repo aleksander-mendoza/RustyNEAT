@@ -303,6 +303,7 @@ pub struct CPPN<X: Num> {
     edges: Vec<Edge<X>>,
     input_size: usize,
     output_size: usize,
+
 }
 
 #[derive(Clone)]

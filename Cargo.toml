@@ -1,6 +1,7 @@
 [workspace]
 
 members = [
+    "ndalgebra",
     "rustlib",
     "pylib",
     "envs"
