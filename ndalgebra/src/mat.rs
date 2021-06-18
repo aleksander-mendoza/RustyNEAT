@@ -1,10 +1,10 @@
 use ocl::{ProQue, SpatialDims, flags, Platform, Device, Buffer, Error, Queue};
 use std::mem::MaybeUninit;
-use std::ops::{Index, IndexMut, Mul};
+use std::ops::{Index, IndexMut, Mul, Add, Range, Sub, Div, AddAssign, DivAssign, SubAssign, MulAssign};
 use std::fmt::{Display, Formatter, Debug};
 use crate::kernel::{LinAlgProgram, MAX_MAT_DIMS};
 use crate::num::Num;
-
+use ocl::builders::KernelBuilder;
 
 
 pub struct Mat<T: Num, const S: usize> {
@@ -40,11 +40,13 @@ impl From<MatError> for String {
         format!("{}", s)
     }
 }
+
 impl Debug for MatError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(self,f)
+        Display::fmt(self, f)
     }
 }
+
 impl Display for MatError {
     fn fmt(&self, fmt: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -59,7 +61,7 @@ impl Display for MatError {
             MatError::DimensionalityLimitExceeded(dim) => write!(fmt, "Matrix has {} dimensions but {} is the maximum", dim, MAX_MAT_DIMS),
             MatError::OpenCLError(err) => write!(fmt, "OpenCL error: {}", err),
             MatError::InvalidLiteral() => write!(fmt, "Provided literal matrix was invalid. All rows, columns, etc must be of the same size."),
-            MatError::NonsingularDimension(shape, idx) => write!(fmt, "Shape {} has length {} at index {} but expected it to be of length 1",shape.as_shape(),shape[*idx], idx),
+            MatError::NonsingularDimension(shape, idx) => write!(fmt, "Shape {} has length {} at index {} but expected it to be of length 1", shape.as_shape(), shape[*idx], idx),
         }
     }
 }
@@ -81,11 +83,13 @@ impl<T: Num> AsShape<T> for Vec<T> {
         Shape(self.as_slice())
     }
 }
-impl <'a,T:Num> Shape<'a, T>{
-    fn size(&self)->T{
+
+impl<'a, T: Num> Shape<'a, T> {
+    fn size(&self) -> T {
         self.0.iter().fold(T::one(), |a, &b| a * b)
     }
 }
+
 
 impl<'a, T: Num> Display for Shape<'a, T> {
     fn fmt(&self, fmt: &mut Formatter<'_>) -> std::fmt::Result {
@@ -114,14 +118,14 @@ impl<T: Num> Mat<T, 1> {
 
 impl<T: Num> Mat<T, 2> {
     pub fn array2<const X: usize, const Y: usize>(lin_alg: &LinAlgProgram, arr: [[T; X]; Y]) -> Result<Mat<T, 2>, MatError> where [T; { X * Y }]: Sized {
-        let a: &[T] = unsafe { std::slice::from_raw_parts(arr.as_ptr() as *const T,X*Y) };
+        let a: &[T] = unsafe { std::slice::from_raw_parts(arr.as_ptr() as *const T, X * Y) };
         Self::from_slice(lin_alg, a, [Y, X])
     }
 }
 
 impl<T: Num> Mat<T, 3> {
     pub fn array3<const X: usize, const Y: usize, const Z: usize>(lin_alg: &LinAlgProgram, arr: [[[T; X]; Y]; Z]) -> Result<Mat<T, 3>, MatError> where [T; { X * Y * Z }]: Sized {
-        let a: &[T] = unsafe { std::slice::from_raw_parts(arr.as_ptr() as *const T,X*Y*Z) };
+        let a: &[T] = unsafe { std::slice::from_raw_parts(arr.as_ptr() as *const T, X * Y * Z) };
         Self::from_slice(lin_alg, a, [Z, Y, X])
     }
 }
@@ -134,7 +138,7 @@ impl<T: Num, const S: usize> Mat<T, S> {
             assert_eq!(strides.len(), shape.len());
             assert_eq!(buff.len(), if strides.is_empty() { 1 } else { strides[0] * shape[0] });
             let pro_que = lin_alg.clone();
-            Ok(Self { pro_que, buff, strides, shape})
+            Ok(Self { pro_que, buff, strides, shape })
         }
     }
     pub fn from_buffer(lin_alg: &LinAlgProgram, buff: Buffer<T>, shape: [usize; S]) -> Result<Self, MatError> {
@@ -253,10 +257,10 @@ impl<T: Num, const S: usize> Mat<T, S> {
             Err(MatError::DimensionOutOfBounds(self.shape.to_vec(), idx))
         } else if self.shape[idx] != 1 {
             Err(MatError::NonsingularDimension(self.shape.to_vec(), idx))
-        }else{
+        } else {
             let mut new_shape = [0; { S - 1 }];
             new_shape[0..idx].copy_from_slice(&self.shape[0..idx]);
-            new_shape[idx..].copy_from_slice(&self.shape[idx+1..]);
+            new_shape[idx..].copy_from_slice(&self.shape[idx + 1..]);
             self.reshape(new_shape)
         }
     }
@@ -297,7 +301,7 @@ impl<T: Num, const S: usize> Mat<T, S> {
     /**Length of the underlying sub-buffer. Every tensor has some underlying buffer.
      Some tensors, however, only use a fragment of that large buffer. */
     pub fn len_sub_buffer(&self) -> usize {
-        self.buff.len()-self.buff.offset().unwrap_or(0)
+        self.buff.len() - self.buff.offset().unwrap_or(0)
     }
     /**Total size obtained by multiplying all dimensions together*/
     pub fn size(&self) -> usize {
@@ -324,7 +328,7 @@ impl<T: Num, const S: usize> Mat<T, S> {
     /**Reads entire tensor into the provided slice*/
     pub fn read(&self, dst: &mut [T]) -> Result<(), Error> {
         let size = self.size();
-        if dst.len() != size{
+        if dst.len() != size {
             Err(Error::from(format!("Expected buffer length {} but got {}", size, dst.len())))
         } else {
             unsafe {
@@ -332,12 +336,25 @@ impl<T: Num, const S: usize> Mat<T, S> {
             }
         }
     }
-    pub fn contiguous(&self)->bool{
+    pub fn contiguous(&self) -> bool {
         self.size() == self.len_sub_buffer()
     }
     /**alias for mm()*/
     pub fn matmul(&mut self, rhs: &Self) -> Result<Self, MatError> {
         self.mm(rhs)
+    }
+    fn add_dim_args<'b>(kernel:& mut KernelBuilder<'b>,shape:&'b [usize])->usize{
+        let mut total_s = 1;
+        for  dim_s in shape{
+            kernel.arg(dim_s);
+            total_s *= dim_s;
+        }
+        total_s
+    }
+    fn add_stride_args<'b>(&'b self, kernel:&mut KernelBuilder<'b>,range: Range<usize>){
+        for stride in &self.strides[range] {
+            kernel.arg(stride);
+        }
     }
     /**Matrix multiplication*/
     pub fn mm(&self, rhs: &Self) -> Result<Self, MatError> {
@@ -360,8 +377,8 @@ impl<T: Num, const S: usize> Mat<T, S> {
 
         let mut out_shape = rhs.shape.clone();
         out_shape[S - 1] = self.shape[S - 1];
-        assert_eq!(out_shape[S-2],j);
-        assert_eq!(out_shape[S-1],k);
+        assert_eq!(out_shape[S - 2], j);
+        assert_eq!(out_shape[S - 1], k);
         let out = unsafe { Self::empty(&self.pro_que, out_shape)? };
 
         let mut kernel = self.pro_que.pro_que.kernel_builder(format!("{}_mm{}", T::opencl_type_str(), S));
@@ -375,11 +392,10 @@ impl<T: Num, const S: usize> Mat<T, S> {
             .arg(&rhs.strides[S - 1])//rhs_k_stride
             .arg(&out.strides[S - 2])//out_j_stride
             .arg(&out.strides[S - 1]);//out_k_stride;
-        let mut total_s = 1;
-        for (s, dim_s) in self.shape[0..S - 2].iter().enumerate() {
-            kernel.arg(dim_s).arg(&self.strides[s]).arg(&rhs.strides[s]).arg(&out.strides[s]);
-            total_s *= dim_s;
-        }
+        let total_s = Self::add_dim_args(&mut kernel, &self.shape[0..S - 2]);
+        self.add_stride_args(&mut kernel, 0..S-2);
+        rhs.add_stride_args(&mut kernel, 0..S-2);
+        out.add_stride_args(&mut kernel, 0..S-2);
         kernel.global_work_size(SpatialDims::Three(j, k, total_s));
         let kernel = kernel.build()?;
         unsafe {
@@ -387,25 +403,12 @@ impl<T: Num, const S: usize> Mat<T, S> {
         }
         Ok(out)
     }
-    fn cmp_scalar(&self, scalar: T, mode: &'static str) -> Result<Mat<u8, S>, MatError> {
-        let out = unsafe { Mat::<u8, S>::empty(&self.pro_que, self.shape)? };
-        let kernel = self.pro_que.pro_que.kernel_builder(format!("{}_scalar_cmp_{}", T::opencl_type_str(), mode))
-            .arg(&self.buff)
-            .arg(&scalar)
-            .arg(&out.buff)
-            .global_work_size(self.size())
-            .build()?;
-        unsafe {
-            kernel.cmd().enq()?;
-        }
-        Ok(out)
-    }
-    fn cmp_mat(&self, other: &Self, mode: &'static str) -> Result<Mat<u8, S>, MatError> {
+    fn mat_cmp_mat(&self, other: &Self, mode: &'static str) -> Result<Mat<u8, S>, MatError> {
         if self.shape != other.shape {
             Err(MatError::IncompatibleShapes(self.shape.to_vec(), other.shape.to_vec()))
         } else {
             let out = unsafe { Mat::<u8, S>::empty(&self.pro_que, self.shape)? };
-            let kernel = self.pro_que.pro_que.kernel_builder(format!("{}_cmp_{}",T::opencl_type_str(), mode))
+            let kernel = self.pro_que.pro_que.kernel_builder(format!("{}_mat_cmp_mat_{}", T::opencl_type_str(), mode))
                 .arg(&self.buff)
                 .arg(&other.buff)
                 .arg(&out.buff)
@@ -418,40 +421,138 @@ impl<T: Num, const S: usize> Mat<T, S> {
         }
     }
     pub fn eq_mat(&self, other: &Self) -> Result<Mat<u8, S>, MatError> {
-        self.cmp_mat(other, "eq")
+        self.mat_cmp_mat(other, "eq")
     }
     pub fn lt_mat(&self, other: &Self) -> Result<Mat<u8, S>, MatError> {
-        self.cmp_mat(other, "lt")
+        self.mat_cmp_mat(other, "lt")
     }
     pub fn le_mat(&self, other: &Self) -> Result<Mat<u8, S>, MatError> {
-        self.cmp_mat(other, "le")
+        self.mat_cmp_mat(other, "le")
     }
     pub fn gt_mat(&self, other: &Self) -> Result<Mat<u8, S>, MatError> {
-        self.cmp_mat(other, "gt")
+        self.mat_cmp_mat(other, "gt")
     }
     pub fn ge_mat(&self, other: &Self) -> Result<Mat<u8, S>, MatError> {
-        self.cmp_mat(other, "ge")
+        self.mat_cmp_mat(other, "ge")
     }
     pub fn ne_mat(&self, other: &Self) -> Result<Mat<u8, S>, MatError> {
-        self.cmp_mat(other, "ne")
+        self.mat_cmp_mat(other, "ne")
+    }
+    fn mat_cmp_scalar(&self, scalar: T, mode: &'static str) -> Result<Mat<u8, S>, MatError> {
+        let out = unsafe { Mat::<u8, S>::empty(&self.pro_que, self.shape)? };
+        let kernel = self.pro_que.pro_que.kernel_builder(format!("{}_scalar_cmp_{}", T::opencl_type_str(), mode))
+            .arg(&self.buff)
+            .arg(&scalar)
+            .arg(&out.buff)
+            .global_work_size(self.size())
+            .build()?;
+        unsafe {
+            kernel.cmd().enq()?;
+        }
+        Ok(out)
     }
     pub fn eq_scalar(&self, other: T) -> Result<Mat<u8, S>, MatError> {
-        self.cmp_scalar(other, "eq")
+        self.mat_cmp_scalar(other, "eq")
     }
     pub fn lt_scalar(&self, other: T) -> Result<Mat<u8, S>, MatError> {
-        self.cmp_scalar(other, "lt")
+        self.mat_cmp_scalar(other, "lt")
     }
     pub fn le_scalar(&self, other: T) -> Result<Mat<u8, S>, MatError> {
-        self.cmp_scalar(other, "le")
+        self.mat_cmp_scalar(other, "le")
     }
     pub fn gt_scalar(&self, other: T) -> Result<Mat<u8, S>, MatError> {
-        self.cmp_scalar(other, "gt")
+        self.mat_cmp_scalar(other, "gt")
     }
     pub fn ge_scalar(&self, other: T) -> Result<Mat<u8, S>, MatError> {
-        self.cmp_scalar(other, "ge")
+        self.mat_cmp_scalar(other, "ge")
     }
     pub fn ne_scalar(&self, other: T) -> Result<Mat<u8, S>, MatError> {
-        self.cmp_scalar(other, "ne")
+        self.mat_cmp_scalar(other, "ne")
+    }
+    fn unary_mat(&mut self, mode: &'static str) -> Result<(), MatError> {
+        let kernel = self.pro_que.pro_que.kernel_builder(format!("{}_unary_mat_{}", T::opencl_type_str(), mode))
+            .arg(&self.buff)
+            .global_work_size(self.size())
+            .build()?;
+        unsafe {
+            kernel.cmd().enq()?;
+        }
+        Ok(())
+    }
+    pub fn abs(&mut self) -> Result<(), MatError> {
+        self.unary_mat(if T::IS_FLOAT {"fabs"}else{"abs"})
+    }
+    fn scalar_to_lhs_mat(&mut self, scalar: T, mode: &'static str) -> Result<(), MatError> {
+        let kernel = self.pro_que.pro_que.kernel_builder(format!("{}_scalar_to_lhs_mat_{}", T::opencl_type_str(), mode))
+            .arg(&self.buff)
+            .arg(&scalar)
+            .global_work_size(self.size())
+            .build()?;
+        unsafe {
+            kernel.cmd().enq()?;
+        }
+        Ok(())
+    }
+    pub fn fill(&mut self, scalar:T) -> Result<(), MatError> {
+        self.scalar_to_lhs_mat(scalar, "fill")
+    }
+    pub fn add_scalar(&mut self, scalar:T) -> Result<(), MatError> {
+        self.scalar_to_lhs_mat(scalar, "add")
+    }
+    pub fn sub_scalar(&mut self, scalar:T) -> Result<(), MatError> {
+        self.scalar_to_lhs_mat(scalar, "sub")
+    }
+    pub fn mul_scalar(&mut self, scalar:T) -> Result<(), MatError> {
+        self.scalar_to_lhs_mat(scalar, "mul")
+    }
+    pub fn div_scalar(&mut self, scalar:T) -> Result<(), MatError> {
+        self.scalar_to_lhs_mat(scalar, "div")
+    }
+    pub fn min_scalar(&mut self, scalar:T) -> Result<(), MatError> {
+        self.scalar_to_lhs_mat(scalar, "min")
+    }
+    pub fn max_scalar(&mut self, scalar:T) -> Result<(), MatError> {
+        self.scalar_to_lhs_mat(scalar, "max")
+    }
+    fn mat_to_lhs_mat(&mut self, other: &Self, mode: &'static str) -> Result<(), MatError> {
+        if self.shape != other.shape {
+            Err(MatError::IncompatibleShapes(self.shape.to_vec(), other.shape.to_vec()))
+        } else {
+            let mut kernel = self.pro_que.pro_que.kernel_builder(format!("{}_mat_to_lhs_mat{}_{}", T::opencl_type_str(),S, mode));
+            kernel.arg(&self.buff)
+                .arg(&other.buff);
+            let size = Self::add_dim_args(&mut kernel, &self.shape);
+            self.add_stride_args(&mut kernel, 0..S);
+            other.add_stride_args(&mut kernel, 0..S);
+            kernel.global_work_size(size);
+
+            let kernel = kernel.build()?;
+            unsafe {
+                kernel.cmd().enq()?;
+            }
+            Ok(())
+        }
+    }
+    pub fn copy_from(&mut self, other:&Self) -> Result<(), MatError> {
+        self.mat_to_lhs_mat(other,"copy")
+    }
+    pub fn add_mat(&mut self, other:&Self) -> Result<(), MatError> {
+        self.mat_to_lhs_mat(other,"add")
+    }
+    pub fn div_mat(&mut self, other:&Self) -> Result<(), MatError> {
+        self.mat_to_lhs_mat(other,"div")
+    }
+    pub fn mul_mat(&mut self, other:&Self) -> Result<(), MatError> {
+        self.mat_to_lhs_mat(other,"hadamard")
+    }
+    pub fn sub_mat(&mut self, other:&Self) -> Result<(), MatError> {
+        self.mat_to_lhs_mat(other,"sub")
+    }
+    pub fn min_mat(&mut self, other:&Self) -> Result<(), MatError> {
+        self.mat_to_lhs_mat(other,"min")
+    }
+    pub fn max_mat(&mut self, other:&Self) -> Result<(), MatError> {
+        self.mat_to_lhs_mat(other,"max")
     }
     pub fn sum(&self) -> Result<T, MatError> {
         // let kernel = self.pro_que.pro_que.kernel_builder("aggregate_sum")
@@ -462,8 +563,39 @@ impl<T: Num, const S: usize> Mat<T, S> {
         //     .build()?;
         Ok(T::zero())
     }
-    /**scalar multiplication*/
-    pub fn mul_in_place(&mut self, scalar: T) {}
+}
+
+impl<const S: usize> Mat<f32, S> {
+    pub fn sin(&mut self) -> Result<(), MatError> {
+        self.unary_mat("sin")
+    }
+    pub fn cos(&mut self) -> Result<(), MatError> {
+        self.unary_mat("cos")
+    }
+    pub fn tan(&mut self) -> Result<(), MatError> {
+        self.unary_mat("tan")
+    }
+    pub fn tanh(&mut self) -> Result<(), MatError> {
+        self.unary_mat("tanh")
+    }
+    pub fn exp(&mut self) -> Result<(), MatError> {
+        self.unary_mat("exp")
+    }
+    pub fn exp2(&mut self) -> Result<(), MatError> {
+        self.unary_mat("exp2")
+    }
+    pub fn exp10(&mut self) -> Result<(), MatError> {
+        self.unary_mat("exp10")
+    }
+    pub fn log(&mut self) -> Result<(), MatError> {
+        self.unary_mat("log")
+    }
+    pub fn log2(&mut self) -> Result<(), MatError> {
+        self.unary_mat("log2")
+    }
+    pub fn log10(&mut self) -> Result<(), MatError> {
+        self.unary_mat("log10")
+    }
 }
 
 impl<T: Num, const S: usize> Display for Mat<T, S> {
@@ -484,11 +616,143 @@ impl<T: Num, const S: usize> PartialEq for Mat<T, S> {
             false
         } else {
             let b = self.ne_mat(other).unwrap();
-            b.sum().unwrap()==0 // the number of different elements is zero, hence matrices are equal
+            b.sum().unwrap() == 0 // the number of different elements is zero, hence matrices are equal
         }
     }
 }
 
+impl<T: Num, const S: usize> Add<&Self> for Mat<T, S> {
+    type Output = Mat<T, S>;
+
+    fn add(mut self, rhs: &Self) -> Self::Output {
+        self.add_mat(rhs).unwrap();
+        self
+    }
+}
+
+impl<T: Num, const S: usize> Sub<&Self> for Mat<T, S> {
+    type Output = Mat<T, S>;
+
+    fn sub(mut self, rhs: &Self) -> Self::Output {
+        self.sub_mat(rhs).unwrap();
+        self
+    }
+}
+
+impl<T: Num, const S: usize> Div<&Self> for Mat<T, S> {
+    type Output = Mat<T, S>;
+
+    fn div(mut self, rhs: &Self) -> Self::Output {
+        self.div_mat(rhs).unwrap();
+        self
+    }
+}
+
+impl<T: Num, const S: usize> Mul<&Self> for Mat<T, S> {
+    type Output = Mat<T, S>;
+
+    fn mul(mut self, rhs: &Self) -> Self::Output {
+        self.mul_mat(rhs).unwrap();
+        self
+    }
+}
+
+
+
+
+impl<T: Num, const S: usize> Add<T> for Mat<T, S> {
+    type Output = Mat<T, S>;
+
+    fn add(mut self, rhs: T) -> Self::Output {
+        self.add_scalar(rhs).unwrap();
+        self
+    }
+}
+
+impl<T: Num, const S: usize> Sub<T> for Mat<T, S> {
+    type Output = Mat<T, S>;
+
+    fn sub(mut self, rhs: T) -> Self::Output {
+        self.sub_scalar(rhs).unwrap();
+        self
+    }
+}
+
+impl<T: Num, const S: usize> Div<T> for Mat<T, S> {
+    type Output = Mat<T, S>;
+
+    fn div(mut self, rhs: T) -> Self::Output {
+        self.div_scalar(rhs).unwrap();
+        self
+    }
+}
+
+impl<T: Num, const S: usize> Mul<T> for Mat<T, S> {
+    type Output = Mat<T, S>;
+
+    fn mul(mut self, rhs: T) -> Self::Output {
+        self.mul_scalar(rhs).unwrap();
+        self
+    }
+}
+
+
+
+impl<T: Num, const S: usize> AddAssign<&Self> for Mat<T, S> {
+    fn add_assign(&mut self, rhs: &Self) {
+        self.add_mat(rhs).unwrap()
+    }
+}
+
+impl<T: Num, const S: usize> SubAssign<&Self> for Mat<T, S> {
+
+    fn sub_assign(&mut self, rhs: &Self){
+        self.sub_mat(rhs).unwrap()
+    }
+}
+
+impl<T: Num, const S: usize> DivAssign<&Self> for Mat<T, S> {
+
+    fn div_assign(&mut self, rhs: &Self) {
+        self.div_mat(rhs).unwrap()
+    }
+}
+
+impl<T: Num, const S: usize> MulAssign<&Self> for Mat<T, S> {
+
+    fn mul_assign(&mut self, rhs: &Self){
+        self.mul_mat(rhs).unwrap()
+    }
+}
+
+
+
+impl<T: Num, const S: usize> AddAssign<T> for Mat<T, S> {
+    fn add_assign(&mut self, rhs: T) {
+        self.add_scalar(rhs).unwrap()
+    }
+}
+
+impl<T: Num, const S: usize> SubAssign<T> for Mat<T, S> {
+
+    fn sub_assign(&mut self, rhs: T){
+        self.sub_scalar(rhs).unwrap()
+    }
+}
+
+impl<T: Num, const S: usize> DivAssign<T> for Mat<T, S> {
+
+    fn div_assign(&mut self, rhs: T) {
+        self.div_scalar(rhs).unwrap()
+    }
+}
+
+impl<T: Num, const S: usize> MulAssign<T> for Mat<T, S> {
+
+    fn mul_assign(&mut self, rhs: T){
+        self.mul_scalar(rhs).unwrap()
+    }
+}
 
 // impl<T: Num, const S: usize> Index<[usize; S]> for Mat<T, S> {
 //     type Output = T;
