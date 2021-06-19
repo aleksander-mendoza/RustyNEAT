@@ -323,4 +323,125 @@ mod tests {
         assert_eq!(m1.to_vec().unwrap(), vec![0, 2, 25, 250, 2500, 25000, 250000, 2500000], "m1");
         Ok(())
     }
+
+    #[test]
+    fn test_view() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::array3(&p, [[[1, 10], [100, 1000]], [[10000, 100000], [1000000, 10000000]]])?;
+        let m2 = m1.v3(0,..,..);
+        assert_eq!(m2.to_vec().unwrap(), vec![1, 10, 100, 1000], "m1");
+        Ok(())
+    }
+    #[test]
+    fn test_view2() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::array3(&p, [[[1, 10], [100, 1000]], [[10000, 100000], [1000000, 10000000]]])?;
+        let m2 = m1.v3(1,..,..);
+        assert_eq!(m2.to_vec().unwrap(), vec![10000, 100000, 1000000, 10000000], "m1");
+        Ok(())
+    }
+    #[test]
+    fn test_view3() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::array3(&p, [[[1, 10], [100, 1000]], [[10000, 100000], [1000000, 10000000]]])?;
+        let m2 = m1.v3(..,..,..);
+        assert_eq!(m2.to_vec().unwrap(), vec![1, 10, 100, 1000, 10000, 100000, 1000000, 10000000], "m1");
+        Ok(())
+    }
+    #[test]
+    fn test_view4() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::array3(&p, [[[1, 10], [100, 1000]], [[10000, 100000], [1000000, 10000000]]])?;
+        let m2 = m1.v3(..,1,..).copy()?;
+        assert_eq!(m2.to_vec().unwrap(), vec![100,     1000,  1000000, 10000000], "m1");
+        Ok(())
+    }
+    #[test]
+    fn test_view5() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::array3(&p, [[[1, 10], [100, 1000]], [[10000, 100000], [1000000, 10000000]]])?;
+        let m2 = m1.v3(..,0,..).copy()?;
+        assert_eq!(m2.to_vec().unwrap(), vec![1,     10,  10000, 100000], "m1");
+        Ok(())
+    }
+    #[test]
+    fn test_view6() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::array3(&p, [[[1, 10], [100, 1000]], [[10000, 100000], [1000000, 10000000]]])?;
+        let m2 = m1.v3(..,..,0).copy()?;
+        assert_eq!(m2.to_vec().unwrap(), vec![1,     100,   10000, 1000000], "m1");
+        Ok(())
+    }
+    #[test]
+    fn test_view7() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::array3(&p, [[[1, 10], [100, 1000]], [[10000, 100000], [1000000, 10000000]]])?;
+        let m2 = m1.v3(..,..,1).copy()?;
+        assert_eq!(m2.to_vec().unwrap(), vec![10,     1000,   100000, 10000000], "m1");
+        Ok(())
+    }
+    #[test]
+    fn test_view8() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::array3(&p, [[[1, 10], [100, 1000]], [[10000, 100000], [1000000, 10000000]]])?;
+        let m2 = m1.v3(..,1..,1..).copy()?;
+        assert_eq!(m2.to_vec().unwrap(), vec![1000, 10000000], "m1");
+        Ok(())
+    }
+    #[test]
+    fn test_view9() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::array3(&p, [[[1, 10], [100, 1000]], [[10000, 100000], [1000000, 10000000]]])?;
+        let m2 = m1.v3(1..,1..,1..).copy()?;
+        assert_eq!(m2.to_vec().unwrap(), vec![10000000], "m1");
+        Ok(())
+    }
+    #[test]
+    fn test_reshape1() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::array1(&p, [0,1,2,3,4,5])?;
+        let m2 = m1.reshape2(2,3)?.v1(0);
+        assert_eq!(m2.to_vec().unwrap(), vec![0,1,2], "m1");
+        Ok(())
+    }
+    #[test]
+    fn test_reshape2() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::array1(&p, [0,1,2,3,4,5])?;
+        let m2 = m1.reshape2(2,3)?.v1(1);
+        assert_eq!(m2.to_vec().unwrap(), vec![3,4,5], "m1");
+        Ok(())
+    }
+    #[test]
+    fn test_reshape3() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::array1(&p, [0,1,2,3,4,5])?;
+        let m2 = m1.reshape2(2,3)?.v2(..,0).copy()?;
+        assert_eq!(m2.to_vec().unwrap(), vec![0,3], "m1");
+        Ok(())
+    }
+    #[test]
+    fn test_reshape4() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::array1(&p, [0,1,2,3,4,5])?;
+        let m2 = m1.reshape2(2,3)?.v2(..,1).copy()?;
+        assert_eq!(m2.to_vec().unwrap(), vec![1,4], "m1");
+        Ok(())
+    }
+    #[test]
+    fn test_reshape5() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::array1(&p, [0,1,2,3,4,5])?;
+        let m2 = m1.reshape2(2,3)?.v2(..,2).copy()?;
+        assert_eq!(m2.to_vec().unwrap(), vec![2,5], "m1");
+        Ok(())
+    }
+    #[test]
+    fn test_reshape6() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::array1(&p, [0,1,2,3,4,5])?;
+        let m2 = m1.reshape2(2,3)?.v2(1..,1..);
+        assert_eq!(m2.to_vec().unwrap(), vec![4,5], "m1");
+        Ok(())
+    }
 }
