@@ -263,29 +263,37 @@ assert max_fitness > -2  # If everything is implemented correctly, this result s
 
 # RustyNEAT comes with GPU support. What's more is that instead of CUDA, it uses
 # OpenCL as it's backend and can work with any hardware. You can query installed OpenCL
-# platforms using
-platform_list = rusty_neat.platforms()
+# platforms and available devices with
+platform_list = rusty_neat.devices()
 assert len(platform_list) > 0, "No OpenCL available!"
 
-# You can also get a list of all available computing devices (both GPUs and CPUs)
-device_list = rusty_neat.devices()
-assert len(device_list) > 0
+# You can get the default platform by
+(platform, device) = platform_list[0]
+# Then you can use it to instantiate OpenCL context.
+context = rusty_neat.make_new_context(platform, device)
+# You can later query this information using
+assert context.platform() == platform
+assert context.device() == device
 
-# You can get the default platform by either
-platform = platform_list[0]
-# or just
-platform = rusty_neat.Platform()
-assert rusty_neat.Platform() == platform_list[0]
+# You can even get additional details with
+print(context.platform_info())
+print(context.device_info())
 
-# If you have multiple versions of OpenCL installed, then you may query devices
-# accessible to a specific version
-assert rusty_neat.devices(platform_list[0]) == rusty_neat.devices()
+# Alternatively you can create a default context by omitting one or both parameters
+context = rusty_neat.make_new_context()
+assert context.platform() == platform
+assert context.device() == device
 
-# You can also easily get the default device
-device = rusty_neat.Device()  # If you have a GPU, it will be taken as the default instead of CPU
+# You may also want to get the default context for a specific type of device
+# like CPU
+context = rusty_neat.make_cpu_context()
+assert context.platform() == platform
+assert context.device() == device
+# or the default GPU
+context = rusty_neat.make_gpu_context()  # could fail if you don't have GPU
 
 # You can compile your feed-forward network to run on GPU
-gpu_net = net.to(platform=platform, device=device)
+gpu_net = net.to(context)
 out = net([1, 2, 3, 4])  # This was computer on CPU
 gpu_out = gpu_net([1, 2, 3, 4])  # This was computer on GPU
 assert gpu_out == out

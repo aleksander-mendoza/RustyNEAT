@@ -44,7 +44,7 @@ impl Display for DTypeEnum {
     }
 }
 
-pub trait DynMatTrait {
+pub trait DynMatTrait : Display{
     fn dtype(&self) -> DTypeEnum;
     fn dtype_size(&self) -> usize;
     fn untyped_mat(&self) -> &Mat<u8>;
@@ -310,4 +310,24 @@ pub fn array(array: &PyAny, context: &NeatContext, dtype: Option<DType>) -> PyRe
         DTypeEnum::i64 => e!(i64),
         DTypeEnum::f32 => e!(f32),
     }.map_err(ocl_err_to_py_ex)
+}
+
+
+
+#[pyproto]
+impl PyObjectProtocol for DynMat {
+    // fn __richcmp__(&self, other: PyRef<NeatContext>, op: CompareOp) -> PyResult<bool> {
+    //     let eq = self.c.device() == other.c.device() && self.c.platform().as_core()==other.c.platform().as_core();
+    //     match op {
+    //         CompareOp::Eq => Ok(eq),
+    //         CompareOp::Ne => Ok(!eq),
+    //         op => Err(ocl_err_to_py_ex("Cannot compare platforms"))
+    //     }
+    // }
+    fn __str__(&self) -> PyResult<String> {
+        Ok(format!("{}", self.m))
+    }
+    fn __repr__(&self) -> PyResult<String> {
+        self.__str__()
+    }
 }

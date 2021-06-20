@@ -19,6 +19,14 @@ mod tests {
     use crate::kernel::LinAlgProgram;
 
     #[test]
+    fn test_mat_null() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::<f32>::null(&p)?;
+        assert_eq!(m1.to_string(), "[]");
+        Ok(())
+    }
+
+    #[test]
     fn test_mat0() -> Result<(), String> {
         let p = LinAlgProgram::gpu()?;
         let m1 = Mat::array2(&p, [[1, 10], [100, 1000]])?;
@@ -29,9 +37,11 @@ mod tests {
         assert_eq!(m1.to_vec().unwrap(), vec![1, 10, 100, 1000], "m1");
         assert_eq!(m2.to_vec().unwrap(), vec![2, 3, 4, 5], "m2");
         assert_eq!(m3.to_vec().unwrap(), vec![42, 53, 4200, 5300], "m3");
+        assert_eq!(m3.to_string(), "[[42, 53], [4200, 5300]]");
         assert_eq!(m3, Mat::array2(&p, [[42, 53], [4200, 5300]])?);
         Ok(())
     }
+
 
     #[test]
     fn test_mat1() -> Result<(), String> {
@@ -44,6 +54,7 @@ mod tests {
         assert_eq!(m1.to_vec().unwrap(), vec![1, 2, 3, 4], "m1");
         assert_eq!(m2.to_vec().unwrap(), vec![1, 2, 3, 4], "m2");
         assert_eq!(m3.to_vec().unwrap(), vec![7, 10, 15, 22], "m3");
+        assert_eq!(m3.to_string(), "[[7, 10], [15, 22]]");
         assert_eq!(m3, Mat::array2(&p, [[1, 2], [3, 4]])?);
         Ok(())
     }
@@ -60,6 +71,7 @@ mod tests {
         assert_eq!(m2.to_vec().unwrap(), vec![0, 1, 2, 3, 4, 5, 6, 7], "m2");
         assert_eq!(m3.to_vec().unwrap(), vec![4, 7, 8, 15, 56, 67, 76, 91], "m3");
         assert_eq!(m3, Mat::array3(&p, [[[4, 7], [8, 15]], [[56, 67], [76, 91]]])?);
+        assert_eq!(m3.to_string(), "[[[4, 7], [8, 15]], [[56, 67], [76, 91]]]");
         Ok(())
     }
 
