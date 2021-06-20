@@ -62,7 +62,7 @@ __kernel void {t}_mm{dims}(
                 size_t rhs_i_stride,
                 size_t rhs_k_stride,
                 size_t out_j_stride,
-                size_t out_k_stride", dims = dims, t = N::opencl_type_str())?;
+                size_t out_k_stride", dims = dims, t = N::OPENCL_TYPE_STR)?;
         source_stride_arguments(fmt, _p, "dim_s", &["lhs_s", "rhs_s", "out_s"], dims - 2)?;
         write!(fmt, "){{
     size_t j = get_global_id(0);
@@ -80,7 +80,7 @@ __kernel void {t}_mm{dims}(
     }}
     out[out_offset] = sum;
 }}
-", t = N::opencl_type_str())?;
+", t = N::OPENCL_TYPE_STR)?;
     }
     Ok(())
 }
@@ -112,7 +112,7 @@ __kernel void {t}_aggregate_sum(__global const {t} *input, // https://dournac.or
   if (local_id == 0)
     partialSums[get_group_id(0)] = localSums[0];
  }}
-", t = N::opencl_type_str())
+", t = N::OPENCL_TYPE_STR)
 }
 
 fn source_clamp<N: Num>(fmt: &mut Formatter<'_>, _p: PhantomData<N>) -> std::fmt::Result {
@@ -121,7 +121,7 @@ __kernel void {t}_scalar_mat_clamp(__global {t} * mat, {t} min_val, {t} max_val)
     size_t i = get_global_id(0);
     mat[i] = max(min(mat[i], max_val), min_val);
 }}
-", t = N::opencl_type_str())
+", t = N::OPENCL_TYPE_STR)
 }
 
 fn source_scalar_to_lhs_mat<N: Num>(fmt: &mut Formatter<'_>, _p: PhantomData<N>) -> std::fmt::Result {
@@ -130,7 +130,7 @@ fn source_scalar_to_lhs_mat<N: Num>(fmt: &mut Formatter<'_>, _p: PhantomData<N>)
 __kernel void {t}_scalar_to_lhs_mat_{name}(__global {t} * lhs, {t} scalar){{
     lhs[get_global_id(0)] {built_in}= scalar;
 }}
-", built_in = built_in, name = name, t = N::opencl_type_str())?;
+", built_in = built_in, name = name, t = N::OPENCL_TYPE_STR)?;
     }
     for built_in in ["min", "max"] {
         write!(fmt, "
@@ -138,7 +138,7 @@ __kernel void {t}_scalar_to_lhs_mat_{built_in}(__global {t} * mat, {t} scalar){{
     size_t i = get_global_id(0);
     mat[i] = {built_in}(mat[i], scalar);
 }}
-", built_in = built_in, t = N::opencl_type_str())?;
+", built_in = built_in, t = N::OPENCL_TYPE_STR)?;
     }
     Ok(())
 }
@@ -147,7 +147,7 @@ fn source_mat_to_lhs_mat<N: Num>(fmt: &mut Formatter<'_>, _p: PhantomData<N>) ->
     for dims in 0..=MAX_MAT_DIMS {
         for (built_in, name) in [("", "copy"), ("/", "div"), ("*", "hadamard"), ("-", "sub"), ("+", "add"), ("min", "min"), ("max", "max")] {
             write!(fmt, "
-__kernel void {t}_mat_to_lhs_mat{dims}_{name}(__global {t} * lhs, __global {t} * rhs", dims = dims, name = name, t = N::opencl_type_str())?;
+__kernel void {t}_mat_to_lhs_mat{dims}_{name}(__global {t} * lhs, __global {t} * rhs", dims = dims, name = name, t = N::OPENCL_TYPE_STR)?;
             source_stride_arguments(fmt, _p, "dim", &["lhs", "rhs"], dims)?;
             write!(fmt, "){{
     size_t s = get_global_id(0);")?;
@@ -175,7 +175,7 @@ __kernel void {t}_unary_mat_{built_in}(__global {t} * mat){{
     size_t i = get_global_id(0);
     mat[i] = {built_in}(mat[i]);
 }}
-", built_in = built_in, t = N::opencl_type_str())?;
+", built_in = built_in, t = N::OPENCL_TYPE_STR)?;
         }
     }
     Ok(())
@@ -187,7 +187,7 @@ fn source_mat_cmp_mat<N: Num>(fmt: &mut Formatter<'_>, _p: PhantomData<N>) -> st
 __kernel void {t}_mat_cmp_mat_{name}(__global {t} * lhs, __global {t} * rhs, __global uchar * out){{
     size_t i = get_global_id(0);
     out[i] = lhs[i] {op} rhs[i];
-}}", name = name, op = op, t = N::opencl_type_str())?;
+}}", name = name, op = op, t = N::OPENCL_TYPE_STR)?;
     }
     Ok(())
 }
@@ -198,7 +198,7 @@ fn source_mat_cmp_scalar<N: Num>(fmt: &mut Formatter<'_>, _p: PhantomData<N>) ->
 __kernel void {t}_mat_cmp_scalar_{name}(__global {t} * mat, {t} scalar, __global uchar * out){{
     size_t i = get_global_id(0);
     out[i] = mat[i] {op} scalar;
-}}", name = name, op = op, t = N::opencl_type_str())?;
+}}", name = name, op = op, t = N::OPENCL_TYPE_STR)?;
     }
     Ok(())
 }

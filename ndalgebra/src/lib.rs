@@ -4,11 +4,11 @@
 #![feature(array_map)]
 #![feature(const_generics)]
 #![feature(const_evaluatable_checked)]
+#![feature(new_uninit)]
 
 pub mod mat;
 pub mod num;
 pub mod kernel;
-
 
 #[cfg(test)]
 mod tests {

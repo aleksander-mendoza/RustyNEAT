@@ -196,7 +196,8 @@ mod tests {
     use crate::gpu::{FeedForwardNetOpenCL, FeedForwardNetPicbreeder};
     use rand::random;
     use ocl::core::default_platform;
-    use crate::{opencl_default_platform, default_device};
+    use crate::context::NeatContext;
+    use ndalgebra::mat::{Mat, MatError};
 
     #[test]
     fn cppn_1() {
@@ -225,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn cppn_4() -> Result<(), ocl::error::Error> {
+    fn cppn_4() -> Result<(), MatError> {
         let mut neat = Neat::new_default(3, 4);
         let cppn = neat.new_cppn::<f32>();
         let net = cppn.build_feed_forward_net();
@@ -233,18 +234,17 @@ mod tests {
         let input = [4f32, 5.0, 5.0];
         net.run(&input, &mut out);
         println!("{}", net);
-        let p = crate::opencl_default_platform();
-        let gpu = FeedForwardNetOpenCL::new(&net, p, crate::default_device(&p).unwrap())?;
-        let out3 = gpu.run(&input, true)?;
-        assert_eq!(out, out3.as_slice(), "row major");
-        let out2 = gpu.run(&input, false)?;
-        assert_eq!(out, out2.as_slice(), "column major");
+        let p = NeatContext::default()?;
+        let gpu = FeedForwardNetOpenCL::new(&p,&net)?;
+        let i = Mat::from_slice_infer_wildcard(p.lin_alg(),&input,&[1, -1])?;
+        let out3 = gpu.run(&i)?;
+        assert_eq!(out, out3.to_vec()?.as_slice());
 
         Ok(())
     }
 
     #[test]
-    fn cppn_5() -> Result<(), ocl::error::Error> {
+    fn cppn_5() -> Result<(), MatError> {
         let mut neat = Neat::new_default(3, 4);
         let cppn = neat.new_cppn::<f32>();
         let net = cppn.build_feed_forward_net();
@@ -252,22 +252,20 @@ mod tests {
         let input = [0f32, 1.0, 2.0, 3.0, 4.0, 5.0];
         net.run(&input[0..3], &mut out[0..4]);
         net.run(&input[3..6], &mut out[4..8]);
+
         println!("{}", net);
-        let p = crate::opencl_default_platform();
-        let gpu = FeedForwardNetOpenCL::new(&net, p, crate::default_device(&p).unwrap())?;
-        let out3 = gpu.run(&input, true)?;
-        assert_eq!(out, out3.as_slice(), "row major");
-        let input = [0f32, 3.0, 1.0, 4.0, 2.0, 5.0];
-        let out2 = gpu.run(&input, false)?;
-        let mut out_transposed = [out[0], out[4], out[1], out[5], out[2], out[6], out[3], out[7]];
-        assert_eq!(out_transposed, out2.as_slice(), "column major");
+        let p = NeatContext::default()?;
+        let input = Mat::array1(p.lin_alg(),input)?.reshape2(2,3)?;
+        let gpu = FeedForwardNetOpenCL::new(&p, &net)?;
+        let out3 = gpu.run(&input)?;
+        assert_eq!(out, out3.to_vec()?.as_slice());
 
         Ok(())
     }
 
 
     #[test]
-    fn cppn_6() -> Result<(), ocl::error::Error> {
+    fn cppn_6() -> Result<(), MatError> {
         let mut neat = Neat::new_default(2, 1);
         let cppn = neat.new_cppn::<f32>();
         let net = cppn.build_feed_forward_net();
@@ -281,15 +279,16 @@ mod tests {
         net.run(&[1f32, 1.0], &mut out[3..4]);
         println!("{}", net);
         println!("{}", net.picbreeder_view(None, false).unwrap());
-        let p = crate::opencl_default_platform();
-        let gpu = FeedForwardNetPicbreeder::new(&net, None, false, p, crate::default_device(&p).unwrap())?;
+        let p = NeatContext::default()?;
+        let gpu = FeedForwardNetPicbreeder::new(&p, &net, None, false)?;
         let out2 = gpu.run(&dimensions, &pixel_sizes, &pixel_offsets)?;
-        assert_eq!(out, out2.as_slice());
+        assert_eq!(out2.shape(), &[2,2,1]);
+        assert_eq!(out, out2.to_vec()?.as_slice());
         Ok(())
     }
 
     #[test]
-    fn cppn_7() -> Result<(), ocl::error::Error> {
+    fn cppn_7() -> Result<(), MatError> {
         let mut neat = Neat::new_default(3, 2);
         let cppn = neat.new_cppn::<f32>();
         let net = cppn.build_feed_forward_net();
@@ -307,15 +306,16 @@ mod tests {
         net.run(&[1f32 * pixel_sizes[0] + pixel_offsets[0], 1.0 * pixel_sizes[1] + pixel_offsets[1], 1. * pixel_sizes[2] + pixel_offsets[2]], &mut out[14..16]);
         println!("{}", net);
         println!("{}", net.picbreeder_view(None,false).unwrap());
-        let p = crate::opencl_default_platform();
-        let gpu = FeedForwardNetPicbreeder::new(&net, None, false, p, crate::default_device(&p).unwrap())?;
+        let p = NeatContext::default()?;
+        let gpu = FeedForwardNetPicbreeder::new(&p, &net, None, false)?;
         let out2 = gpu.run(&dimensions, &pixel_sizes, &pixel_offsets)?;
-        assert_eq!(out, out2.as_slice());
+        assert_eq!(out2.shape(), &[2,2,2,2]);
+        assert_eq!(out, out2.to_vec()?.as_slice());
         Ok(())
     }
 
     #[test]
-    fn cppn_8() {
+    fn cppn_8()-> Result<(), MatError> {
         let mut neat = Neat::new_default(3, 3);
         let mut cppns = neat.new_cppns::<f32>(16);
         for _ in 0..10 {
@@ -329,23 +329,25 @@ mod tests {
 
         }
         let crossed_over = cppns[0].crossover(&cppns[1]);
+        Ok(())
     }
 
     #[test]
-    fn cppn_9() {
+    fn cppn_9() -> Result<(), MatError>{
         let mut neat = Neat::new_default(4, 1);
         let mut cppn = neat.new_cppn::<f32>();
         for _ in 0..16 {
             neat.mutate(&mut cppn, 0.1, 0.2, 0.1, 0.1, 0.1, 0.01);
         }
         let net = cppn.build_feed_forward_net();
-        let p = opencl_default_platform();
-        let d = default_device(&p).unwrap();
+        let p = NeatContext::default()?;
         println!("{}",net.substrate_view(2,2).unwrap());
-        let gpu_net = net.to_substrate(2,Some(2),p,d).unwrap();
+        let gpu_net = net.to_substrate(2,Some(2),&p)?;
         let in_neurons = [1f32,2.,3.,4.,5.,6.];
         let out_neurons = [0.1f32,0.2,0.3,0.4,0.5,0.6];
-        let ann = gpu_net.run(&in_neurons,&out_neurons,3,1,1,1,1,2,2).unwrap();
+        let ann = gpu_net.run(
+            &Mat::from_slice(p.lin_alg(),&in_neurons,&[3,2])?,
+            &Mat::from_slice(p.lin_alg(),&out_neurons,&[3,2])?)?;
         let mut ann2 = [0f32;3*3];
         for (row, i) in in_neurons.chunks(2).enumerate(){
             for (col, o) in out_neurons.chunks(2).enumerate(){
@@ -354,6 +356,7 @@ mod tests {
                 net.run(&input,&mut ann2[idx..idx+1]);
             }
         }
-        assert_eq!(ann2,ann.as_slice());
+        assert_eq!(ann2,ann.to_vec()?.as_slice());
+        Ok(())
     }
 }

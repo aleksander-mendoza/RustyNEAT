@@ -52,7 +52,8 @@ mod tests {
     use num_traits::real::Real;
     use rand::Rng;
     use ocl::{SpatialDims, Platform, Device, Context, Program, Queue, Buffer, flags, Kernel, ProQue};
-    use ocl::core::BufferRegion;
+    use ocl::core::{BufferRegion};
+    use std::ffi::CString;
 
     #[test]
     fn test_tch() -> ocl::Result<()> {
@@ -125,6 +126,66 @@ mod tests {
         out_buffer.read(&mut vec).enq()?;
 
         println!("The value at index [{}] is now '{}'!", 4, vec[4]);
+        Ok(())
+    }
+
+
+    #[test]
+    fn test_tch_share_buff_between_progs() -> ocl::Result<()> {
+        use std::ffi::CString;
+        use ocl::{core, flags};
+        use ocl::enums::ArgVal;
+        use ocl::builders::ContextProperties;
+
+        let src = r#"
+        __kernel void fill(__global float * buff) {
+            buff[get_global_id(0)] = 1.0;
+        }
+    "#;
+
+        let platform_id = core::default_platform()?;
+        let device_ids = core::get_device_ids(&platform_id, None, None)?;
+        let device_id = device_ids[0];
+        let context_properties = ContextProperties::new().platform(platform_id);
+        let context = core::create_context(Some(&context_properties), &[device_id], None, None)?;
+        let src_cstring = CString::new(src)?;
+        let program1 = core::create_program_with_source(&context, &[src_cstring])?;
+        core::build_program(&program1, Some(&[device_id]), &CString::new("")?,
+                            None, None)?;
+        let src = r#"
+        __kernel void fill(__global float * buff) {
+            buff[get_global_id(0)] = 2.0;
+        }
+    "#;
+        let src_cstring = CString::new(src)?;
+        let program2 = core::create_program_with_source(&context, &[src_cstring])?;
+        core::build_program(&program2, Some(&[device_id]), &CString::new("")?,
+                            None, None)?;
+        let queue = core::create_command_queue(&context, &device_id, None)?;
+        let buffer = unsafe { core::create_buffer(&context, flags::MEM_ALLOC_HOST_PTR, 32, None::<&[f32]>)? };
+        let fill1 = core::create_kernel(&program1, "fill")?;
+        let fill2 = core::create_kernel(&program2, "fill")?;
+        core::set_kernel_arg(&fill1, 0, ArgVal::mem(&buffer))?;
+        unsafe {
+            core::enqueue_kernel(&queue, &fill1, 1, None, &[32, 1, 1],
+                                 None, None::<core::Event>, None::<&mut core::Event>)?;
+        }
+
+        let mut vec = vec![0.0f32; 32];
+        unsafe {
+            core::enqueue_read_buffer(&queue, &buffer, true, 0, vec.as_mut_slice(),
+                                      None::<core::Event>, None::<&mut core::Event>)?;
+        }
+        assert!(vec.iter().all(|&x|x==1.0));
+
+        core::set_kernel_arg(&fill2, 0, ArgVal::mem(&buffer))?;
+        unsafe {
+            core::enqueue_kernel(&queue, &fill2, 1, None, &[32, 1, 1],
+                                 None, None::<core::Event>, None::<&mut core::Event>)?;
+            core::enqueue_read_buffer(&queue, &buffer, true, 0, vec.as_mut_slice(),
+                                      None::<core::Event>, None::<&mut core::Event>)?;
+        }
+        assert!(vec.iter().all(|&x|x==2.0));
         Ok(())
     }
 

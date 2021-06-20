@@ -8,6 +8,7 @@ use crate::activations::{ActFn};
 use ocl::{Platform, Device};
 use crate::gpu::{FeedForwardNetOpenCL, FeedForwardNetPicbreeder, FeedForwardNetSubstrate};
 use std::slice::Iter;
+use crate::context::NeatContext;
 
 
 enum EdgeOrNode<X> {
@@ -23,16 +24,16 @@ pub struct FeedForwardNet<X: Num> {
 }
 
 impl FeedForwardNet<f32>{
-    pub fn to(&self, platform: Platform, device: Device) -> Result<FeedForwardNetOpenCL, ocl::Error> {
-        FeedForwardNetOpenCL::new(self, platform, device)
+    pub fn to(&self, context:&NeatContext) -> Result<FeedForwardNetOpenCL, ocl::Error> {
+        FeedForwardNetOpenCL::new(context,self)
     }
-    pub fn to_picbreeder(&self, center: Option<&Vec<f32>>, bias: bool, platform: Platform, device: Device) -> Result<FeedForwardNetPicbreeder, ocl::Error> {
-        FeedForwardNetPicbreeder::new(self,center.map(|v|v.as_slice()),bias, platform, device)
+    pub fn to_picbreeder(&self, center: Option<&Vec<f32>>, bias: bool, context:&NeatContext) -> Result<FeedForwardNetPicbreeder, ocl::Error> {
+        FeedForwardNetPicbreeder::new(context, self,center.map(|v|v.as_slice()),bias)
     }
-    pub fn to_substrate(&self, input_dimensions: usize, output_dimensions: Option<usize>, platform: Platform, device: Device) -> Result<FeedForwardNetSubstrate, ocl::Error> {
+    pub fn to_substrate(&self, input_dimensions: usize, output_dimensions: Option<usize>, context:&NeatContext) -> Result<FeedForwardNetSubstrate, ocl::Error> {
         let expected_out_dims = self.get_input_size().checked_sub(input_dimensions).ok_or_else(|| ocl::Error::from(format!("Substrate input dimensions {} is larger than CPPN's {}", input_dimensions, self.get_input_size())))?;
         let output_dimensions = output_dimensions.unwrap_or(expected_out_dims);
-        FeedForwardNetSubstrate::new(self, input_dimensions, output_dimensions, platform, device)
+        FeedForwardNetSubstrate::new(context,self, input_dimensions, output_dimensions)
 
     }
 }
