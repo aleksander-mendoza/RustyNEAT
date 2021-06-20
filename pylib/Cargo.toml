@@ -18,7 +18,7 @@ crate-type = ["cdylib"]
 [dependencies]
 rusty_neat_core = {path="../rustlib"}
 numpy = "0.13"
-ndarray = "0.14"
+ndalgebra = {path="../ndalgebra"}
 
 [dependencies.pyo3]
 version = "0.13.2"

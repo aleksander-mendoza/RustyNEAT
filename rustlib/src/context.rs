@@ -16,8 +16,8 @@ impl NeatContext {
     pub fn lin_alg(&self) -> &LinAlgProgram {
         &self.lin_alg
     }
-    pub fn platform(&self) -> &Platform {
-        &self.platform
+    pub fn platform(&self) -> Platform {
+        self.platform
     }
     pub fn device(&self) -> &Device {
         &self.device
@@ -28,11 +28,11 @@ impl NeatContext {
     }
     pub fn gpu() -> Result<Self, Error> {
         let p = Platform::default();
-        Self::device_by_type(&p, DeviceType::GPU).ok_or_else(|| Error::from(format!("No GPU device"))).and_then(|d| Self::new(p, d))
+        Self::device_by_type(p, DeviceType::GPU).ok_or_else(|| Error::from(format!("No GPU device"))).and_then(|d| Self::new(p, d))
     }
     pub fn cpu() -> Result<Self, Error> {
         let p = Platform::default();
-        Self::device_by_type(&p, DeviceType::CPU).ok_or_else(|| Error::from(format!("No CPU device"))).and_then(|d| Self::new(p, d))
+        Self::device_by_type(p, DeviceType::CPU).ok_or_else(|| Error::from(format!("No CPU device"))).and_then(|d| Self::new(p, d))
     }
     pub fn new(platform: Platform, device: Device)->Result<Self, Error>{
         LinAlgProgram::new(platform.clone(),device.clone()).map(|lin_alg|Self{lin_alg,platform,device})
@@ -42,15 +42,18 @@ impl NeatContext {
         Platform::list()
     }
 
-    pub fn device_list(platform: &Platform) -> Vec<Device> {
+    pub fn device_list(platform: Platform) -> Vec<Device> {
         Device::list_all(platform).unwrap_or_else(|_| vec![])
     }
 
     pub fn opencl_default_platform() -> Platform {
         Platform::default()
     }
+    pub fn opencl_default_device(platform:Platform) -> Result<Device,Error> {
+        Device::first(platform)
+    }
 
-    pub fn device_by_type(platform: &Platform, dev_type: DeviceType) -> Option<Device> {
+    pub fn device_by_type(platform: Platform, dev_type: DeviceType) -> Option<Device> {
         LinAlgProgram::device_by_type(platform, dev_type)
     }
 

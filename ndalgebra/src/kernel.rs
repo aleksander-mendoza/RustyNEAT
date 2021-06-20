@@ -247,7 +247,7 @@ impl LinAlgProgram {
     }
 
 
-    pub fn device_by_type(platform: &Platform, dev_type: DeviceType) -> Option<Device> {
+    pub fn device_by_type(platform: Platform, dev_type: DeviceType) -> Option<Device> {
         Device::list_all(platform).ok().and_then(|dl| dl.into_iter().find(|d| match d.info(DeviceInfo::Type) {
             Ok(DeviceInfoResult::Type(dev_type)) => true,
             _ => false
@@ -255,11 +255,11 @@ impl LinAlgProgram {
     }
     pub fn gpu() -> Result<LinAlgProgram, Error> {
         let p = Platform::default();
-        Self::device_by_type(&p, DeviceType::GPU).ok_or_else(|| Error::from(format!("No GPU device"))).and_then(|d| Self::new(p, d))
+        Self::device_by_type(p, DeviceType::GPU).ok_or_else(|| Error::from(format!("No GPU device"))).and_then(|d| Self::new(p, d))
     }
     pub fn cpu() -> Result<LinAlgProgram, Error> {
         let p = Platform::default();
-        Self::device_by_type(&p, DeviceType::CPU).ok_or_else(|| Error::from(format!("No CPU device"))).and_then(|d| Self::new(p, d))
+        Self::device_by_type(p, DeviceType::CPU).ok_or_else(|| Error::from(format!("No CPU device"))).and_then(|d| Self::new(p, d))
     }
     pub fn new(platform: Platform, device: Device) -> Result<LinAlgProgram, Error> {
         let src = format!("{}", SourceCode {});
