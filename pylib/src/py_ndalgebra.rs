@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::{wrap_pyfunction, wrap_pymodule, PyObjectProtocol, PyTypeInfo, PyClass, PyMappingProtocol, FromPyPointer};
+use pyo3::{wrap_pyfunction, wrap_pymodule, PyObjectProtocol, PyTypeInfo, PyClass, PyMappingProtocol, FromPyPointer, PySequenceProtocol};
 use pyo3::PyResult;
 use ndalgebra::mat::{Mat, MatError, AsShape};
 use ndalgebra::num::Num;
@@ -66,6 +66,7 @@ impl Display for DTypeEnum {
 }
 
 pub trait DynMatTrait: Display {
+    fn len(&self) -> usize;
     fn dtype(&self) -> DTypeEnum;
     fn dtype_size(&self) -> usize;
     fn untyped_mat(&self) -> &Mat<u8>;
@@ -218,6 +219,10 @@ dtype_for_prim!(f32);
 
 
 impl<T: Num + ToDtype> DynMatTrait for Mat<T> {
+    fn len(&self) -> usize {
+        Mat::len(self)
+    }
+
     fn dtype(&self) -> DTypeEnum {
         T::to_dtype()
     }
@@ -588,6 +593,13 @@ impl PyObjectProtocol for DynMat {
     }
 }
 
+
+#[pyproto]
+impl PySequenceProtocol for DynMat {
+    fn __len__(&self) -> usize {
+        self.m.len()
+    }
+}
 #[pyproto]
 impl PyMappingProtocol for DynMat {
     fn __getitem__(&self, key: &PyAny) -> PyResult<DynMat> {

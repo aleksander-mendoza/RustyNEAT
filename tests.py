@@ -5,8 +5,8 @@ from matplotlib import pyplot as plt
 
 # Here are some settings for testing
 # (This tutorial is also a test script at the same time)
-VISUALISE_PICBREEDER_2D = True
-VISUALISE_PICBREEDER_2D_PLUS_BIAS_AND_CENTER_DIST = True
+VISUALISE_PICBREEDER_2D = False
+VISUALISE_PICBREEDER_2D_PLUS_BIAS_AND_CENTER_DIST = False
 USE_PYTORCH = True
 
 if USE_PYTORCH:
@@ -348,7 +348,7 @@ assert (second_input.numpy() - numpy1 < 0.00001).all()
 
 
 def sigmoid(x: np.ndarray):  # This function will be necessary later to normalise pixel values
-    return 1 / (1 + nd.exp(-x))
+    return 1 / (1 + np.exp(-x))
 
 
 # A great introduction to HyperNEAT is by first exploring picbreeder. You can generate images
@@ -483,16 +483,15 @@ gpu_net = net.to_substrate(input_dimensions=2,  # First (input) picture (layer) 
                            # The sum of dimensions must add up or otherwise we get an error.
                            # For this reason, output_dimensions can actually be omitted and RustyNEAT
                            # will infer it automatically from input_dimensions and total input dimensionality of CPPN
-                           platform=platform,
-                           device=device)
+                           context=context)
 
-input_neurons = np.array([
+input_neurons = nd.array([
     [1, 1],  # (x,y) coordinate of first point
     [1, 2],  # (x,y) coordinate of second point
     [2, 1],  # and so on...
     [2, 2],
-], dtype=np.float32)
-output_neurons = np.array([
+], dtype=nd.float32, context=context)
+output_neurons = nd.array([
     [-1, -1],  # (x,y) coordinate of first point
     [-1, -2],  # (x,y) coordinate of second point
     [-2, -1],  # and so on...
@@ -501,13 +500,13 @@ output_neurons = np.array([
     [1, 2],
     [2, 1],
     [2, 2],
-], dtype=np.float32)
+], dtype=nd.float32, context=context)
 # There are 4 input neurons and 8 output neurons. You can make as many as you like.
 weights = gpu_net(input_neurons, output_neurons)  # location_offset_per_dimension
-assert weights.shape == (len(output_neurons), len(input_neurons), weights_dimensions)
+assert weights.shape == (len(input_neurons), len(output_neurons), weights_dimensions)
 # weights matrix is a numpy array as usual. You can easily import it and use with torch or tensorflow.
 if USE_PYTORCH:
-    weights = torch.from_numpy(weights)
+    weights = torch.from_numpy(weights.numpy())
     weights = weights.squeeze(2)
     linear = torch.nn.Linear(in_features=len(input_neurons), out_features=len(output_neurons))
     linear.weight.data = weights
