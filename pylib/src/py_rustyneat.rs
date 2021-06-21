@@ -17,7 +17,7 @@ use numpy::npyffi::{NPY_ORDER, npy_intp, NPY_ARRAY_WRITEABLE};
 use std::os::raw::c_int;
 use rusty_neat_core::envs::evol::{AGENT_ATTRIBUTES, LIDAR_ATTRIBUTES};
 use crate::ocl_err_to_py_ex;
-use crate::py_ndalgebra::DynMat;
+use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::NeatContext;
 
 
@@ -451,7 +451,7 @@ impl FeedForwardNetOpenCL32 {
     }
     #[call]
     fn __call__(&self, input: &DynMat) -> PyResult<DynMat> {
-        self.net.run(input.m.as_f32().map_err(ocl_err_to_py_ex)?).map(DynMat::from).map_err(ocl_err_to_py_ex)
+        self.net.run(input.try_as_dtype::<f32>()?).map(DynMat::from).map_err(ocl_err_to_py_ex)
     }
 }
 
@@ -476,7 +476,7 @@ impl FeedForwardNetSubstrate32 {
     }
     #[call]
     fn __call__(&self, input_neurons: &DynMat, output_neurons: &DynMat) -> PyResult<DynMat> {
-        self.net.run(input_neurons.m.as_f32().map_err(ocl_err_to_py_ex)?, output_neurons.m.as_f32().map_err(ocl_err_to_py_ex)?).map(DynMat::from).map_err(ocl_err_to_py_ex)
+        self.net.run(input_neurons.try_as_dtype::<f32>()?, output_neurons.try_as_dtype::<f32>()?).map(DynMat::from).map_err(ocl_err_to_py_ex)
     }
 }
 

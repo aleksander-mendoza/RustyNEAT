@@ -8,7 +8,7 @@ use ocl::builders::KernelBuilder;
 
 #[derive(Clone)]
 pub struct Mat<T: Num> {
-    pro_que: LinAlgProgram,
+    lin_alg: LinAlgProgram,
     buff: Option<Buffer<T>>,
     shape: Box<[usize]>,
     strides: Box<[usize]>,
@@ -55,7 +55,7 @@ impl Debug for MatError {
 impl Display for MatError {
     fn fmt(&self, fmt: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            MatError::InvalidIndex(index, shape) =>  write!(fmt,"Indices {} are not valid for {}", index.as_shape(), shape.as_shape()),
+            MatError::InvalidIndex(index, shape) => write!(fmt, "Indices {} are not valid for {}", index.as_shape(), shape.as_shape()),
             MatError::BufferLengthMismatch(tensor_buff, dst_buff) => write!(fmt, "Tensor has buffer of length {} but provided destination has length {}", tensor_buff, dst_buff),
             MatError::NotSingletonMatrix(shape) => write!(fmt, "Tensor of shape {} is not a singleton", shape.as_shape()),
             MatError::CannotReadNonContiguous() => write!(fmt, "Cannot read the tensor because its view is not contiguous"),
@@ -88,6 +88,13 @@ impl<T: Num, const S: usize> AsShape<T> for [T; S] {
     }
 }
 
+
+impl<T: Num> AsShape<T> for Box<[T]> {
+    fn as_shape(&self) -> Shape<T> {
+        Shape(self)
+    }
+}
+
 impl<T: Num> AsShape<T> for &[T] {
     fn as_shape(&self) -> Shape<T> {
         Shape(self)
@@ -102,7 +109,11 @@ impl<T: Num> AsShape<T> for Vec<T> {
 
 impl<'a, T: Num> Shape<'a, T> {
     fn size(&self) -> T {
-        self.0.iter().fold(T::one(), |a, &b| a * b)
+        if self.0.is_empty() {
+            T::zero()
+        } else {
+            self.0.iter().fold(T::one(), |a, &b| a * b)
+        }
     }
 }
 
@@ -144,19 +155,23 @@ impl<T: Num> Mat<T> {
         Self::from_slice(lin_alg, a, &[Z, Y, X])
     }
 
+    pub fn lin_alg(&self) -> &LinAlgProgram {
+        &self.lin_alg
+    }
+
     fn new_with_strides(lin_alg: &LinAlgProgram, buff: Option<Buffer<T>>, contiguous: bool, strides: Box<[usize]>, shape: Box<[usize]>) -> Result<Self, MatError> {
         if shape.len() > 20 {
             Err(MatError::DimensionalityLimitExceeded(shape.len()))
         } else {
             if let Some(buff) = &buff {
-                assert_eq!(strides.len(), shape.len());
+                assert_eq!(strides.len(), shape.len(), "strides.len()!=shape.len()");
                 if contiguous {
-                    assert_eq!(buff.len(), if strides.is_empty() { 0 } else { strides[0] * shape[0] });
+                    assert_eq!(buff.len(), if strides.is_empty() { 0 } else { strides[0] * shape[0] }, "buff.len()!=strides[0]*shape[0]");
                 }
-                assert_eq!(buff.len(), if strides.is_empty() || strides[0] == 0 { 0 } else { strides.iter().zip(shape.iter()).fold(0, |sum, (a, b)| sum + a * (b - 1)) + 1 });
+                assert_eq!(buff.len(), if strides.is_empty() || strides[0] == 0 { 0 } else { strides.iter().zip(shape.iter()).fold(0, |sum, (a, b)| sum + a * (b - 1)) + 1 }, "buff.len()!=strides.last_index+1");
             }
-            let pro_que = lin_alg.clone();
-            Ok(Self { pro_que, buff, strides, shape })
+            let lin_alg = lin_alg.clone();
+            Ok(Self { lin_alg, buff, strides, shape })
         }
     }
     pub fn from_buffer(lin_alg: &LinAlgProgram, buff: Buffer<T>, shape: &[usize]) -> Result<Self, MatError> {
@@ -211,12 +226,11 @@ impl<T: Num> Mat<T> {
     pub unsafe fn empty(lin_alg: &LinAlgProgram, shape: &[usize]) -> Result<Self, MatError> {
         Self::empty_boxed(lin_alg, shape.into())
     }
-    pub unsafe fn empty_boxed(lin_alg: &LinAlgProgram, shape: Box<[usize]>) -> Result<Self, MatError> {
-        let strides = Self::strides_for_shape(&shape);
-        let len = if strides.is_empty() { 0 } else { strides[0] * shape[0] };
-        if len == 0{
+    unsafe fn empty_boxed_with_strides(lin_alg: &LinAlgProgram, strides: Box<[usize]>, shape: Box<[usize]>, len: usize) -> Result<Self, MatError> {
+        assert_eq!(len, shape.as_shape().size());
+        if len == 0 {
             Self::new_with_strides(lin_alg, None, true, strides, shape)
-        }else {
+        } else {
             lin_alg.pro_que.buffer_builder::<T>()
                 .flags(flags::MEM_READ_WRITE)
                 .len(len)
@@ -224,15 +238,33 @@ impl<T: Num> Mat<T> {
                 .and_then(|buff| Self::new_with_strides(lin_alg, Some(buff), true, strides, shape))
         }
     }
-    pub fn filled(lin_alg: &LinAlgProgram, shape: &[usize], fill_val: T) -> Result<Self, MatError> {
-        let strides = Self::strides_for_shape(shape);
+    pub unsafe fn empty_boxed(lin_alg: &LinAlgProgram, shape: Box<[usize]>) -> Result<Self, MatError> {
+        let strides = Self::strides_for_shape(&shape);
         let len = if strides.is_empty() { 0 } else { strides[0] * shape[0] };
+        Self::empty_boxed_with_strides(lin_alg, strides, shape, len)
+    }
+    pub unsafe fn empty_like<D: Num>(other: &Mat<T>) -> Result<Mat<D>, MatError> {
+        Mat::empty_boxed(&other.lin_alg, other.shape.clone())
+    }
+    pub fn filled_like<D: Num>(other: &Mat<T>, fill_val: D) -> Result<Mat<D>, MatError> {
+        Mat::filled_boxed(&other.lin_alg, other.shape.clone(), fill_val)
+    }
+    pub fn filled(lin_alg: &LinAlgProgram, shape: &[usize], fill_val: T) -> Result<Self, MatError> {
+        Self::filled_boxed(lin_alg, shape.into(), fill_val)
+    }
+    pub fn filled_boxed(lin_alg: &LinAlgProgram, shape: Box<[usize]>, fill_val: T) -> Result<Self, MatError> {
+        let strides = Self::strides_for_shape(&shape);
+        let len = if strides.is_empty() { 0 } else { strides[0] * shape[0] };
+        Self::filled_boxed_with_strides(lin_alg, strides, shape, len, fill_val)
+    }
+    fn filled_boxed_with_strides(lin_alg: &LinAlgProgram, strides: Box<[usize]>, shape: Box<[usize]>, len: usize, fill_val: T) -> Result<Self, MatError> {
+        assert_eq!(len, shape.as_shape().size());
         lin_alg.pro_que.buffer_builder::<T>()
             .flags(flags::MEM_READ_WRITE)
             .len(len)
             .fill_val(fill_val)
             .build().map_err(MatError::from)
-            .and_then(|buff| Self::new_with_strides(lin_alg, Some(buff), true, strides, shape.into()))
+            .and_then(|buff| Self::new_with_strides(lin_alg, Some(buff), true, strides, shape))
     }
 
     pub fn ones(lin_alg: &LinAlgProgram, shape: &[usize]) -> Result<Self, MatError> {
@@ -243,12 +275,17 @@ impl<T: Num> Mat<T> {
         Self::filled(lin_alg, shape, T::zero())
     }
 
-    pub fn offset_into_buffer(&self, index: &[usize]) -> Result<usize,MatError> {
+    pub fn offset_into_buffer(&self, index: &[usize]) -> Result<usize, MatError> {
         if index.len() == self.ndim() && index.iter().zip(self.shape.iter()).all(|(&a, &b)| a < b) {
             Ok(index.iter().zip(self.strides.iter()).fold(0, |sum, (&i, &s)| sum + i * s))
         } else {
-            Err(MatError::InvalidIndex(index.to_vec(),self.shape.to_vec()))
+            Err(MatError::InvalidIndex(index.to_vec(), self.shape.to_vec()))
         }
+    }
+    pub fn clone_transpose(&self, dim0: usize, dim1: usize) -> Result<Self, MatError> {
+        let mut c = self.clone();
+        c.transpose(dim0, dim1)?;
+        Ok(c)
     }
     pub fn transpose(&mut self, dim0: usize, dim1: usize) -> Result<(), MatError> {
         if dim0 >= self.ndim() {
@@ -264,24 +301,24 @@ impl<T: Num> Mat<T> {
     pub fn view(&self, ranges: &[Range<usize>]) -> Result<Self, MatError> {
         if ranges.len() > self.ndim() || ranges.iter().zip(self.shape.iter()).all(|(r, &s)| r.start > s || r.end > s || r.start > r.end) {
             Err(MatError::InvalidView(ranges.to_vec(), self.shape.to_vec()))
-        } else if let Some(buff) = &self.buff{
+        } else if let Some(buff) = &self.buff {
             let first_element_offset = ranges.iter().zip(self.strides.iter()).fold(0, |sum, (r, s)| sum + r.start * s);
             let mut new_shape = Vec::with_capacity(self.ndim());
             let mut last_element_offset = first_element_offset;
             for (i, stride) in self.strides.iter().enumerate() {
                 let len = ranges.get(i).map(|r| r.end - r.start).unwrap_or(self.shape[i]);
                 if len == 0 {
-                    return Self::null(&self.pro_que);
+                    return Self::null(&self.lin_alg);
                 }
                 new_shape.push(len);
                 last_element_offset += (len - 1) * stride;
             }
             let size = last_element_offset + 1 - first_element_offset;
-            assert!(size>0);
+            assert!(size > 0);
             let sub = buff.create_sub_buffer(None, first_element_offset, size)?;
-            Self::new_with_strides(&self.pro_que, Some(sub), false, self.strides.clone(), new_shape.into_boxed_slice())
-        }else{
-            assert_eq!(self.size(),0);
+            Self::new_with_strides(&self.lin_alg, Some(sub), false, self.strides.clone(), new_shape.into_boxed_slice())
+        } else {
+            assert_eq!(self.size(), 0);
             Ok(self.clone())
         }
     }
@@ -307,7 +344,7 @@ impl<T: Num> Mat<T> {
         } else {
             self.copy()?.buff
         };
-        Self::new_with_strides(&self.pro_que, buff, true, strides, shape)
+        Self::new_with_strides(&self.lin_alg, buff, true, strides, shape)
     }
     pub fn reshape1(&self, dim0: usize) -> Result<Mat<T>, MatError> {
         self.reshape(&[dim0])
@@ -398,7 +435,7 @@ impl<T: Num> Mat<T> {
     }
     /**Length of the underlying buffer (or sub-buffer)*/
     pub fn len_buffer(&self) -> usize {
-        self.buffer().map(|b|b.len()).unwrap_or(0)
+        self.buffer().map(|b| b.len()).unwrap_or(0)
     }
     /**Total size obtained by multiplying all dimensions together*/
     pub fn size(&self) -> usize {
@@ -415,8 +452,8 @@ impl<T: Num> Mat<T> {
                 .read(&mut tmp[..])
                 .enq()?;
             Ok(tmp[0])
-        }else{
-            Err(MatError::InvalidIndex(index.to_vec(),self.shape.to_vec()))
+        } else {
+            Err(MatError::InvalidIndex(index.to_vec(), self.shape.to_vec()))
         }
     }
     /**Reads entire tensor into a new vector*/
@@ -450,12 +487,11 @@ impl<T: Num> Mat<T> {
     fn read_non_contiguous(&self, dst: &mut [T]) -> ocl::Result<()> {
         assert_eq!(dst.len(), self.len_buffer());
         unsafe {
-            if let Some(buff) = &self.buff{
+            if let Some(buff) = &self.buff {
                 buff.cmd().read(dst).enq()
-            } else{
+            } else {
                 Ok(())
             }
-
         }
     }
 
@@ -467,7 +503,7 @@ impl<T: Num> Mat<T> {
     underlying buffer. If the tensor was not contiguous, its copy
      will become contiguous. Works the same way as in numpy. */
     pub fn copy(&self) -> Result<Self, MatError> {
-        let mut out = unsafe { Self::empty(&self.pro_que, self.shape()) }?;
+        let mut out = unsafe { Self::empty(&self.lin_alg, self.shape()) }?;
         out.copy_from(self)?;
         Ok(out)
     }
@@ -511,9 +547,9 @@ impl<T: Num> Mat<T> {
         out_shape[self.ndim() - 1] = self.shape[self.ndim() - 1];
         assert_eq!(out_shape[self.ndim() - 2], j);
         assert_eq!(out_shape[self.ndim() - 1], k);
-        let out = unsafe { Self::empty_boxed(&self.pro_que, out_shape)? };
+        let out = unsafe { Self::empty_boxed(&self.lin_alg, out_shape)? };
 
-        let mut kernel = self.pro_que.pro_que.kernel_builder(format!("{}_mm{}", T::OPENCL_TYPE_STR, self.ndim()));
+        let mut kernel = self.lin_alg.pro_que.kernel_builder(format!("{}_mm{}", T::OPENCL_TYPE_STR, self.ndim()));
         kernel.arg(self.buffer().unwrap())
             .arg(rhs.buffer().unwrap())
             .arg(out.buffer().unwrap())
@@ -538,9 +574,9 @@ impl<T: Num> Mat<T> {
     fn mat_cmp_mat(&self, other: &Self, mode: &'static str) -> Result<Mat<u8>, MatError> {
         if self.shape != other.shape {
             Err(MatError::IncompatibleShapes(self.shape.to_vec(), other.shape.to_vec()))
-        } else if let Some(buff) = &self.buff{
-            let out = unsafe { Mat::<u8>::empty(&self.pro_que, &self.shape)? };
-            let kernel = self.pro_que.pro_que.kernel_builder(format!("{}_mat_cmp_mat_{}", T::OPENCL_TYPE_STR, mode))
+        } else if let Some(buff) = &self.buff {
+            let out = unsafe { Mat::<u8>::empty(&self.lin_alg, &self.shape)? };
+            let kernel = self.lin_alg.pro_que.kernel_builder(format!("{}_mat_cmp_mat_{}", T::OPENCL_TYPE_STR, mode))
                 .arg(buff)
                 .arg(other.buffer().unwrap())
                 .arg(out.buffer().unwrap())
@@ -550,8 +586,8 @@ impl<T: Num> Mat<T> {
                 kernel.cmd().enq()?;
             }
             Ok(out)
-        }else{
-            Mat::<u8>::null(&self.pro_que)
+        } else {
+            Mat::<u8>::null(&self.lin_alg)
         }
     }
     pub fn eq_mat(&self, other: &Self) -> Result<Mat<u8>, MatError> {
@@ -574,8 +610,8 @@ impl<T: Num> Mat<T> {
     }
     fn mat_cmp_scalar(&self, scalar: T, mode: &'static str) -> Result<Mat<u8>, MatError> {
         if let Some(buff) = self.buffer() {
-            let out = unsafe { Mat::<u8>::empty(&self.pro_que, self.shape())? };
-            let kernel = self.pro_que.pro_que.kernel_builder(format!("{}_scalar_cmp_{}", T::OPENCL_TYPE_STR, mode))
+            let out = unsafe { Mat::<u8>::empty(&self.lin_alg, self.shape())? };
+            let kernel = self.lin_alg.pro_que.kernel_builder(format!("{}_scalar_cmp_{}", T::OPENCL_TYPE_STR, mode))
                 .arg(buff)
                 .arg(&scalar)
                 .arg(out.buffer().unwrap())
@@ -585,10 +621,9 @@ impl<T: Num> Mat<T> {
                 kernel.cmd().enq()?;
             }
             Ok(out)
-        }else{
-            Mat::<u8>::null(&self.pro_que)
+        } else {
+            Mat::<u8>::null(&self.lin_alg)
         }
-
     }
     pub fn eq_scalar(&self, other: T) -> Result<Mat<u8>, MatError> {
         self.mat_cmp_scalar(other, "eq")
@@ -608,24 +643,24 @@ impl<T: Num> Mat<T> {
     pub fn ne_scalar(&self, other: T) -> Result<Mat<u8>, MatError> {
         self.mat_cmp_scalar(other, "ne")
     }
-    fn unary_mat(&mut self, mode: &'static str) -> Result<(), MatError> {
-        if let Some(buff) = self.buffer() {
-            let kernel = self.pro_que.pro_que.kernel_builder(format!("{}_unary_mat_{}", T::OPENCL_TYPE_STR, mode))
-                .arg(buff)
-                .global_work_size(self.size())
-                .build()?;
-            unsafe {
-                kernel.cmd().enq()?;
-            }
-        }
-        Ok(())
+    /**Creates a copy of matrix and converts all its elements to a different type.
+    Is equivalent to copy() if both source and target types are the same*/
+    pub fn cast<D: Num>(&self) -> Result<Mat<D>, MatError> {
+        let mut out = unsafe { Self::empty_like::<D>(self)? };
+        out.mat_to_lhs_mat(self, "cast")?;
+        Ok(out)
     }
-    pub fn abs(&mut self) -> Result<(), MatError> {
-        self.unary_mat(if T::IS_FLOAT { "fabs" } else { "abs" })
+    pub fn abs(&mut self) -> Result<Mat<T>, MatError> {
+        let mut out = self.copy()?;
+        out.abs_in_place()?;
+        Ok(out)
+    }
+    pub fn abs_in_place(&mut self) -> Result<(), MatError> {
+        self.unary_to_lhs_mat(if T::IS_FLOAT { "fabs" } else { "abs" })
     }
     fn scalar_to_lhs_mat(&mut self, scalar: T, mode: &'static str) -> Result<(), MatError> {
         if let Some(buff) = self.buffer() {
-            let kernel = self.pro_que.pro_que.kernel_builder(format!("{}_scalar_to_lhs_mat_{}", T::OPENCL_TYPE_STR, mode))
+            let kernel = self.lin_alg.pro_que.kernel_builder(format!("{}_scalar_to_lhs_mat_{}", T::OPENCL_TYPE_STR, mode))
                 .arg(buff)
                 .arg(&scalar)
                 .global_work_size(self.size())
@@ -633,7 +668,7 @@ impl<T: Num> Mat<T> {
             unsafe {
                 kernel.cmd().enq().map_err(MatError::from)
             }
-        }else {
+        } else {
             Ok(())
         }
     }
@@ -658,11 +693,13 @@ impl<T: Num> Mat<T> {
     pub fn max_scalar(&mut self, scalar: T) -> Result<(), MatError> {
         self.scalar_to_lhs_mat(scalar, "max")
     }
-    fn mat_to_lhs_mat(&mut self, other: &Self, mode: &'static str) -> Result<(), MatError> {
+    fn mat_to_lhs_mat<D: Num>(&self, other: &Mat<D>, mode: &'static str) -> Result<(), MatError> {
         if self.shape != other.shape {
             Err(MatError::IncompatibleShapes(self.shape.to_vec(), other.shape.to_vec()))
-        } else if let Some(buff) = self.buffer(){
-            let mut kernel = self.pro_que.pro_que.kernel_builder(format!("{}_mat_to_lhs_mat{}_{}", T::OPENCL_TYPE_STR, self.ndim(), mode));
+        } else if let Some(buff) = self.buffer() {
+            let fn_name = format!("mat_{input_type}_to_lhs_mat_{output_type}_{dims}_{mode}", input_type = D::OPENCL_TYPE_STR, output_type = T::OPENCL_TYPE_STR, dims = self.ndim(), mode = mode);
+            println!("fn_name={}", fn_name);
+            let mut kernel = self.lin_alg.pro_que.kernel_builder(fn_name);
             kernel.arg(buff)
                 .arg(other.buffer().unwrap());
             let size = Self::add_dim_args(&mut kernel, &self.shape);
@@ -674,9 +711,17 @@ impl<T: Num> Mat<T> {
             unsafe {
                 kernel.cmd().enq().map_err(MatError::from)
             }
-        }else{
+        } else {
             Ok(())
         }
+    }
+    fn unary_mat<D: Num>(&self, mode: &'static str) -> Result<Mat<D>, MatError> {
+        let mut out = unsafe { Self::empty_like::<D>(self)? };
+        out.mat_to_lhs_mat(self, mode)?;
+        Ok(out)
+    }
+    fn unary_to_lhs_mat(&self, mode: &'static str) -> Result<(), MatError> {
+        self.mat_to_lhs_mat(self, mode)
     }
     pub fn copy_from(&mut self, other: &Self) -> Result<(), MatError> {
         self.mat_to_lhs_mat(other, "copy")
@@ -700,7 +745,7 @@ impl<T: Num> Mat<T> {
         self.mat_to_lhs_mat(other, "max")
     }
     pub fn sum(&self) -> Result<T, MatError> {
-        // let kernel = self.pro_que.pro_que.kernel_builder("aggregate_sum")
+        // let kernel = self.lin_alg.pro_que.kernel_builder("aggregate_sum")
         //     .arg(&self.buff)
         //     .arg(&other.buff)
         //     .arg(&out.buff)
@@ -717,46 +762,76 @@ impl<T: Num> Mat<T> {
             Err(MatError::NotSingletonMatrix(self.shape.to_vec()))
         }
     }
+    pub fn sin(&self) -> Result<Mat<f32>, MatError> {
+        self.unary_mat("sin")
+    }
+    pub fn cos(&self) -> Result<Mat<f32>, MatError> {
+        self.unary_mat("cos")
+    }
+    pub fn tan(&self) -> Result<Mat<f32>, MatError> {
+        self.unary_mat("tan")
+    }
+    pub fn tanh(&self) -> Result<Mat<f32>, MatError> {
+        self.unary_mat("tanh")
+    }
+    pub fn exp(&self) -> Result<Mat<f32>, MatError> {
+        self.unary_mat("exp")
+    }
+    pub fn exp2(&self) -> Result<Mat<f32>, MatError> {
+        self.unary_mat("exp2")
+    }
+    pub fn exp10(&self) -> Result<Mat<f32>, MatError> {
+        self.unary_mat("exp10")
+    }
+    pub fn log(&self) -> Result<Mat<f32>, MatError> {
+        self.unary_mat("log")
+    }
+    pub fn log2(&self) -> Result<Mat<f32>, MatError> {
+        self.unary_mat("log2")
+    }
+    pub fn log10(&self) -> Result<Mat<f32>, MatError> {
+        self.unary_mat("log10")
+    }
 }
 
 impl Mat<f32> {
-    pub fn sin(&mut self) -> Result<(), MatError> {
-        self.unary_mat("sin")
+    pub fn sin_in_place(&mut self) -> Result<(), MatError> {
+        self.unary_to_lhs_mat("sin")
     }
-    pub fn cos(&mut self) -> Result<(), MatError> {
-        self.unary_mat("cos")
+    pub fn cos_in_place(&mut self) -> Result<(), MatError> {
+        self.unary_to_lhs_mat("cos")
     }
-    pub fn tan(&mut self) -> Result<(), MatError> {
-        self.unary_mat("tan")
+    pub fn tan_in_place(&mut self) -> Result<(), MatError> {
+        self.unary_to_lhs_mat("tan")
     }
-    pub fn tanh(&mut self) -> Result<(), MatError> {
-        self.unary_mat("tanh")
+    pub fn tanh_in_place(&mut self) -> Result<(), MatError> {
+        self.unary_to_lhs_mat("tanh")
     }
-    pub fn exp(&mut self) -> Result<(), MatError> {
-        self.unary_mat("exp")
+    pub fn exp_in_place(&mut self) -> Result<(), MatError> {
+        self.unary_to_lhs_mat("exp")
     }
-    pub fn exp2(&mut self) -> Result<(), MatError> {
-        self.unary_mat("exp2")
+    pub fn exp2_in_place(&mut self) -> Result<(), MatError> {
+        self.unary_to_lhs_mat("exp2")
     }
-    pub fn exp10(&mut self) -> Result<(), MatError> {
-        self.unary_mat("exp10")
+    pub fn exp10_in_place(&mut self) -> Result<(), MatError> {
+        self.unary_to_lhs_mat("exp10")
     }
-    pub fn log(&mut self) -> Result<(), MatError> {
-        self.unary_mat("log")
+    pub fn log_in_place(&mut self) -> Result<(), MatError> {
+        self.unary_to_lhs_mat("log")
     }
-    pub fn log2(&mut self) -> Result<(), MatError> {
-        self.unary_mat("log2")
+    pub fn log2_in_place(&mut self) -> Result<(), MatError> {
+        self.unary_to_lhs_mat("log2")
     }
-    pub fn log10(&mut self) -> Result<(), MatError> {
-        self.unary_mat("log10")
+    pub fn log10_in_place(&mut self) -> Result<(), MatError> {
+        self.unary_to_lhs_mat("log10")
     }
 }
 
 impl<T: Num> Display for Mat<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if self.ndim()==0{
+        if self.ndim() == 0 {
             write!(f, "[]")
-        }else {
+        } else {
             let buff = self.to_vec_non_contiguous().map_err(|e| std::fmt::Error)?;
             fn recursive_print<T: Num>(me: &Mat<T>, idx: &mut [usize], level: usize, buff: &[T], f: &mut Formatter<'_>) -> std::fmt::Result {
                 if level == me.ndim() {

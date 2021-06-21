@@ -27,6 +27,28 @@ mod tests {
     }
 
     #[test]
+    fn test_mat_eq() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::array2(&p, [[1, 10], [100, 1000]])?;
+        let m2 = Mat::array2(&p, [[1, 3], [100, 5]])?;
+        let me = m1.eq_mat(&m2)?;
+        assert_eq!(me.to_string(), "[[1, 0], [1, 0]]");
+        Ok(())
+    }
+
+    #[test]
+    fn test_mat_eq_transpose() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let mut m1 = Mat::array2(&p, [[1, 10], [100, 1000]])?;
+        m1.transpose(0,1);
+        let mut m2 = Mat::array2(&p, [[1, 3], [100, 5]])?;
+        m2.transpose(0,1);
+        let me = m1.eq_mat(&m2)?;
+        assert_eq!(me.to_string(), "[[1, 0], [1, 0]]","me");
+        Ok(())
+    }
+
+    #[test]
     fn test_mat0() -> Result<(), String> {
         let p = LinAlgProgram::gpu()?;
         let m1 = Mat::array2(&p, [[1, 10], [100, 1000]])?;
@@ -41,8 +63,57 @@ mod tests {
         assert_eq!(m3, Mat::array2(&p, [[42, 53], [4200, 5300]])?);
         Ok(())
     }
-
-
+    #[test]
+    fn test_cast0() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let mut mf = Mat::array2(&p, [[1f32, 2.], [3f32, 4f32]])?;
+        let mut m4 = mf.cast::<f32>()?;
+        let v4 = m4.to_vec().unwrap();
+        let vf = mf.to_vec().unwrap();
+        assert_eq!(v4, vf, "m4mf");
+        mf.fill(3.);
+        assert_eq!(mf.to_vec().unwrap(), vec![3f32,3.,3.,3.], "3 mf");
+        assert_eq!(m4.to_vec().unwrap(), vec![1f32,2.,3.,4.], "m4 orig");
+        Ok(())
+    }
+    #[test]
+    fn test_cast_u32() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let mut mi = Mat::array2(&p, [[1i32, 2], [3, 4]])?;
+        let mut mu = Mat::array2(&p, [[1u32, 2], [3, 4]])?;
+        let mut mu2 = mi.cast::<u32>()?;
+        assert_eq!(mu2.to_vec().unwrap(), mu.to_vec().unwrap(), "mu2mu");
+        mu.fill(3);
+        assert_eq!(mu.to_vec().unwrap(), vec![3u32,3,3,3], "3 mf");
+        assert_eq!(mu2.to_vec().unwrap(), vec![1u32,2,3,4], "m4 orig");
+        Ok(())
+    }
+    #[test]
+    fn test_cast1() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::array2(&p, [[1, 2], [3, 4]])?;
+        let mf = Mat::array2(&p, [[1f32, 2.], [3f32, 4f32]])?;
+        let m2 = Mat::array2(&p, [[1, 2], [3, 4]])?;
+        let m3 = m1.sin()?;
+        let mut m4 = m2.cast::<f32>()?;
+        assert_eq!(m4.to_vec().unwrap(), mf.to_vec().unwrap(), "m4mf");
+        m4.sin_in_place()?;
+        assert_eq!(m1.to_vec().unwrap(), m2.to_vec().unwrap(), "m1m2");
+        assert_eq!(m3.to_vec().unwrap(), m4.to_vec().unwrap(), "m3m4");
+        Ok(())
+    }
+    #[test]
+    fn test_cast2() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::array2(&p, [[1, 2], [3, 4]])?.clone_transpose(0,1)?;
+        let m2 = Mat::array2(&p, [[1, 2], [3, 4]])?.clone_transpose(0,1)?;
+        let m3 = m1.sin()?;
+        let mut m4 = m2.cast::<f32>()?;
+        m4.sin_in_place()?;
+        assert_eq!(m1.to_vec().unwrap(), m2.to_vec().unwrap(), "m1m2");
+        assert_eq!(m3.to_vec().unwrap(), m4.to_vec().unwrap(), "m1m2");
+        Ok(())
+    }
     #[test]
     fn test_mat1() -> Result<(), String> {
         let p = LinAlgProgram::gpu()?;
@@ -50,12 +121,14 @@ mod tests {
         let m2 = Mat::array2(&p, [[1, 2], [3, 4]])?;
         assert_eq!(m1.strides(), &[2, 1], "m1 strides");
         assert_eq!(m2.strides(), &[2, 1], "m2 strides");
-        let m3 = m1.mm(&m2)?;
+        let mut m3 = m1.mm(&m2)?;
         assert_eq!(m1.to_vec().unwrap(), vec![1, 2, 3, 4], "m1");
         assert_eq!(m2.to_vec().unwrap(), vec![1, 2, 3, 4], "m2");
         assert_eq!(m3.to_vec().unwrap(), vec![7, 10, 15, 22], "m3");
         assert_eq!(m3.to_string(), "[[7, 10], [15, 22]]");
         assert_eq!(m3, Mat::array2(&p, [[1, 2], [3, 4]])?);
+        m3.transpose(0,1);
+        assert_eq!(m3.to_string(), "[[7, 15], [10, 22]]");
         Ok(())
     }
 

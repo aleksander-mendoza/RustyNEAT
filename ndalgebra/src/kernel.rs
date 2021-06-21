@@ -4,10 +4,12 @@ use std::marker::PhantomData;
 use ocl::builders::KernelBuilder;
 use crate::num::Num;
 use ocl::core::{DeviceInfoResult, DeviceInfo};
+use std::fs::File;
+use std::io::Write;
 
 pub const MAX_MAT_DIMS: usize = 3;
 
-fn source_stride_arguments<N: Num>(fmt: &mut Formatter<'_>, _p: PhantomData<N>, dim_var_prefix: &'static str, args: &[&'static str], dims: usize) -> std::fmt::Result {
+fn source_stride_arguments(fmt: &mut Formatter<'_>, dim_var_prefix: &'static str, args: &[&'static str], dims: usize) -> std::fmt::Result {
     for coord in 0..dims {
         write!(fmt, ",
                 size_t {dim_var}{coord}", dim_var = dim_var_prefix, coord = coord)?;
@@ -21,7 +23,7 @@ fn source_stride_arguments<N: Num>(fmt: &mut Formatter<'_>, _p: PhantomData<N>, 
     Ok(())
 }
 
-fn source_index_to_coordiantes<N: Num>(fmt: &mut Formatter<'_>, _p: PhantomData<N>, dim_var_prefix: &'static str, coordinate_var_prefix: &'static str, dims: usize) -> std::fmt::Result {
+fn source_index_to_coordiantes(fmt: &mut Formatter<'_>, dim_var_prefix: &'static str, coordinate_var_prefix: &'static str, dims: usize) -> std::fmt::Result {
     write!(fmt, "
     size_t elements_in_hyper_plane0 = 1;")?;
     for coord in 0..dims {
@@ -37,7 +39,7 @@ fn source_index_to_coordiantes<N: Num>(fmt: &mut Formatter<'_>, _p: PhantomData<
     Ok(())
 }
 
-fn source_offsets<N: Num>(fmt: &mut Formatter<'_>, _p: PhantomData<N>, coordinate_var_prefix: &'static str, args: &[&'static str], dims: usize) -> std::fmt::Result {
+fn source_offsets(fmt: &mut Formatter<'_>, coordinate_var_prefix: &'static str, args: &[&'static str], dims: usize) -> std::fmt::Result {
     for arg in args {
         write!(fmt, "
     size_t {arg}_offset = 0", arg = arg)?;
@@ -63,13 +65,13 @@ __kernel void {t}_mm{dims}(
                 size_t rhs_k_stride,
                 size_t out_j_stride,
                 size_t out_k_stride", dims = dims, t = N::OPENCL_TYPE_STR)?;
-        source_stride_arguments(fmt, _p, "dim_s", &["lhs_s", "rhs_s", "out_s"], dims - 2)?;
+        source_stride_arguments(fmt, "dim_s", &["lhs_s", "rhs_s", "out_s"], dims - 2)?;
         write!(fmt, "){{
     size_t j = get_global_id(0);
     size_t k = get_global_id(1);
     size_t s = get_global_id(2);")?;
-        source_index_to_coordiantes(fmt, _p, "dim_s", "s", dims - 2)?;
-        source_offsets(fmt, _p, "s", &["lhs_s", "rhs_s", "out_s"], dims - 2);
+        source_index_to_coordiantes(fmt, "dim_s", "s", dims - 2)?;
+        source_offsets(fmt, "s", &["lhs_s", "rhs_s", "out_s"], dims - 2);
         write!(fmt, "
     {t} sum = 0;
     size_t out_offset = out_s_offset+j*out_j_stride+k*out_k_stride;
@@ -144,16 +146,19 @@ __kernel void {t}_scalar_to_lhs_mat_{built_in}(__global {t} * mat, {t} scalar){{
 }
 
 fn source_mat_to_lhs_mat<N: Num>(fmt: &mut Formatter<'_>, _p: PhantomData<N>) -> std::fmt::Result {
+    fn write_beginning(dims: usize, name: &'static str, fmt: &mut Formatter<'_>, input_type: &'static str, output_type: &'static str) -> std::fmt::Result {
+        write!(fmt, "
+__kernel void mat_{input_type}_to_lhs_mat_{output_type}_{dims}_{name}(__global {output_type} * lhs, __global {input_type} * rhs", dims = dims, name = name, input_type = input_type, output_type = output_type)?;
+        source_stride_arguments(fmt, "dim", &["lhs", "rhs"], dims)?;
+        write!(fmt, "){{
+    size_t s = get_global_id(0);")?;
+        source_index_to_coordiantes(fmt, "dim", "s", dims)?;
+        source_offsets(fmt, "s", &["lhs", "rhs"], dims)?;
+        write!(fmt, "\n    ")
+    }
     for dims in 0..=MAX_MAT_DIMS {
         for (built_in, name) in [("", "copy"), ("/", "div"), ("*", "hadamard"), ("-", "sub"), ("+", "add"), ("min", "min"), ("max", "max")] {
-            write!(fmt, "
-__kernel void {t}_mat_to_lhs_mat{dims}_{name}(__global {t} * lhs, __global {t} * rhs", dims = dims, name = name, t = N::OPENCL_TYPE_STR)?;
-            source_stride_arguments(fmt, _p, "dim", &["lhs", "rhs"], dims)?;
-            write!(fmt, "){{
-    size_t s = get_global_id(0);")?;
-            source_index_to_coordiantes(fmt, _p, "dim", "s", dims)?;
-            source_offsets(fmt, _p, "s", &["lhs", "rhs"], dims)?;
-            write!(fmt, "\n")?;
+            write_beginning(dims, name, fmt, N::OPENCL_TYPE_STR, N::OPENCL_TYPE_STR)?;
             if built_in.bytes().any(|c| !c.is_ascii_alphanumeric()) {
                 write!(fmt, "lhs[lhs_offset] {built_in}= rhs[rhs_offset];", built_in = built_in)?;
             } else {
@@ -161,21 +166,17 @@ __kernel void {t}_mat_to_lhs_mat{dims}_{name}(__global {t} * lhs, __global {t} *
             }
             write!(fmt, "\n}}")?;
         }
-    }
-    Ok(())
-}
-
-fn source_unary_mat<N: Num>(fmt: &mut Formatter<'_>, _p: PhantomData<N>) -> std::fmt::Result {
-    for (for_int, for_float, built_in) in [(false, true, "sin"), (false, true, "cos"), (false, true, "tan"),
-        (false, true, "tanh"), (true, false, "abs"), (false, true, "fabs"), (false, true, "exp"), (false, true, "exp2"), (false, true, "exp10"),
-        (false, true, "log"), (false, true, "log2"), (false, true, "log10")] {
-        if (N::IS_FLOAT && for_float) || (N::IS_INT && for_int) {
-            write!(fmt, "
-__kernel void {t}_unary_mat_{built_in}(__global {t} * mat){{
-    size_t i = get_global_id(0);
-    mat[i] = {built_in}(mat[i]);
-}}
-", built_in = built_in, t = N::OPENCL_TYPE_STR)?;
+        for new_t in [u8::OPENCL_TYPE_STR, u16::OPENCL_TYPE_STR, u32::OPENCL_TYPE_STR, u64::OPENCL_TYPE_STR,
+            i8::OPENCL_TYPE_STR, i16::OPENCL_TYPE_STR, i32::OPENCL_TYPE_STR, i64::OPENCL_TYPE_STR,
+            f32::OPENCL_TYPE_STR] {
+            write_beginning(dims, "cast", fmt, N::OPENCL_TYPE_STR, new_t)?;
+            write!(fmt, "lhs[lhs_offset] = rhs[rhs_offset];
+}}")?;
+        }
+        for built_in in ["sin", "cos", "tan", "tanh", "fabs", "exp", "exp2", "exp10", "log", "log2", "log10"] {
+            write_beginning(dims, built_in, fmt, N::OPENCL_TYPE_STR, f32::OPENCL_TYPE_STR)?;
+            write!(fmt, "lhs[lhs_offset] = {built_in}((float)rhs[rhs_offset]);
+}}", built_in = built_in)?;
         }
     }
     Ok(())
@@ -209,7 +210,6 @@ fn source<N: Num>(fmt: &mut Formatter<'_>, _p: PhantomData<N>) -> std::fmt::Resu
     source_clamp(fmt, _p)?;
     source_scalar_to_lhs_mat(fmt, _p)?;
     source_mat_to_lhs_mat(fmt, _p)?;
-    source_unary_mat(fmt, _p)?;
     source_mat_cmp_mat(fmt, _p)?;
     source_mat_cmp_scalar(fmt, _p)?;
     Ok(())
@@ -263,6 +263,7 @@ impl LinAlgProgram {
     }
     pub fn new(platform: Platform, device: Device) -> Result<LinAlgProgram, Error> {
         let src = format!("{}", SourceCode {});
+        // std::fs::write("tmp.txt",&src);  // add for debugging purposes
         ProQue::builder()
             .platform(platform)
             .device(device)

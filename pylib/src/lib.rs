@@ -27,45 +27,6 @@ use crate::py_rustyneat::{CPPN32, Neat32, FeedForwardNet32, FeedForwardNetSubstr
 use crate::py_envs::Evol;
 use ndalgebra::mat::MatError;
 
-// unsafe fn from_boxed_slice<T: Element, D: Dimension, ID>(
-//     py: Python,
-//     dims: ID,
-//     flags: c_int,
-//     strides: *const npy_intp,
-//     slice: Box<[T]>,
-// ) -> &PyArray<T, D>
-//     where
-//         ID: IntoDimension<Dim=D>,
-// {
-//     let dims = dims.into_dimension();
-//     let container = slice_box::SliceBox::new(slice);
-//     let data_ptr = container.data;
-//     let cell = pyo3::PyClassInitializer::from(container)
-//         .create_cell(py)
-//         .expect("Object creation failed.");
-//     let ptr = PY_ARRAY_API.PyArray_New(
-//         PY_ARRAY_API.get_type_object(npyffi::NpyTypes::PyArray_Type),
-//         dims.ndim_cint(),
-//         dims.as_dims_ptr(),
-//         T::npy_type() as i32,
-//         strides as *mut _,          // strides
-//         data_ptr as _,              // data
-//         std::mem::size_of::<T>() as i32, // itemsize
-//         flags,                          // flag
-//         std::ptr::null_mut(),            //obj
-//     );
-//     PY_ARRAY_API.PyArray_SetBaseObject(ptr as *mut npyffi::PyArrayObject, cell as _);
-//     PyArray::from_owned_ptr(py, ptr)
-// }
-//
-// pub fn new_ndarray<T: Element, D: Dimension, ID>(py: Python, dims: ID, vec: Vec<T>) -> PyResult<&PyArray<T, D>>
-//     where ID: IntoDimension<Dim=D> {
-//     let vec = vec.into_boxed_slice();
-//     let len = vec.len();
-//     let strides = [std::mem::size_of::<T>() as npy_intp];
-//     let vec = unsafe { from_boxed_slice(py, [len], NPY_ARRAY_WRITEABLE, strides.as_ptr(), vec) };
-//     vec.reshape(dims)
-// }
 
 
 #[pymodule]
@@ -84,6 +45,7 @@ pub fn ndalgebra(py: Python, m: &PyModule) -> PyResult<()> {
     m.add("f32", F32)?;
     m.add_function(wrap_pyfunction!(empty, m)?)?;
     m.add_function(wrap_pyfunction!(array, m)?)?;
+    m.add_function(wrap_pyfunction!(exp, m)?)?;
     Ok(())
 }
 

@@ -5,8 +5,8 @@ from matplotlib import pyplot as plt
 
 # Here are some settings for testing
 # (This tutorial is also a test script at the same time)
-VISUALISE_PICBREEDER_2D = False
-VISUALISE_PICBREEDER_2D_PLUS_BIAS_AND_CENTER_DIST = False
+VISUALISE_PICBREEDER_2D = True
+VISUALISE_PICBREEDER_2D_PLUS_BIAS_AND_CENTER_DIST = True
 USE_PYTORCH = True
 
 if USE_PYTORCH:
@@ -294,21 +294,52 @@ context = rusty_neat.make_gpu_context()  # could fail if you don't have GPU
 
 # You can compile your feed-forward network to run on GPU
 gpu_net = net.to(context)
-out = net([1, 2, 3, 4])  # This was computer on CPU
-gpu_out = gpu_net([1, 2, 3, 4])  # This was computer on GPU
-assert gpu_out == out
-# You can query device used by a network
-assert gpu_net.device == device
+from rusty_neat import ndalgebra as nd  # We will need our OpenCL tensor library
 
-# It's also possible to use numpy matrices to perform computations in batches
-out_numpy = gpu_net.numpy(np.array([
+input_tensor = nd.array([1, 2, 3, 4], context, dtype=nd.f32)
+assert input_tensor.dtype == nd.f32  # You can query dtype just like in numpy
+assert input_tensor.ndim == 1  # You can query number of dimensions just like in numpy
+assert input_tensor.shape == (4,)  # You can query number of dimensions just like in numpy
+assert input_tensor.strides == (1,)  # You can query strides just like in numpy
+assert str(input_tensor) == "[1, 2, 3, 4]"  # You can stringify it
+# The gpu_net expects to get a 2D tensor of shape (batch, inputs)
+# Our current tensor only has shape (inputs). We need to reshape it
+input_tensor_reshaped = input_tensor.reshape(1, 4)
+assert input_tensor_reshaped.ndim == 2
+assert input_tensor_reshaped.shape == (1, 4)
+assert str(input_tensor_reshaped) == "[[1, 2, 3, 4]]"
+# Alternatively we could have just our tensor like this
+input_tensor = nd.array([[1, 2, 3, 4]], context, dtype=nd.f32)
+assert input_tensor.ndim == 2
+assert input_tensor.shape == (1, 4)
+assert str(input_tensor) == "[[1, 2, 3, 4]]"
+# Now we can feed tsuch input into our network on GPU
+gpu_out = gpu_net(input_tensor)  # This runs on GPU
+# Let's compare the results with CPU network that we built previously
+out = net([1, 2, 3, 4])  # This was computer on CPU
+print(gpu_out)  # [1.2363184690475464, 0.6408301591873169, 0.06644833087921143]
+print(out)  # [[1.2363185, 0.64083016, 0.06644833]]
+# These two should look nearly the same (some minor differences may arise due to
+# imprecision of floating points)
+
+# You can convert our ndarray to numpy's
+numpy1 = gpu_out.numpy()  # This function make a new copy
+numpy2 = np.array(out)
+assert (numpy1 - numpy2 < 0.00001).all()  # they are the same
+
+
+# It's also possible to use tensors to perform computations in batches
+gpu_out_batch = gpu_net(nd.array([
     [1, 2, 3, 4],  # First set of inputs
     [1, 2, 3, 4]  # another set of inputs (normally every row would be different)
     # ... and so on
     # All of those inputs rows are independent of each other and will be computer in parallel on GPU
-], dtype=np.float32))
-assert (out_numpy[0] == out).all()
-assert (out_numpy[1] == out).all()
+], context, dtype=nd.f32))
+# You can index and slice ndarrays just like in numpy
+first_input = gpu_out_batch[0]
+second_input = gpu_out_batch[1]
+assert (first_input.numpy() - numpy1 < 0.00001).all()
+assert (second_input.numpy() - numpy1 < 0.00001).all()
 
 
 # Note that CPPN are not the right tool if you wish to evolve large neural networks.
@@ -317,7 +348,7 @@ assert (out_numpy[1] == out).all()
 
 
 def sigmoid(x: np.ndarray):  # This function will be necessary later to normalise pixel values
-    return 1 / (1 + np.exp(-x))
+    return 1 / (1 + nd.exp(-x))
 
 
 # A great introduction to HyperNEAT is by first exploring picbreeder. You can generate images
@@ -340,7 +371,7 @@ for _ in range(100):
                 disable_edge_prob=0.01)
 net = cppn.build_feed_forward_net()
 # Now instead of calling .to() we shall call .to_picbreeder()
-gpu_net = net.to_picbreeder(platform=platform, device=device)
+gpu_net = net.to_picbreeder(context=context)
 # Let's choose the width and height
 picture_width = 64
 picture_height = 64
@@ -362,7 +393,7 @@ assert picture.shape == (64, 64, 3)
 
 if VISUALISE_PICBREEDER_2D:
     # The values might exceed allowed 0-1 range for float RGB values, so let's normalise it first
-    picture = sigmoid(picture)
+    picture = sigmoid(picture.numpy())
     plt.imshow(picture)
     plt.show()
 
@@ -389,8 +420,7 @@ net = cppn.build_feed_forward_net()
 
 gpu_net = net.to_picbreeder(center=[0, 0],  # This defines the center point of picture
                             bias=True,  # This option adds bias
-                            platform=platform,
-                            device=device)
+                            context=context)
 # Here nothing changes
 picture = gpu_net([64, 64],  # pixel_count_per_dimension
                   [1, 1],  # pixel_size_per_dimension
@@ -398,7 +428,7 @@ picture = gpu_net([64, 64],  # pixel_count_per_dimension
 assert picture.shape == (64, 64, 3)
 
 if VISUALISE_PICBREEDER_2D_PLUS_BIAS_AND_CENTER_DIST:
-    picture = sigmoid(picture)
+    picture = sigmoid(picture.numpy())
     plt.imshow(picture)
     plt.show()
 
