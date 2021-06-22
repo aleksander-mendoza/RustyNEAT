@@ -27,6 +27,26 @@ mod tests {
     }
 
     #[test]
+    fn test_mat_view() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::array2(&p, [[1, 10], [100, 1000]])?;
+        let m2 = m1.v1(0);
+        assert_eq!(m2.shape(), &[2]);
+        assert_eq!(m2.to_string(), "[1, 10]");
+        Ok(())
+    }
+
+    #[test]
+    fn test_mat_view2() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::array2(&p, [[1, 10], [100, 1000]])?;
+        let m2 = m1.v1(1);
+        assert_eq!(m2.shape(), &[2]);
+        assert_eq!(m2.to_string(), "[100, 1000]");
+        Ok(())
+    }
+
+    #[test]
     fn test_mat_eq() -> Result<(), String> {
         let p = LinAlgProgram::gpu()?;
         let m1 = Mat::array2(&p, [[1, 10], [100, 1000]])?;
@@ -481,6 +501,33 @@ mod tests {
         assert_eq!(m2.to_vec().unwrap(), vec![10000000], "m1");
         Ok(())
     }
+    #[test]
+    fn test_view10() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let m1 = Mat::array1(&p, [0,1,2,3,4,5,6,7,8,9,10,11])?;
+        let m1 = m1.reshape_infer_wildcard(&[3,-1])?;
+        let m2 = m1.v2(1,1..3);
+        assert_eq!(m2.shape(),&[2]);
+        assert_eq!(m2.to_vec().unwrap(), vec![5,6], "m2");
+        assert_eq!(m2.to_string(), "[5, 6]", "m2");
+        Ok(())
+    }
+    #[test]
+    fn test_view11() -> Result<(), String> {
+        let p = LinAlgProgram::gpu()?;
+        let lidars = Mat::array3(&p, [[[87.0f32, 1335.0], [87.0, 1005.0], [87.0, 928.0]], [[87.0, 1335.0], [87.0, 1005.0], [87.0, 928.0]], [[87.0, 1335.0], [87.0, 1005.0], [87.0, 928.0]], [[87.0, 1335.0], [87.0, 1005.0], [87.0, 928.0]], [[87.0, 1335.0], [87.0, 1005.0], [87.0, 928.0]], [[87.0, 1335.0], [87.0, 1005.0], [87.0, 928.0]], [[87.0, 1335.0], [87.0, 1005.0], [87.0, 928.0]], [[87.0, 1335.0], [87.0, 1005.0], [87.0, 928.0]]])?;
+        assert_eq!(lidars.shape(),&[8, 3, 2]);
+        let agent_lidars = lidars.v1(3);
+        assert_eq!(agent_lidars.to_string(),"[[87, 1335], [87, 1005], [87, 928]]");
+        assert_eq!(agent_lidars.shape(),&[3, 2]);
+        let central_lidar = agent_lidars.v1(1);
+        assert_eq!(agent_lidars.to_string(),"[87, 1005]");
+        assert_eq!(central_lidar.shape(),&[2]);
+        let dist = central_lidar.v1(0);
+        assert_eq!(dist.shape(),&[1]);
+        Ok(())
+    }
+
     #[test]
     fn test_reshape1() -> Result<(), String> {
         let p = LinAlgProgram::gpu()?;

@@ -112,7 +112,7 @@ impl<'a, T: Num> Shape<'a, T> {
         if self.0.is_empty() {
             T::zero()
         } else {
-            self.0.iter().fold(T::one(), |a, &b| a * b)
+            self.0.iter().cloned().product()
         }
     }
 }
@@ -168,7 +168,7 @@ impl<T: Num> Mat<T> {
                 if contiguous {
                     assert_eq!(buff.len(), if strides.is_empty() { 0 } else { strides[0] * shape[0] }, "buff.len()!=strides[0]*shape[0]");
                 }
-                assert_eq!(buff.len(), if strides.is_empty() || strides[0] == 0 { 0 } else { strides.iter().zip(shape.iter()).fold(0, |sum, (a, b)| sum + a * (b - 1)) + 1 }, "buff.len()!=strides.last_index+1");
+                assert_eq!(buff.len(), if strides.is_empty() || strides[0] == 0 { 0 } else { strides.iter().zip(shape.iter()).map(|(a,b)|a * (b - 1)).sum::<usize>() + 1 }, "buff.len()!=strides.last_index+1");
             }
             let lin_alg = lin_alg.clone();
             Ok(Self { lin_alg, buff, strides, shape })
@@ -277,7 +277,7 @@ impl<T: Num> Mat<T> {
 
     pub fn offset_into_buffer(&self, index: &[usize]) -> Result<usize, MatError> {
         if index.len() == self.ndim() && index.iter().zip(self.shape.iter()).all(|(&a, &b)| a < b) {
-            Ok(index.iter().zip(self.strides.iter()).fold(0, |sum, (&i, &s)| sum + i * s))
+            Ok(index.iter().zip(self.strides.iter()).map(|(a,b)|a*b).sum())
         } else {
             Err(MatError::InvalidIndex(index.to_vec(), self.shape.to_vec()))
         }
@@ -302,21 +302,31 @@ impl<T: Num> Mat<T> {
         if ranges.len() > self.ndim() || ranges.iter().zip(self.shape.iter()).all(|(r, &s)| r.start > s || r.end > s || r.start > r.end) {
             Err(MatError::InvalidView(ranges.to_vec(), self.shape.to_vec()))
         } else if let Some(buff) = &self.buff {
-            let first_element_offset = ranges.iter().zip(self.strides.iter()).fold(0, |sum, (r, s)| sum + r.start * s);
-            let mut new_shape = Vec::with_capacity(self.ndim());
+            let first_element_offset = ranges.iter().zip(self.strides.iter()).map(|(r,s)|r.start * s).sum::<usize>();
+            let mut new_shape = Vec::with_capacity(self.ndim()-ranges.len());
+            let mut new_strides = Vec::with_capacity(new_shape.capacity());
             let mut last_element_offset = first_element_offset;
             for (i, stride) in self.strides.iter().enumerate() {
                 let len = ranges.get(i).map(|r| r.end - r.start).unwrap_or(self.shape[i]);
                 if len == 0 {
                     return Self::null(&self.lin_alg);
                 }
-                new_shape.push(len);
-                last_element_offset += (len - 1) * stride;
+                if len>1{
+                    new_shape.push(len);
+                    new_strides.push(self.strides()[i]);
+                    last_element_offset += (len - 1) * stride;
+                }
             }
             let size = last_element_offset + 1 - first_element_offset;
+            assert_eq!(new_shape.len(),new_strides.len());
+            if new_shape.is_empty(){
+                new_shape.push(1);
+                new_strides.push(1);
+            }
             assert!(size > 0);
+            buff.offset()
             let sub = buff.create_sub_buffer(None, first_element_offset, size)?;
-            Self::new_with_strides(&self.lin_alg, Some(sub), false, self.strides.clone(), new_shape.into_boxed_slice())
+            Self::new_with_strides(&self.lin_alg, Some(sub), false, new_strides.into_boxed_slice(), new_shape.into_boxed_slice())
         } else {
             assert_eq!(self.size(), 0);
             Ok(self.clone())

@@ -3,8 +3,9 @@ use ocl::OclPrm;
 use ocl::core::ffi::cl_half;
 use std::num::ParseIntError;
 use num_traits::{Zero, One};
+use std::iter::Product;
 
-pub trait Num: OclPrm + Copy + Display + std::ops::AddAssign + Zero<Output=Self> + One<Output=Self> {
+pub trait Num: OclPrm + Copy + Display + std::ops::AddAssign + Zero<Output=Self> + One<Output=Self> + Product<Self>  {
     const OPENCL_TYPE_STR: &'static str;
     const IS_FLOAT: bool = false;
     const IS_INT: bool = false;
