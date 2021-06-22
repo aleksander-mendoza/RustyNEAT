@@ -64,6 +64,10 @@ pub fn ndalgebra(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(empty, m)?)?;
     m.add_function(wrap_pyfunction!(array, m)?)?;
     m.add_function(wrap_pyfunction!(exp, m)?)?;
+    m.add_function(wrap_pyfunction!(from_numpy, m)?)?;
+    m.add_function(wrap_pyfunction!(full, m)?)?;
+    m.add_function(wrap_pyfunction!(zeros, m)?)?;
+    m.add_function(wrap_pyfunction!(ones, m)?)?;
     Ok(())
 }
 

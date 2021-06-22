@@ -1,16 +1,16 @@
 use pyo3::prelude::*;
-use pyo3::{wrap_pyfunction, wrap_pymodule, PyObjectProtocol, PyTypeInfo, PyClass, PyMappingProtocol, FromPyPointer, PySequenceProtocol};
+use pyo3::{wrap_pyfunction, wrap_pymodule, PyObjectProtocol, PyTypeInfo, PyClass, PyMappingProtocol, FromPyPointer, PySequenceProtocol, PyDowncastError, AsPyPointer, PyIterProtocol};
 use pyo3::PyResult;
 use ndalgebra::mat::{Mat, MatError, AsShape};
 use ndalgebra::num::Num;
 use crate::py_ocl::NeatContext;
 use crate::{ocl_err_to_py_ex, slice_box};
 use std::fmt::{Display, Formatter};
-use pyo3::types::{PyType, PyList, PyTuple, PyInt, PyFloat, PyBool, PySlice};
+use pyo3::types::{PyType, PyList, PyTuple, PyInt, PyFloat, PyBool, PySlice, PyLong};
 use pyo3::exceptions::PyValueError;
 use pyo3::basic::CompareOp;
 use std::ops::Range;
-use numpy::{PyArray, PY_ARRAY_API, npyffi, Element};
+use numpy::{PyArray, PY_ARRAY_API, npyffi, Element, PyReadonlyArrayDyn, DataType, PyArrayDyn};
 use numpy::npyffi::{PyArray_Dims, NPY_TYPES, NPY_ARRAY_WRITEABLE};
 
 #[pyclass]
@@ -83,6 +83,7 @@ pub trait DynMatTrait: Display {
     fn unsqueeze(&self, idx: usize) -> Result<DynMat, MatError>;
     fn squeeze(&self, idx: usize) -> Result<DynMat, MatError>;
     fn reshape(&self, shape: Box<[usize]>) -> Result<DynMat, MatError>;
+    fn reshape_infer_wildcard(&self, shape: &[isize]) -> Result<DynMat, MatError>;
     fn view(&self, view: &[Range<usize>]) -> Result<DynMat, MatError>;
     fn exp(&self) -> Result<DynMat, MatError>;
     fn exp2(&self) -> Result<DynMat, MatError>;
@@ -95,6 +96,8 @@ pub trait DynMatTrait: Display {
     fn log2(&self) -> Result<DynMat, MatError>;
     fn log10(&self) -> Result<DynMat, MatError>;
     fn numpy<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny>;
+    fn list<'py>(&self, py: Python<'py>) -> PyResult<&'py PyList>;
+    fn item<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny>;
 }
 
 pub trait DynMatCasts {
@@ -133,12 +136,12 @@ impl DynMat {
         self.m.ndim()
     }
     #[getter]
-    fn shape<'py>(&self, py:Python<'py>) -> &'py PyTuple {
-        PyTuple::new(py,self.m.shape())
+    fn shape<'py>(&self, py: Python<'py>) -> &'py PyTuple {
+        PyTuple::new(py, self.m.shape())
     }
     #[getter]
-    fn strides<'py>(&self, py:Python<'py>) -> &'py PyTuple {
-        PyTuple::new(py,self.m.strides())
+    fn strides<'py>(&self, py: Python<'py>) -> &'py PyTuple {
+        PyTuple::new(py, self.m.strides())
     }
     #[getter]
     fn dtype(&self) -> DType {
@@ -153,11 +156,11 @@ impl DynMat {
     #[args(py_args = "*")]
     fn reshape(&self, py_args: &PyTuple) -> PyResult<DynMat> {
         let mut shape = Vec::with_capacity(py_args.len());
-        for arg in py_args{
-            let dim = arg.extract::<usize>()?;
+        for arg in py_args {
+            let dim = arg.extract::<isize>()?;
             shape.push(dim);
         }
-        self.m.reshape(shape.into_boxed_slice()).map_err(ocl_err_to_py_ex)
+        self.m.reshape_infer_wildcard(shape.as_slice()).map_err(ocl_err_to_py_ex)
     }
     fn exp(&self) -> PyResult<DynMat> {
         self.m.exp().map_err(ocl_err_to_py_ex)
@@ -192,6 +195,9 @@ impl DynMat {
     fn numpy<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny> {
         self.m.numpy(py)
     }
+    fn item<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny> {
+        self.m.item(py)
+    }
 }
 
 pub trait ToDtype {
@@ -218,7 +224,7 @@ dtype_for_prim!(i64);
 dtype_for_prim!(f32);
 
 
-impl<T: Num + ToDtype> DynMatTrait for Mat<T> {
+impl<T: Num + ToDtype + ToPyObject> DynMatTrait for Mat<T> {
     fn len(&self) -> usize {
         Mat::len(self)
     }
@@ -248,6 +254,10 @@ impl<T: Num + ToDtype> DynMatTrait for Mat<T> {
 
     fn reshape(&self, shape: Box<[usize]>) -> Result<DynMat, MatError> {
         self.reshape_boxed(shape).map(DynMat::from)
+    }
+
+    fn reshape_infer_wildcard(&self, shape: &[isize]) -> Result<DynMat, MatError> {
+        Mat::reshape_infer_wildcard(self,shape).map(DynMat::from)
     }
 
     fn view(&self, view: &[Range<usize>]) -> Result<DynMat, MatError> {
@@ -282,8 +292,13 @@ impl<T: Num + ToDtype> DynMatTrait for Mat<T> {
     fn log10(&self) -> Result<DynMat, MatError> {
         Mat::log10(self).map(DynMat::from)
     }
-
-
+    fn item<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny>{
+        self.item().map_err(ocl_err_to_py_ex).map(|i|i.to_object(py).into_ref(py))
+    }
+    fn list<'py>(&self, py: Python<'py>) -> PyResult<&'py PyList> {
+        let vec = self.to_vec().map_err(ocl_err_to_py_ex)?;
+        Ok(PyList::new(py, vec))
+    }
     fn numpy<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny> {
         let vec = self.to_vec().map_err(ocl_err_to_py_ex)?;
         let slice = vec.into_boxed_slice();
@@ -293,7 +308,7 @@ impl<T: Num + ToDtype> DynMatTrait for Mat<T> {
             .create_cell(py)
             .expect("Object creation failed.");
         let elem_size = std::mem::size_of::<T>();
-        let strides_in_bytes = self.strides().iter().map(|s|s*elem_size).collect::<Vec<usize>>();
+        let strides_in_bytes = self.strides().iter().map(|s| s * elem_size).collect::<Vec<usize>>();
         unsafe {
             let ptr = PY_ARRAY_API.PyArray_New(
                 PY_ARRAY_API.get_type_object(npyffi::NpyTypes::PyArray_Type),
@@ -309,7 +324,6 @@ impl<T: Num + ToDtype> DynMatTrait for Mat<T> {
             PY_ARRAY_API.PyArray_SetBaseObject(ptr as *mut npyffi::PyArrayObject, cell as _);
             Ok(PyAny::from_owned_ptr(py, ptr))
         }
-
     }
 // unsafe fn from_boxed_slice<T: Element, D: Dimension, ID>(
 //     py: Python,
@@ -369,7 +383,7 @@ pub fn try_as_dtype_mut<D: Num + ToDtype, T: DynMatTrait>(tensor: &mut T) -> Res
 }
 
 
-impl<T: Num + ToDtype> From<Mat<T>> for DynMat {
+impl<T: Num + ToDtype + ToPyObject> From<Mat<T>> for DynMat {
     fn from(m: Mat<T>) -> Self {
         DynMat { m: Box::new(m) as Box<dyn DynMatTrait + Send> }
     }
@@ -384,15 +398,44 @@ pub fn empty(shape: Vec<usize>, context: &NeatContext, dtype: Option<DType>) -> 
             DTypeEnum::u16 => Mat::<u16>::empty(context.c.lin_alg(), shape.as_slice()).map(DynMat::from),
             DTypeEnum::u32 => Mat::<u32>::empty(context.c.lin_alg(), shape.as_slice()).map(DynMat::from),
             DTypeEnum::u64 => Mat::<u64>::empty(context.c.lin_alg(), shape.as_slice()).map(DynMat::from),
-            DTypeEnum::i8 => Mat::<u8>::empty(context.c.lin_alg(), shape.as_slice()).map(DynMat::from),
-            DTypeEnum::i16 => Mat::<u16>::empty(context.c.lin_alg(), shape.as_slice()).map(DynMat::from),
-            DTypeEnum::i32 => Mat::<u32>::empty(context.c.lin_alg(), shape.as_slice()).map(DynMat::from),
-            DTypeEnum::i64 => Mat::<u64>::empty(context.c.lin_alg(), shape.as_slice()).map(DynMat::from),
+            DTypeEnum::i8 => Mat::<i8>::empty(context.c.lin_alg(), shape.as_slice()).map(DynMat::from),
+            DTypeEnum::i16 => Mat::<i16>::empty(context.c.lin_alg(), shape.as_slice()).map(DynMat::from),
+            DTypeEnum::i32 => Mat::<i32>::empty(context.c.lin_alg(), shape.as_slice()).map(DynMat::from),
+            DTypeEnum::i64 => Mat::<i64>::empty(context.c.lin_alg(), shape.as_slice()).map(DynMat::from),
             DTypeEnum::f32 => Mat::<f32>::empty(context.c.lin_alg(), shape.as_slice()).map(DynMat::from),
         }.map_err(ocl_err_to_py_ex)
     }
 }
 
+#[pyfunction]
+#[text_signature = "(shape_tuple, fill_value, ontext, dtype/)"]
+pub fn full(shape: Vec<usize>, fill_value: &PyAny, context: &NeatContext, dtype: Option<DType>) -> PyResult<DynMat> {
+    unsafe {
+        match dtype.map(|d| d.e).unwrap_or_else(||if PyInt::is_type_of(fill_value) { DTypeEnum::i64 } else if PyBool::is_type_of(fill_value) { DTypeEnum::u8 } else { DTypeEnum::f32 }) {
+            DTypeEnum::u8 => Mat::<u8>::full(context.c.lin_alg(), shape.as_slice(), fill_value.extract::<u8>()?).map(DynMat::from),
+            DTypeEnum::u16 => Mat::<u16>::full(context.c.lin_alg(), shape.as_slice(), fill_value.extract::<u16>()?).map(DynMat::from),
+            DTypeEnum::u32 => Mat::<u32>::full(context.c.lin_alg(), shape.as_slice(), fill_value.extract::<u32>()?).map(DynMat::from),
+            DTypeEnum::u64 => Mat::<u64>::full(context.c.lin_alg(), shape.as_slice(), fill_value.extract::<u64>()?).map(DynMat::from),
+            DTypeEnum::i8 => Mat::<i8>::full(context.c.lin_alg(), shape.as_slice(), fill_value.extract::<i8>()?).map(DynMat::from),
+            DTypeEnum::i16 => Mat::<i16>::full(context.c.lin_alg(), shape.as_slice(), fill_value.extract::<i16>()?).map(DynMat::from),
+            DTypeEnum::i32 => Mat::<i32>::full(context.c.lin_alg(), shape.as_slice(), fill_value.extract::<i32>()?).map(DynMat::from),
+            DTypeEnum::i64 => Mat::<i64>::full(context.c.lin_alg(), shape.as_slice(), fill_value.extract::<i64>()?).map(DynMat::from),
+            DTypeEnum::f32 => Mat::<f32>::full(context.c.lin_alg(), shape.as_slice(), fill_value.extract::<f32>()?).map(DynMat::from),
+        }.map_err(ocl_err_to_py_ex)
+    }
+}
+
+#[pyfunction]
+#[text_signature = "(shape_tuple, context, dtype/)"]
+pub fn zeros(py: Python<'_>, shape: Vec<usize>, context: &NeatContext, dtype: Option<DType>) -> PyResult<DynMat> {
+    full(shape, PyFloat::new(py, 0.), context, dtype)
+}
+
+#[pyfunction]
+#[text_signature = "(shape_tuple, context, dtype/)"]
+pub fn ones(py: Python<'_>, shape: Vec<usize>, context: &NeatContext, dtype: Option<DType>) -> PyResult<DynMat> {
+    full(shape, PyFloat::new(py, 1.), context, dtype)
+}
 
 #[pyfunction]
 #[text_signature = "(tensor/)"]
@@ -410,6 +453,45 @@ pub fn exp<'py>(py: Python<'py>, tensor_or_scalar: &'py PyAny) -> PyResult<&'py 
         return Ok(tensor_as_py);
     } else {
         Err(PyValueError::new_err(format!("Could not perform this operation on {}", tensor_or_scalar.get_type())))
+    }
+}
+
+#[pyfunction]
+#[text_signature = "(numpy_array, context/)"]
+pub fn from_numpy(input: &PyAny, context: &NeatContext) -> Result<DynMat, PyErr> {
+    let array = unsafe {
+        if npyffi::PyArray_Check(input.as_ptr()) == 0 {
+            return Err(PyDowncastError::new(input, "PyArray<T, D>").into());
+        }
+        &*(input as *const PyAny as *const PyArrayDyn<u8>)
+    };
+    let dtype = array.dtype().get_datatype().ok_or_else(|| PyValueError::new_err("No numpy array has no dtype"))?;
+    let shape = array.shape();
+
+    macro_rules! e {
+        ($dtype:ident) =>{
+            {
+                let array = unsafe{ &*(input as *const PyAny as *const PyArrayDyn<$dtype>) };
+                let arr = unsafe { array.as_slice()? };
+                Mat::<$dtype>::from_slice(context.c.lin_alg(),arr,shape).map(DynMat::from).map_err(ocl_err_to_py_ex)
+            }
+        };
+    }
+    match dtype {
+        DataType::Bool => e!(u8),
+        DataType::Int8 => e!(i8),
+        DataType::Int16 => e!(i16),
+        DataType::Int32 => e!(i32),
+        DataType::Int64 => e!(i64),
+        DataType::Uint8 => e!(u8),
+        DataType::Uint16 => e!(u16),
+        DataType::Uint32 => e!(u32),
+        DataType::Uint64 => e!(u64),
+        DataType::Float32 => e!(f32),
+        DataType::Float64 => Err(PyValueError::new_err("Float64 dtype is not yet available in RustyNEAT")),
+        DataType::Complex32 => Err(PyValueError::new_err("Complex32 dtype is not yet available in RustyNEAT")),
+        DataType::Complex64 => Err(PyValueError::new_err("Complex64 dtype is not yet available in RustyNEAT")),
+        DataType::Object => Err(PyValueError::new_err("Object dtype is not yet available in RustyNEAT")),
     }
 }
 
@@ -600,44 +682,59 @@ impl PySequenceProtocol for DynMat {
         self.m.len()
     }
 }
+
+
+fn get_subview(me: &DynMat, key: &PyAny) -> PyResult<DynMat> {
+    let slices = if let Ok(tuple) = key.cast_as::<PyTuple>() {
+        tuple.as_slice().to_vec()
+    } else if let Ok(list) = key.cast_as::<PyList>() {
+        list.iter().collect::<Vec<&PyAny>>()
+    } else {
+        vec![key]
+    };
+    if slices.len() > me.m.ndim() {
+        return Err(PyValueError::new_err(format!("Dimensionality of shape {} is less than the number {} of provided indices", me.m.shape().as_shape(), slices.len())));
+    }
+    let mut ranges = Vec::with_capacity(slices.len());
+    for (i, key) in slices.iter().enumerate() {
+        let (from, to) = if let Ok(slice) = key.cast_as::<PySlice>() {
+            let from = slice.getattr("start")?;
+            let to = slice.getattr("stop")?;
+            let from = if from.is_none() {
+                0
+            } else {
+                from.extract::<usize>()?
+            };
+            let to = if to.is_none() {
+                me.m.shape()[i]
+            } else {
+                to.extract::<usize>()?
+            };
+            (from, to)
+        } else {
+            let index = key.extract::<usize>()?;
+            (index, index + 1)
+        };
+
+
+        ranges.push(from..to)
+    }
+    me.m.view(ranges.as_slice()).map_err(ocl_err_to_py_ex)
+}
+
 #[pyproto]
 impl PyMappingProtocol for DynMat {
     fn __getitem__(&self, key: &PyAny) -> PyResult<DynMat> {
-        let slices = if let Ok(tuple) = key.cast_as::<PyTuple>() {
-            tuple.as_slice().to_vec()
-        } else if let Ok(list) = key.cast_as::<PyList>() {
-            list.iter().collect::<Vec<&PyAny>>()
-        } else {
-            vec![key]
-        };
-        if slices.len() > self.m.ndim() {
-            return Err(PyValueError::new_err(format!("Dimensionality of shape {} is less than the number {} of provided indices", self.m.shape().as_shape(), slices.len())));
+        get_subview(self, key)
+    }
+    fn __setitem__(&mut self, key: &PyAny, value: &PyAny) -> PyResult<()> {
+        let sub_view = get_subview(self, key)?;
+        if let Ok(scalar) = value.cast_as::<PyFloat>() {
+            let scalar = scalar.extract::<f64>()?;
+        } else if let Ok(tensor) = value.cast_as::<PyCell<DynMat>>() {
+            let tensor: PyRef<DynMat> = tensor.try_borrow()?;
         }
-        let mut ranges = Vec::with_capacity(slices.len());
-        for (i, key) in slices.iter().enumerate() {
-            let (from,to) = if let Ok(slice) = key.cast_as::<PySlice>() {
-                let from = slice.getattr("start")?;
-                let to = slice.getattr("stop")?;
-                let from = if from.is_none() {
-                    0
-                } else {
-                    from.extract::<usize>()?
-                };
-                let to = if to.is_none() {
-                    self.m.shape()[i]
-                } else {
-                    to.extract::<usize>()?
-                };
-                (from,to)
-            } else {
-                let index = key.extract::<usize>()?;
-                (index, index+1)
-            };
-
-
-            ranges.push(from..to)
-        }
-        self.m.view(ranges.as_slice()).map_err(ocl_err_to_py_ex)
+        Ok(())
     }
 }
 

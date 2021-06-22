@@ -246,18 +246,18 @@ impl<T: Num> Mat<T> {
     pub unsafe fn empty_like<D: Num>(other: &Mat<T>) -> Result<Mat<D>, MatError> {
         Mat::empty_boxed(&other.lin_alg, other.shape.clone())
     }
-    pub fn filled_like<D: Num>(other: &Mat<T>, fill_val: D) -> Result<Mat<D>, MatError> {
-        Mat::filled_boxed(&other.lin_alg, other.shape.clone(), fill_val)
+    pub fn full_like<D: Num>(other: &Mat<T>, fill_val: D) -> Result<Mat<D>, MatError> {
+        Mat::full_boxed(&other.lin_alg, other.shape.clone(), fill_val)
     }
-    pub fn filled(lin_alg: &LinAlgProgram, shape: &[usize], fill_val: T) -> Result<Self, MatError> {
-        Self::filled_boxed(lin_alg, shape.into(), fill_val)
+    pub fn full(lin_alg: &LinAlgProgram, shape: &[usize], fill_val: T) -> Result<Self, MatError> {
+        Self::full_boxed(lin_alg, shape.into(), fill_val)
     }
-    pub fn filled_boxed(lin_alg: &LinAlgProgram, shape: Box<[usize]>, fill_val: T) -> Result<Self, MatError> {
+    pub fn full_boxed(lin_alg: &LinAlgProgram, shape: Box<[usize]>, fill_val: T) -> Result<Self, MatError> {
         let strides = Self::strides_for_shape(&shape);
         let len = if strides.is_empty() { 0 } else { strides[0] * shape[0] };
-        Self::filled_boxed_with_strides(lin_alg, strides, shape, len, fill_val)
+        Self::full_boxed_with_strides(lin_alg, strides, shape, len, fill_val)
     }
-    fn filled_boxed_with_strides(lin_alg: &LinAlgProgram, strides: Box<[usize]>, shape: Box<[usize]>, len: usize, fill_val: T) -> Result<Self, MatError> {
+    fn full_boxed_with_strides(lin_alg: &LinAlgProgram, strides: Box<[usize]>, shape: Box<[usize]>, len: usize, fill_val: T) -> Result<Self, MatError> {
         assert_eq!(len, shape.as_shape().size());
         lin_alg.pro_que.buffer_builder::<T>()
             .flags(flags::MEM_READ_WRITE)
@@ -268,11 +268,11 @@ impl<T: Num> Mat<T> {
     }
 
     pub fn ones(lin_alg: &LinAlgProgram, shape: &[usize]) -> Result<Self, MatError> {
-        Self::filled(lin_alg, shape, T::one())
+        Self::full(lin_alg, shape, T::one())
     }
 
     pub fn zeros(lin_alg: &LinAlgProgram, shape: &[usize]) -> Result<Self, MatError> {
-        Self::filled(lin_alg, shape, T::zero())
+        Self::full(lin_alg, shape, T::zero())
     }
 
     pub fn offset_into_buffer(&self, index: &[usize]) -> Result<usize, MatError> {
