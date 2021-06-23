@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::{wrap_pyfunction, wrap_pymodule, PyObjectProtocol, PyTypeInfo, PyClass, PyMappingProtocol, FromPyPointer, PySequenceProtocol, PyDowncastError, AsPyPointer, PyIterProtocol};
+use pyo3::{wrap_pyfunction, wrap_pymodule, PyObjectProtocol, PyTypeInfo, PyClass, PyMappingProtocol, FromPyPointer, PySequenceProtocol, PyDowncastError, AsPyPointer, PyIterProtocol, ffi, PyNativeType};
 use pyo3::PyResult;
 use ndalgebra::mat::{Mat, MatError, AsShape};
 use ndalgebra::num::Num;
@@ -10,7 +10,7 @@ use pyo3::types::{PyType, PyList, PyTuple, PyInt, PyFloat, PyBool, PySlice, PyLo
 use pyo3::exceptions::PyValueError;
 use pyo3::basic::CompareOp;
 use std::ops::Range;
-use numpy::{PyArray, PY_ARRAY_API, npyffi, Element, PyReadonlyArrayDyn, DataType, PyArrayDyn};
+use numpy::{PyArray, PY_ARRAY_API, npyffi, Element, PyReadonlyArrayDyn, DataType, PyArrayDyn, ToNpyDims};
 use numpy::npyffi::{PyArray_Dims, NPY_TYPES, NPY_ARRAY_WRITEABLE};
 
 #[pyclass]
@@ -65,6 +65,88 @@ impl Display for DTypeEnum {
     }
 }
 
+pub trait PyNum: Num + ToDtype + ToPyObject {
+    fn extract_from(val: &PyAny) -> PyResult<Self>;
+}
+
+impl PyNum for f32 {
+    fn extract_from(val: &PyAny) -> PyResult<Self> {
+        let v = unsafe { ffi::PyFloat_AsDouble(val.as_ptr()) };
+
+        if v == -1.0 && PyErr::occurred(val.py()) {
+            Err(PyErr::fetch(val.py()))
+        } else {
+            Ok(v as f32)
+        }
+    }
+}
+
+impl PyNum for i64 {
+    fn extract_from(val: &PyAny) -> PyResult<Self> {
+        let v = unsafe { ffi::PyLong_AsLongLong(val.as_ptr()) };
+
+        if v == -1 && PyErr::occurred(val.py()) {
+            Err(PyErr::fetch(val.py()))
+        } else {
+            Ok(v)
+        }
+    }
+}
+
+impl PyNum for i32 {
+    fn extract_from(val: &PyAny) -> PyResult<Self> {
+        i64::extract_from(val).map(|v| v as i32)
+    }
+}
+
+impl PyNum for i16 {
+    fn extract_from(val: &PyAny) -> PyResult<Self> {
+        i64::extract_from(val).map(|v| v as i16)
+    }
+}
+
+impl PyNum for i8 {
+    fn extract_from(val: &PyAny) -> PyResult<Self> {
+        i64::extract_from(val).map(|v| v as i8)
+    }
+}
+
+impl PyNum for u64 {
+    fn extract_from(val: &PyAny) -> PyResult<Self> {
+        let v = unsafe { ffi::PyLong_AsUnsignedLongLong(val.as_ptr()) };
+
+        if v == u64::MAX && PyErr::occurred(val.py()) {
+            Err(PyErr::fetch(val.py()))
+        } else {
+            Ok(v)
+        }
+    }
+}
+
+impl PyNum for usize {
+    fn extract_from(val: &PyAny) -> PyResult<Self> {
+        u64::extract_from(val).map(|v| v as usize)
+    }
+}
+
+impl PyNum for u32 {
+    fn extract_from(val: &PyAny) -> PyResult<Self> {
+        u64::extract_from(val).map(|v| v as u32)
+    }
+}
+
+impl PyNum for u16 {
+    fn extract_from(val: &PyAny) -> PyResult<Self> {
+        u64::extract_from(val).map(|v| v as u16)
+    }
+}
+
+impl PyNum for u8 {
+    fn extract_from(val: &PyAny) -> PyResult<Self> {
+        u64::extract_from(val).map(|v| v as u8)
+    }
+}
+
 pub trait DynMatTrait: Display {
     fn len(&self) -> usize;
     fn dtype(&self) -> DTypeEnum;
@@ -95,9 +177,12 @@ pub trait DynMatTrait: Display {
     fn log(&self) -> Result<DynMat, MatError>;
     fn log2(&self) -> Result<DynMat, MatError>;
     fn log10(&self) -> Result<DynMat, MatError>;
+    fn fill(&mut self, scalar: &PyAny) -> PyResult<()>;
+    fn copy_from(&mut self, other: &DynMat) -> Result<(), MatError>;
     fn numpy<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny>;
     fn list<'py>(&self, py: Python<'py>) -> PyResult<&'py PyList>;
     fn item<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny>;
+    fn read_item<'py>(&self, py: Python<'py>, idx: &[usize]) -> PyResult<PyObject>;
 }
 
 pub trait DynMatCasts {
@@ -222,9 +307,19 @@ dtype_for_prim!(i16);
 dtype_for_prim!(i32);
 dtype_for_prim!(i64);
 dtype_for_prim!(f32);
+impl ToDtype for usize {
+    fn to_dtype() -> DTypeEnum {
+        if std::mem::size_of::<usize>() == std::mem::size_of::<u64>() { DTypeEnum::u64 } else { DTypeEnum::u32 }
+    }
+}
 
+impl ToDtype for isize {
+    fn to_dtype() -> DTypeEnum {
+        if std::mem::size_of::<isize>() == std::mem::size_of::<i64>() { DTypeEnum::i64 } else { DTypeEnum::i32 }
+    }
+}
 
-impl<T: Num + ToDtype + ToPyObject> DynMatTrait for Mat<T> {
+impl<T: PyNum> DynMatTrait for Mat<T> {
     fn len(&self) -> usize {
         Mat::len(self)
     }
@@ -257,7 +352,7 @@ impl<T: Num + ToDtype + ToPyObject> DynMatTrait for Mat<T> {
     }
 
     fn reshape_infer_wildcard(&self, shape: &[isize]) -> Result<DynMat, MatError> {
-        Mat::reshape_infer_wildcard(self,shape).map(DynMat::from)
+        Mat::reshape_infer_wildcard(self, shape).map(DynMat::from)
     }
 
     fn view(&self, view: &[Range<usize>]) -> Result<DynMat, MatError> {
@@ -292,12 +387,11 @@ impl<T: Num + ToDtype + ToPyObject> DynMatTrait for Mat<T> {
     fn log10(&self) -> Result<DynMat, MatError> {
         Mat::log10(self).map(DynMat::from)
     }
-    fn item<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny>{
-        self.item().map_err(ocl_err_to_py_ex).map(|i|i.to_object(py).into_ref(py))
+    fn fill(&mut self, scalar: &PyAny) -> PyResult<()> {
+        Mat::fill(self, T::extract_from(scalar)?).map_err(ocl_err_to_py_ex)
     }
-    fn list<'py>(&self, py: Python<'py>) -> PyResult<&'py PyList> {
-        let vec = self.to_vec().map_err(ocl_err_to_py_ex)?;
-        Ok(PyList::new(py, vec))
+    fn copy_from(&mut self, other: &DynMat) -> Result<(), MatError> {
+        todo!()
     }
     fn numpy<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny> {
         let vec = self.to_vec().map_err(ocl_err_to_py_ex)?;
@@ -325,45 +419,19 @@ impl<T: Num + ToDtype + ToPyObject> DynMatTrait for Mat<T> {
             Ok(PyAny::from_owned_ptr(py, ptr))
         }
     }
-// unsafe fn from_boxed_slice<T: Element, D: Dimension, ID>(
-//     py: Python,
-//     dims: ID,
-//     flags: c_int,
-//     strides: *const npy_intp,
-//     slice: Box<[T]>,
-// ) -> &PyArray<T, D>
-//     where
-//         ID: IntoDimension<Dim=D>,
-// {
-//     let dims = dims.into_dimension();
-//     let container = slice_box::SliceBox::new(slice);
-//     let data_ptr = container.data;
-//     let cell = pyo3::PyClassInitializer::from(container)
-//         .create_cell(py)
-//         .expect("Object creation failed.");
-//     let ptr = PY_ARRAY_API.PyArray_New(
-//         PY_ARRAY_API.get_type_object(npyffi::NpyTypes::PyArray_Type),
-//         dims.ndim_cint(),
-//         dims.as_dims_ptr(),
-//         T::npy_type() as i32,
-//         strides as *mut _,          // strides
-//         data_ptr as _,              // data
-//         std::mem::size_of::<T>() as i32, // itemsize
-//         flags,                          // flag
-//         std::ptr::null_mut(),            //obj
-//     );
-//     PY_ARRAY_API.PyArray_SetBaseObject(ptr as *mut npyffi::PyArrayObject, cell as _);
-//     PyArray::from_owned_ptr(py, ptr)
-// }
-//
-// pub fn new_ndarray<T: Element, D: Dimension, ID>(py: Python, dims: ID, vec: Vec<T>) -> PyResult<&PyArray<T, D>>
-//     where ID: IntoDimension<Dim=D> {
-//     let vec = vec.into_boxed_slice();
-//     let len = vec.len();
-//     let strides = [std::mem::size_of::<T>() as npy_intp];
-//     let vec = unsafe { from_boxed_slice(py, [len], NPY_ARRAY_WRITEABLE, strides.as_ptr(), vec) };
-//     vec.reshape(dims)
-// }
+
+    fn list<'py>(&self, py: Python<'py>) -> PyResult<&'py PyList> {
+        let vec = self.to_vec().map_err(ocl_err_to_py_ex)?;
+        Ok(PyList::new(py, vec))
+    }
+
+    fn item<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny> {
+        self.item().map_err(ocl_err_to_py_ex).map(|i| i.to_object(py).into_ref(py))
+    }
+
+    fn read_item<'py>(&self, py: Python<'py>, idx: &[usize]) -> PyResult<PyObject> {
+        Mat::read_item(self, idx).map(|s| s.to_object(py)).map_err(ocl_err_to_py_ex)
+    }
 }
 
 pub fn try_as_dtype<D: Num + ToDtype, T: DynMatTrait>(tensor: &T) -> Result<&Mat<D>, String> {
@@ -383,7 +451,7 @@ pub fn try_as_dtype_mut<D: Num + ToDtype, T: DynMatTrait>(tensor: &mut T) -> Res
 }
 
 
-impl<T: Num + ToDtype + ToPyObject> From<Mat<T>> for DynMat {
+impl<T: PyNum> From<Mat<T>> for DynMat {
     fn from(m: Mat<T>) -> Self {
         DynMat { m: Box::new(m) as Box<dyn DynMatTrait + Send> }
     }
@@ -411,7 +479,7 @@ pub fn empty(shape: Vec<usize>, context: &NeatContext, dtype: Option<DType>) -> 
 #[text_signature = "(shape_tuple, fill_value, ontext, dtype/)"]
 pub fn full(shape: Vec<usize>, fill_value: &PyAny, context: &NeatContext, dtype: Option<DType>) -> PyResult<DynMat> {
     unsafe {
-        match dtype.map(|d| d.e).unwrap_or_else(||if PyInt::is_type_of(fill_value) { DTypeEnum::i64 } else if PyBool::is_type_of(fill_value) { DTypeEnum::u8 } else { DTypeEnum::f32 }) {
+        match dtype.map(|d| d.e).unwrap_or_else(|| if PyInt::is_type_of(fill_value) { DTypeEnum::i64 } else if PyBool::is_type_of(fill_value) { DTypeEnum::u8 } else { DTypeEnum::f32 }) {
             DTypeEnum::u8 => Mat::<u8>::full(context.c.lin_alg(), shape.as_slice(), fill_value.extract::<u8>()?).map(DynMat::from),
             DTypeEnum::u16 => Mat::<u16>::full(context.c.lin_alg(), shape.as_slice(), fill_value.extract::<u16>()?).map(DynMat::from),
             DTypeEnum::u32 => Mat::<u32>::full(context.c.lin_alg(), shape.as_slice(), fill_value.extract::<u32>()?).map(DynMat::from),
@@ -659,14 +727,6 @@ pub fn array(array: &PyAny, context: &NeatContext, dtype: Option<DType>) -> PyRe
 
 #[pyproto]
 impl PyObjectProtocol for DynMat {
-    // fn __richcmp__(&self, other: PyRef<NeatContext>, op: CompareOp) -> PyResult<bool> {
-    //     let eq = self.c.device() == other.c.device() && self.c.platform().as_core()==other.c.platform().as_core();
-    //     match op {
-    //         CompareOp::Eq => Ok(eq),
-    //         CompareOp::Ne => Ok(!eq),
-    //         op => Err(ocl_err_to_py_ex("Cannot compare platforms"))
-    //     }
-    // }
     fn __str__(&self) -> PyResult<String> {
         Ok(format!("{}", self.m))
     }
@@ -683,6 +743,27 @@ impl PySequenceProtocol for DynMat {
     }
 }
 
+fn extract_py_slice(key: &PyAny, dim:usize) -> PyResult<Range<usize>> {
+    if let Ok(slice) = key.cast_as::<PySlice>() {
+        let from = slice.getattr("start")?;
+        let to = slice.getattr("stop")?;
+        let from = if from.is_none() {
+            0
+        } else {
+            from.extract::<usize>()?
+        };
+        let to = if to.is_none() {
+            dim
+        } else {
+            to.extract::<usize>()?
+        };
+        Ok(from..to)
+    } else {
+        let index= key.extract::<usize>()?;
+        Ok(index..index + 1)
+    }
+
+}
 
 fn get_subview(me: &DynMat, key: &PyAny) -> PyResult<DynMat> {
     let slices = if let Ok(tuple) = key.cast_as::<PyTuple>() {
@@ -697,44 +778,34 @@ fn get_subview(me: &DynMat, key: &PyAny) -> PyResult<DynMat> {
     }
     let mut ranges = Vec::with_capacity(slices.len());
     for (i, key) in slices.iter().enumerate() {
-        let (from, to) = if let Ok(slice) = key.cast_as::<PySlice>() {
-            let from = slice.getattr("start")?;
-            let to = slice.getattr("stop")?;
-            let from = if from.is_none() {
-                0
-            } else {
-                from.extract::<usize>()?
-            };
-            let to = if to.is_none() {
-                me.m.shape()[i]
-            } else {
-                to.extract::<usize>()?
-            };
-            (from, to)
-        } else {
-            let index = key.extract::<usize>()?;
-            (index, index + 1)
-        };
-
-
-        ranges.push(from..to)
+        let slice = extract_py_slice(key,me.m.shape()[i])?;
+        ranges.push(slice)
     }
     me.m.view(ranges.as_slice()).map_err(ocl_err_to_py_ex)
 }
 
 #[pyproto]
 impl PyMappingProtocol for DynMat {
-    fn __getitem__(&self, key: &PyAny) -> PyResult<DynMat> {
-        get_subview(self, key)
+    fn __getitem__(&self, key: &PyAny) -> PyResult<PyObject> {
+        if self.m.ndim() == 1 {
+            if let Ok(slice) = extract_py_slice(key,self.m.len()) {
+                if slice.start+1==slice.end {
+                    return self.m.read_item(key.py(), &[slice.start]);
+                }
+            }
+        }
+        get_subview(self, key).map(|v| v.into_py(key.py()))
     }
     fn __setitem__(&mut self, key: &PyAny, value: &PyAny) -> PyResult<()> {
-        let sub_view = get_subview(self, key)?;
-        if let Ok(scalar) = value.cast_as::<PyFloat>() {
-            let scalar = scalar.extract::<f64>()?;
-        } else if let Ok(tensor) = value.cast_as::<PyCell<DynMat>>() {
+        let mut sub_view = get_subview(self, key)?;
+        if PyFloat::is_type_of(value) || PyLong::is_type_of(value) || PyBool::is_type_of(value){
+            sub_view.m.fill(value)
+        } else  {
+            let tensor = value.cast_as::<PyCell<DynMat>>()?;
             let tensor: PyRef<DynMat> = tensor.try_borrow()?;
+            Ok(())
         }
-        Ok(())
+
     }
 }
 
@@ -754,5 +825,48 @@ impl PyObjectProtocol for DType {
     }
     fn __repr__(&self) -> PyResult<String> {
         self.__str__()
+    }
+}
+
+#[pyclass]
+pub struct ViewIter {
+    inner: Py<DynMat>,
+    idx: usize,
+}
+
+#[pyproto]
+impl PyIterProtocol for ViewIter {
+    fn __iter__(slf: PyRef<Self>) -> PyRef<Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<Self>) -> PyResult<Option<DynMat>> {
+        let i = slf.idx;
+        slf.idx += 1;
+        let r = Py::try_borrow(&slf.inner, slf.py())?;
+        Ok(if i >= r.m.len() {
+            None
+        } else {
+            let v = r.m.view(&[i..i + 1]).map_err(ocl_err_to_py_ex)?;
+            Some(v)
+        })
+    }
+}
+
+#[pyproto]
+impl PyIterProtocol for DynMat {
+    fn __iter__(slf: Py<Self>) -> PyResult<PyObject> {
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let n = Py::try_borrow(&slf, py)?.m.ndim();
+        if n == 1 {
+            Py::try_borrow(&slf, py)?.m.list(py).and_then(|p| PyAny::iter(p)).map(|l| l.to_object(py))
+        } else {
+            let i = ViewIter {
+                inner: slf,
+                idx: 0,
+            };
+            Ok(i.into_py(py))
+        }
     }
 }

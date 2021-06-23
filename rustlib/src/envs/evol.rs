@@ -1,7 +1,9 @@
-use ocl::{ProQue, SpatialDims, flags, Platform, Device, Buffer, Error, Program, Kernel};
+use ocl::{ProQue, SpatialDims, flags, Platform, Device, Buffer, Program, Kernel, Queue};
 use ndalgebra::kernel::LinAlgProgram;
 use ndalgebra::mat::{Mat, MatError, AsShape};
 use crate::context::NeatContext;
+use ndalgebra::kernel_builder::KernelBuilder;
+use ocl::core::Error;
 
 pub struct Evol {
     lin_alg: LinAlgProgram,
@@ -117,6 +119,9 @@ __kernel void evol(__global uchar * borders,
             height
         })
     }
+    pub fn queue(&self) -> &Queue {
+        self.lin_alg.pro_que.queue()
+    }
     pub fn get_lidar_count(&self) -> usize {
         self.lidar_count
     }
@@ -127,7 +132,7 @@ __kernel void evol(__global uchar * borders,
         self.width
     }
 
-    pub fn run(&self, borders:&mut Mat<u8>, agents:&mut Mat<f32>, lidars:&mut Mat<f32>) -> Result<(), Error> {
+    pub fn run(&self, borders:&mut Mat<u8>, agents:&mut Mat<f32>, lidars:&mut Mat<f32>) -> ocl::core::Result<()> {
         if self.width*self.height!=borders.size(){
             return Err(Error::from(format!("Evolutionary simulation has been compiled for width={} and height={} but provided world-map tensor has shape {}",self.width,self.height,borders.shape().as_shape())));
         }
@@ -146,26 +151,18 @@ __kernel void evol(__global uchar * borders,
             return Err(Error::from(format!("Agent tensor has shape (agents, agent_attributes) == {} but lidars have mismatched shape (agents, lidars, lidar_attributes) == {}",agents.shape().as_shape(),lidars.shape().as_shape())));
         }
 
-        // let kernel = Kernel::builder()
-        //     .name("evol")
-        //     .program(&self.program)
-        //     .queue(self.lin_alg.pro_que.queue().clone())
-        //     .arg(borders.buffer().unwrap())
-        //     .arg(agents.buffer().unwrap())
-        //     .arg(lidars.buffer().unwrap())
-        //     .arg(borders.strides()[0])
-        //     .arg(borders.strides()[1])
-        //     .arg(agents.strides()[0])
-        //     .arg(agents.strides()[1])
-        //     .arg(lidars.strides()[0])
-        //     .arg(lidars.strides()[1])
-        //     .arg(lidars.strides()[2])
-        //     .global_work_size(agent_count)
-        //     .build()?;
-        // unsafe {
-        //     kernel.cmd().enq()?;
-        // }
-        Ok(())
+        KernelBuilder::new(&self.program,"evol")?
+            .add_buff(borders.buffer().unwrap())?
+            .add_buff(agents.buffer().unwrap())?
+            .add_buff(lidars.buffer().unwrap())?
+            .add_num(borders.strides()[0])?
+            .add_num(borders.strides()[1])?
+            .add_num(agents.strides()[0])?
+            .add_num(agents.strides()[1])?
+            .add_num(lidars.strides()[0])?
+            .add_num(lidars.strides()[1])?
+            .add_num(lidars.strides()[2])?
+            .enq(self.queue(),&[agent_count])
     }
 }
 

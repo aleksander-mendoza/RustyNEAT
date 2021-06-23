@@ -18,6 +18,7 @@ pub struct Mat<T: Num> {
 
 pub enum MatError {
     BufferLengthMismatch(usize, usize),
+    OutOfBufferBounds(usize, usize, usize),
     CannotReadNonContiguous(),
     NotSingletonMatrix(Vec<usize>),
     NonsingularDimension(Vec<usize>, usize),
@@ -63,6 +64,7 @@ impl Debug for MatError {
 impl Display for MatError {
     fn fmt(&self, fmt: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            MatError::OutOfBufferBounds(offset, dst_len, buff_len) => write!(fmt, "Offset {} and length {} of destination slice are out of bounds for buffer of length {}", offset, dst_len, buff_len),
             MatError::InvalidIndex(index, shape) => write!(fmt, "Indices {} are not valid for {}", index.as_shape(), shape.as_shape()),
             MatError::BufferLengthMismatch(tensor_buff, dst_buff) => write!(fmt, "Tensor has buffer of length {} but provided destination has length {}", tensor_buff, dst_buff),
             MatError::NotSingletonMatrix(shape) => write!(fmt, "Tensor of shape {} is not a singleton", shape.as_shape()),
@@ -476,27 +478,39 @@ impl<T: Num> Mat<T> {
     fn to_vec_non_contiguous(&self) -> ocl::Result<Vec<T>> {
         let mut v = Vec::with_capacity(self.len_buffer());
         unsafe { v.set_len(v.capacity()) };
-        self.read_non_contiguous(v.as_mut_slice())?;
+        self.read_contiguous(0,v.as_mut_slice())?;
         Ok(v)
     }
+    /**Reads a single item. It requires querying OpenCL device so it's not a cheap operation.
+    Works even if the buffer is non-contiguous*/
+    pub fn read_item(&self, index:&[usize]) -> Result<T, MatError> {
+        let offset = self.offset_into_buffer(index)?;
+        self.read_item_at_offset(offset)
+    }
+    fn read_item_at_offset(&self,offset:usize)->Result<T, MatError>{
+        assert!(offset<self.len_buffer());
+        let mut tmp = [T::zero()];
+        self.read_contiguous(offset,&mut tmp)?;
+        Ok(tmp[0])
+    }
     /**Reads entire tensor into the provided slice*/
-    pub fn read(&self, dst: &mut [T]) -> Result<(), MatError> {
+    pub fn read(&self, offset:usize, dst: &mut [T]) -> Result<(), MatError> {
         if !self.contiguous() {
             Err(MatError::CannotReadNonContiguous())
         } else {
             let size = self.len_buffer();
-            if dst.len() != size {
+            if offset+dst.len() > size {
                 Err(MatError::BufferLengthMismatch(size, dst.len()))
             } else {
-                self.read_non_contiguous(dst).map_err(MatError::from)
+                self.read_contiguous(offset, dst).map_err(MatError::from)
             }
         }
     }
-    fn read_non_contiguous(&self, dst: &mut [T]) -> Result<(), ocl::core::Error> {
-        assert_eq!(dst.len(), self.len_buffer());
+    fn read_contiguous(&self, offset:usize, dst: &mut [T]) -> Result<(), ocl::core::Error> {
+        assert!(offset+dst.len() <= self.len_buffer());
         unsafe {
             if let Some(buff) = &self.buff {
-                buff.read(self.queue(), 0, dst)
+                buff.read(self.queue(), offset, dst)
             } else {
                 Ok(())
             }
@@ -746,9 +760,7 @@ impl<T: Num> Mat<T> {
     }
     pub fn item(&self) -> Result<T, MatError> {
         if self.len_buffer() == 1 {
-            let mut tmp = [T::zero()];
-            self.read(&mut tmp)?;
-            Ok(tmp[0])
+            self.read_item_at_offset(0)
         } else {
             Err(MatError::NotSingletonMatrix(self.shape.to_vec()))
         }

@@ -68,7 +68,7 @@ while True:
     imgplot = plt.imshow(borders.numpy(), cmap='gray')
     env(borders, agents, lidars)
     for agent in range(population_size):
-        x, y, angle, hunger, action_rot, action_rot = agents[agent].numpy()
+        x, y, angle, hunger, action_rot, action_rot = agents[agent]
         agent_lidars = lidars[agent]
         net = nets[agent]
         if hunger <= 0:
@@ -85,7 +85,7 @@ while True:
             nets[agent] = new_cppn.build_feed_forward_net()
         else:
             plt.scatter(x, y, color='r', marker="o")
-            movement, rotation = net(list(agent_lidars.reshape(-1).numpy()))
+            movement, rotation = net(list(agent_lidars.reshape(-1)))
             how_far_can_go = agent_lidars[central_lidar_idx, 0].item()
             qx, qy = x + math.sin(angle) * how_far_can_go, y + math.cos(angle) * how_far_can_go
             plt.scatter(qx, qy, color='y', marker=".")
