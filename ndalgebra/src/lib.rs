@@ -5,10 +5,14 @@
 #![feature(const_generics)]
 #![feature(const_evaluatable_checked)]
 #![feature(new_uninit)]
+#[macro_use]
+extern crate failure;
 
 pub mod mat;
 pub mod num;
 pub mod kernel;
+pub mod buffer;
+pub mod kernel_builder;
 
 #[cfg(test)]
 mod tests {
@@ -515,15 +519,16 @@ mod tests {
     #[test]
     fn test_view11() -> Result<(), String> {
         let p = LinAlgProgram::gpu()?;
-        let lidars = Mat::array3(&p, [[[87.0f32, 1335.0], [87.0, 1005.0], [87.0, 928.0]], [[87.0, 1335.0], [87.0, 1005.0], [87.0, 928.0]], [[87.0, 1335.0], [87.0, 1005.0], [87.0, 928.0]], [[87.0, 1335.0], [87.0, 1005.0], [87.0, 928.0]], [[87.0, 1335.0], [87.0, 1005.0], [87.0, 928.0]], [[87.0, 1335.0], [87.0, 1005.0], [87.0, 928.0]], [[87.0, 1335.0], [87.0, 1005.0], [87.0, 928.0]], [[87.0, 1335.0], [87.0, 1005.0], [87.0, 928.0]]])?;
+        let lidars = Mat::array3(&p, [[[0.0f32, 1.0], [2.0, 3.0], [4.0, 5.0]], [[6.0, 7.0], [8.0, 9.0], [10.0, 11.0]], [[12.0, 13.0], [14.0, 15.0], [16.0, 17.0]], [[18.0, 19.0], [20.0, 21.0], [22.0, 23.0]], [[24.0, 25.0], [26.0, 27.0], [28.0, 29.0]], [[30.0, 31.0], [32.0, 33.0], [34.0, 35.0]], [[36.0, 37.0], [38.0, 39.0], [40.0, 41.0]], [[42.0, 43.0], [44.0, 45.0], [46.0, 47.0]]])?;
         assert_eq!(lidars.shape(),&[8, 3, 2]);
         let agent_lidars = lidars.v1(3);
-        assert_eq!(agent_lidars.to_string(),"[[87, 1335], [87, 1005], [87, 928]]");
+        assert_eq!(agent_lidars.to_string(),"[[18, 19], [20, 21], [22, 23]]");
         assert_eq!(agent_lidars.shape(),&[3, 2]);
         let central_lidar = agent_lidars.v1(1);
-        assert_eq!(agent_lidars.to_string(),"[87, 1005]");
+        assert_eq!(central_lidar.to_string(),"[20, 21]");
         assert_eq!(central_lidar.shape(),&[2]);
         let dist = central_lidar.v1(0);
+        assert_eq!(dist.to_string(),"[20]");
         assert_eq!(dist.shape(),&[1]);
         Ok(())
     }

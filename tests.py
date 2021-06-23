@@ -5,8 +5,8 @@ from matplotlib import pyplot as plt
 
 # Here are some settings for testing
 # (This tutorial is also a test script at the same time)
-VISUALISE_PICBREEDER_2D = False
-VISUALISE_PICBREEDER_2D_PLUS_BIAS_AND_CENTER_DIST = False
+VISUALISE_PICBREEDER_2D = True
+VISUALISE_PICBREEDER_2D_PLUS_BIAS_AND_CENTER_DIST = True
 USE_PYTORCH = True
 
 if USE_PYTORCH:

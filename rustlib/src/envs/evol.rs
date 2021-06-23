@@ -146,25 +146,25 @@ __kernel void evol(__global uchar * borders,
             return Err(Error::from(format!("Agent tensor has shape (agents, agent_attributes) == {} but lidars have mismatched shape (agents, lidars, lidar_attributes) == {}",agents.shape().as_shape(),lidars.shape().as_shape())));
         }
 
-        let kernel = Kernel::builder()
-            .name("evol")
-            .program(&self.program)
-            .queue(self.lin_alg.pro_que.queue().clone())
-            .arg(borders.buffer().unwrap())
-            .arg(agents.buffer().unwrap())
-            .arg(lidars.buffer().unwrap())
-            .arg(borders.strides()[0])
-            .arg(borders.strides()[1])
-            .arg(agents.strides()[0])
-            .arg(agents.strides()[1])
-            .arg(lidars.strides()[0])
-            .arg(lidars.strides()[1])
-            .arg(lidars.strides()[2])
-            .global_work_size(agent_count)
-            .build()?;
-        unsafe {
-            kernel.cmd().enq()?;
-        }
+        // let kernel = Kernel::builder()
+        //     .name("evol")
+        //     .program(&self.program)
+        //     .queue(self.lin_alg.pro_que.queue().clone())
+        //     .arg(borders.buffer().unwrap())
+        //     .arg(agents.buffer().unwrap())
+        //     .arg(lidars.buffer().unwrap())
+        //     .arg(borders.strides()[0])
+        //     .arg(borders.strides()[1])
+        //     .arg(agents.strides()[0])
+        //     .arg(agents.strides()[1])
+        //     .arg(lidars.strides()[0])
+        //     .arg(lidars.strides()[1])
+        //     .arg(lidars.strides()[2])
+        //     .global_work_size(agent_count)
+        //     .build()?;
+        // unsafe {
+        //     kernel.cmd().enq()?;
+        // }
         Ok(())
     }
 }

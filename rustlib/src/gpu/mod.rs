@@ -423,4 +423,45 @@ mod tests {
         Ok(())
     }
 
+
+    #[test]
+    fn test_tch_core2() -> ocl::Result<()> {
+        use std::ffi::CString;
+        use ocl::{core, flags};
+        use ocl::enums::ArgVal;
+        use ocl::builders::ContextProperties;
+        let src = r#"
+        __kernel void square32(__global float * buffer) {
+            float f = buffer[get_global_id(0)];
+            buffer[get_global_id(0)] = f*f;
+        }
+    "#;
+        let platform_id = core::default_platform()?;
+        let device_ids = core::get_device_ids(&platform_id, None, None)?;
+        let device_id = device_ids[0];
+        let context_properties = ContextProperties::new().platform(platform_id);
+        let context = core::create_context(Some(&context_properties),
+                                           &[device_id], None, None)?;
+        let src_cstring = CString::new(src)?;
+        let program = core::create_program_with_source(&context, &[src_cstring])?;
+        core::build_program(&program, Some(&[device_id]), &CString::new("")?,
+                            None, None)?;
+        let queue = core::create_command_queue(&context, &device_id, None)?;
+
+        let buffer = unsafe { core::create_buffer(&context, flags::MEM_COPY_HOST_PTR, 4, Some(&[1f32,2.,3.,4.]))? };
+        let square32 = core::create_kernel(&program, "square32")?;
+        core::set_kernel_arg(&square32, 0, ArgVal::mem(&buffer))?;
+        unsafe {
+            core::enqueue_kernel(&queue, &square32, 1, None, &[4,1,1],
+                                 None, None::<core::Event>, None::<&mut core::Event>)?;
+        }
+        let mut vec = vec![0.0f32; 4];
+        unsafe {
+            core::enqueue_read_buffer(&queue, &buffer, true, 0, &mut vec,
+                                      None::<core::Event>, None::<&mut core::Event>)?;
+        }
+        assert_eq!(vec,vec![1.0f32, 4.0, 9.0, 16.0]);
+        Ok(())
+    }
+
 }

@@ -1,10 +1,11 @@
 use crate::cppn::FeedForwardNet;
-use ocl::{ProQue, SpatialDims, Device, Error, Platform, flags, Program, Kernel};
+use ocl::{ProQue, SpatialDims, Device, Error, Platform, flags, Program, Kernel, Queue};
 use crate::gpu::PREAMBLE;
 use std::fmt::Write;
 use ndalgebra::kernel::LinAlgProgram;
 use ndalgebra::mat::{Mat, MatError, AsShape};
 use crate::context::NeatContext;
+use ndalgebra::kernel_builder::KernelBuilder;
 
 pub struct FeedForwardNetSubstrate {
     in_dimensions: usize,
@@ -37,6 +38,9 @@ impl FeedForwardNetSubstrate {
     pub fn lin_alg(&self) -> &LinAlgProgram {
         &self.lin_alg
     }
+    pub fn queue(&self) -> &Queue {
+        &self.lin_alg.pro_que.queue()
+    }
     pub fn get_output_size(&self) -> usize {
         self.out_dimensions
     }
@@ -54,38 +58,19 @@ impl FeedForwardNetSubstrate {
         if output_neurons.shape()[1] != out_dim {
             return Err(Error::from(format!("Shape of output neuron tensor is {} but expected {} columns", output_neurons.shape().as_shape(),out_dim)).into());
         }
-        /*
-Weights shape=(3, 3, 1)
-Weights strides=(3, 1, 1)
-Input shape=(3, 2)
-Input strides=(2, 1)
-Output shape=(3, 2)
-Output strides=(2, 1)
-Weights=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-Inputs=[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
-Outputs=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
-         */
-        let kernel_dim = SpatialDims::Two(in_neuron_count,out_neuron_count);
         let weights = unsafe{Mat::empty(&self.lin_alg, &[in_neuron_count,out_neuron_count,self.weight_dimensions])}?;
-        let kernel = Kernel::builder()
-            .name("substrate")
-            .program(&self.program)
-            .queue(self.lin_alg.pro_que.queue().clone())
-            .arg(input_neurons.buffer().unwrap())
-            .arg(output_neurons.buffer().unwrap())
-            .arg(weights.buffer().unwrap())
-            .arg(&weights.strides()[0])
-            .arg(&weights.strides()[1])
-            .arg(&weights.strides()[2])
-            .arg(&input_neurons.strides()[1])
-            .arg(&output_neurons.strides()[1])
-            .arg(&input_neurons.strides()[0])
-            .arg(&output_neurons.strides()[0])
-            .global_work_size(kernel_dim)
-            .build()?;
-        unsafe {
-            kernel.cmd().enq()?;
-        }
+        KernelBuilder::new(&self.program,"substrate")?
+            .add_buff(input_neurons.buffer().unwrap())?
+            .add_buff(output_neurons.buffer().unwrap())?
+            .add_buff(weights.buffer().unwrap())?
+            .add_num(weights.strides()[0])?
+            .add_num(weights.strides()[1])?
+            .add_num(weights.strides()[2])?
+            .add_num(input_neurons.strides()[1])?
+            .add_num(output_neurons.strides()[1])?
+            .add_num(input_neurons.strides()[0])?
+            .add_num(output_neurons.strides()[0])?
+            .enq(self.queue(),&[in_neuron_count,out_neuron_count])?;
         Ok(weights)
     }
 }

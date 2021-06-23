@@ -1,10 +1,11 @@
 use crate::cppn::FeedForwardNet;
-use ocl::{ProQue, SpatialDims, Device, Error, Platform, flags, Program, Kernel};
+use ocl::{ProQue, SpatialDims, Device, Error, Platform, flags, Program, Kernel, Queue};
 use crate::gpu::PREAMBLE;
 use std::fmt::Write;
 use ndalgebra::kernel::LinAlgProgram;
 use ndalgebra::mat::{MatError, Mat, AsShape};
 use crate::context::NeatContext;
+use ndalgebra::kernel_builder::KernelBuilder;
 
 pub struct FeedForwardNetOpenCL {
     in_columns: usize,
@@ -34,6 +35,9 @@ impl FeedForwardNetOpenCL {
     pub fn lin_alg(&self) -> &LinAlgProgram {
         &self.lin_alg
     }
+    pub fn queue(&self) -> &Queue {
+        self.lin_alg.pro_que.queue()
+    }
     pub fn get_output_size(&self) -> usize {
         self.out_columns
     }
@@ -47,28 +51,15 @@ impl FeedForwardNetOpenCL {
             return Err(Error::from(format!("Input of shape {} was expected to have {} columns, one for each input neuron", input.shape().as_shape(), self.in_columns)).into());
         }
 
-        let out_len = self.out_columns * rows;
-
-        let out_buffer = self.lin_alg.pro_que.buffer_builder::<f32>()
-            .flags(flags::MEM_READ_WRITE)
-            .len(out_len)
-            .build()?;
-        let out = Mat::from_buffer(&self.lin_alg, out_buffer, &[rows, self.out_columns ])?;
-        let kernel = Kernel::builder()
-            .name("feedforward")
-            .program(&self.program)
-            .queue(self.lin_alg.pro_que.queue().clone())
-            .arg(input.buffer())
-            .arg(out.buffer())
-            .arg(input.strides()[0])
-            .arg(input.strides()[1])
-            .arg(out.strides()[0])
-            .arg(out.strides()[1])
-            .global_work_size(rows)
-            .build()?;
-        unsafe {
-            kernel.cmd().enq()?;
-        }
+        let out = unsafe{Mat::empty(&self.lin_alg, &[rows, self.out_columns ])?};
+        KernelBuilder::new(&self.program, "feedforward")?
+            .add_buff(input.buffer().unwrap())?
+            .add_buff(out.buffer().unwrap())?
+            .add_num(input.strides()[0])?
+            .add_num(input.strides()[1])?
+            .add_num(out.strides()[0])?
+            .add_num(out.strides()[1])?
+            .enq(self.queue(), &[rows])?;
         Ok(out)
     }
 }

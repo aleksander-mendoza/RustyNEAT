@@ -1,10 +1,12 @@
 use crate::cppn::FeedForwardNet;
-use ocl::{ProQue, SpatialDims, Device, Error, Platform, flags, Program, Kernel};
+use ocl::{ProQue, SpatialDims, Device, Error, Platform, flags, Program, Kernel, Queue};
 use crate::gpu::PREAMBLE;
 use std::fmt::Write;
 use ndalgebra::mat::{Mat, MatError};
 use ndalgebra::kernel::LinAlgProgram;
 use crate::context::NeatContext;
+use ndalgebra::buffer::Buffer;
+use ndalgebra::kernel_builder::KernelBuilder;
 
 pub struct FeedForwardNetPicbreeder {
     in_dimensions: usize,
@@ -35,11 +37,14 @@ impl FeedForwardNetPicbreeder {
     pub fn lin_alg(&self) -> &LinAlgProgram {
         &self.lin_alg
     }
+    pub fn queue(&self) -> &Queue {
+        self.lin_alg.pro_que.queue()
+    }
     pub fn get_output_size(&self) -> usize {
         self.out_dimensions
     }
     pub fn run(&self, shape: &[usize], pixel_size: &[f32], pixel_offset: &[f32]) -> Result<Mat<f32>, MatError> {
-        let pixels = shape.iter().fold(1, |a, b| a * b);
+        let pixels = shape.iter().fold(1,|a,&b|a*b);
         if shape.len() % self.in_dimensions != 0 {
             return Err(Error::from(format!("Input shape {:?} has {} dimensions but expected {} dimensions", shape, shape.len(), self.in_dimensions)).into());
         }
@@ -51,47 +56,17 @@ impl FeedForwardNetPicbreeder {
         }
         let out_len = self.out_dimensions * pixels;
 
-        let buffer = self.lin_alg.pro_que.buffer_builder::<f32>()
-            .flags(flags::MEM_READ_WRITE)
-            .len(pixel_size.len() + pixel_offset.len())
-            .build()?;
+        let pixel_size_per_dimension = self.lin_alg.buffer_from_slice(flags::MEM_READ_ONLY,pixel_size)?;
+        let offset_per_dimension = self.lin_alg.buffer_from_slice(flags::MEM_READ_ONLY, pixel_offset)?;
+        let out_buffer = unsafe{self.lin_alg.buffer_empty(flags::MEM_READ_WRITE,out_len)}?;
+        let dimensions = self.lin_alg.buffer_from_slice(flags::MEM_READ_ONLY,shape)?;
 
-        let pixel_size_per_dimension = buffer.create_sub_buffer(Some(flags::MEM_READ_ONLY), SpatialDims::Unspecified, pixel_size.len())?;
-        let offset_per_dimension = buffer.create_sub_buffer(Some(flags::MEM_READ_ONLY), pixel_size.len(), pixel_offset.len())?;
-        let out_buffer = self.lin_alg.pro_que.buffer_builder::<f32>()
-            .flags(flags::MEM_READ_WRITE)
-            .len(out_len)
-            .build()?;
-
-        let dimensions = self.lin_alg.pro_que.buffer_builder::<usize>()
-            .flags(flags::MEM_READ_ONLY)
-            .len(shape.len())
-            .copy_host_slice(shape)
-            .build()?;
-
-        let kernel = Kernel::builder()
-            .name("picbreeder")
-            .program(&self.program)
-            .queue(self.lin_alg.pro_que.queue().clone())
-            .arg(&out_buffer)
-            .arg(&dimensions)
-            .arg(&pixel_size_per_dimension)
-            .arg(&offset_per_dimension)
-            .global_work_size(pixels)
-            .build()?;
-        unsafe {
-            pixel_size_per_dimension.cmd()
-                .queue(&self.lin_alg.pro_que.queue())
-                .offset(0)
-                .write(pixel_size)
-                .enq()?;
-            offset_per_dimension.cmd()
-                .queue(&self.lin_alg.pro_que.queue())
-                .offset(0)
-                .write(pixel_offset)
-                .enq()?;
-            kernel.cmd().enq()?;
-        }
+        KernelBuilder::new(&self.program, "picbreeder")?
+            .add_buff(&out_buffer)?
+            .add_buff(&dimensions)?
+            .add_buff(&pixel_size_per_dimension)?
+            .add_buff(&offset_per_dimension)?
+            .enq(self.queue(), &[pixels])?;
         let mut mat_shape = Vec::with_capacity(shape.len()+1);
         mat_shape.extend_from_slice(shape);
         mat_shape.push(self.out_dimensions);

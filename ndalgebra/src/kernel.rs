@@ -1,11 +1,12 @@
-use ocl::{ProQue, SpatialDims, Error, Platform, Device, DeviceType};
+use ocl::{ProQue, SpatialDims, Error, Platform, Device, DeviceType, MemFlags, Queue, Context};
 use std::fmt::{Formatter, Display};
 use std::marker::PhantomData;
-use ocl::builders::KernelBuilder;
 use crate::num::Num;
-use ocl::core::{DeviceInfoResult, DeviceInfo};
+use ocl::core::{DeviceInfoResult, DeviceInfo, ArgVal};
 use std::fs::File;
 use std::io::Write;
+use crate::kernel_builder::KernelBuilder;
+use crate::buffer::Buffer;
 
 pub const MAX_MAT_DIMS: usize = 3;
 
@@ -271,4 +272,30 @@ impl LinAlgProgram {
             .dims(SpatialDims::Unspecified)
             .build().map(|pro_que| Self { pro_que })
     }
+
+    pub fn kernel_builder<S: AsRef<str>>(&self, name:S) -> Result<KernelBuilder, ocl::core::Error> {
+        KernelBuilder::new(self.pro_que.program(),name)
+    }
+
+    pub fn buffer_from_slice<T:Num>(&self, flags:MemFlags, slice:&[T]) -> Result<Buffer<T>, ocl::core::Error> {
+        Buffer::from_slice(self.context(),flags,slice)
+    }
+    pub unsafe fn buffer_empty<T:Num>(&self, flags:MemFlags, len:usize) -> Result<Buffer<T>, ocl::core::Error> {
+        Buffer::empty(self.context(),flags,len)
+    }
+    pub fn queue(&self) -> &Queue{
+        self.pro_que.queue()
+    }
+    pub fn context(&self) -> &Context{
+        self.pro_que.context()
+    }
+    pub fn buffer_filled<T:Num>(&self, flags:MemFlags, len:usize, fill_val:T) -> Result<Buffer<T>, ocl::core::Error> {
+        let mut buff = unsafe{self.buffer_empty(flags,len)}?;
+        buff.fill(self.queue(),fill_val)?;
+        Ok(buff)
+    }
+
+
+
 }
+
