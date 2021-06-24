@@ -661,7 +661,7 @@ impl<T: Num> Mat<T> {
     Is equivalent to copy() if both source and target types are the same*/
     pub fn cast<D: Num>(&self) -> Result<Mat<D>, MatError> {
         let mut out = unsafe { Self::empty_like::<D>(self)? };
-        out.mat_to_lhs_mat(self, "cast")?;
+        out.copy_from(self)?;
         Ok(out)
     }
     pub fn abs(&mut self) -> Result<Mat<T>, MatError> {
@@ -674,10 +674,13 @@ impl<T: Num> Mat<T> {
     }
     fn scalar_to_lhs_mat(&mut self, scalar: T, mode: &'static str) -> Result<(), MatError> {
         if let Some(buff) = self.buffer() {
-            self.lin_alg.kernel_builder(format!("{}_scalar_to_lhs_mat_{}", T::OPENCL_TYPE_STR, mode))?
+            let fn_name = format!("scalar_to_lhs_mat_{dtype}_{dims}_{name}", dtype=T::OPENCL_TYPE_STR, dims=self.ndim(), name=mode);
+            let mut kernel = self.lin_alg.kernel_builder(fn_name)?
                 .add_buff(buff)?
-                .add_num(scalar)?
-                .enq(self.queue(), &[self.size()]).map_err(MatError::from)
+                .add_num(scalar)?;
+            let (kernel, size) = Self::add_dim_args(kernel, &self.shape)?;
+            let kernel = self.add_stride_args(kernel, 0..self.ndim())?;
+            kernel.enq(self.queue(),&[size]).map_err(MatError::from)
         } else {
             Ok(())
         }
@@ -708,7 +711,6 @@ impl<T: Num> Mat<T> {
             Err(MatError::IncompatibleShapes(self.shape.to_vec(), other.shape.to_vec()))
         } else if let Some(buff) = self.buffer() {
             let fn_name = format!("mat_{input_type}_to_lhs_mat_{output_type}_{dims}_{mode}", input_type = D::OPENCL_TYPE_STR, output_type = T::OPENCL_TYPE_STR, dims = self.ndim(), mode = mode);
-            println!("fn_name={}", fn_name);
             let mut kernel = self.lin_alg.kernel_builder(fn_name)?
                 .add_buff(buff)?
                 .add_buff(other.buffer().unwrap())?;
@@ -728,8 +730,8 @@ impl<T: Num> Mat<T> {
     fn unary_to_lhs_mat(&self, mode: &'static str) -> Result<(), MatError> {
         self.mat_to_lhs_mat(self, mode)
     }
-    pub fn copy_from(&mut self, other: &Self) -> Result<(), MatError> {
-        self.mat_to_lhs_mat(other, "copy")
+    pub fn copy_from<D:Num>(&mut self, other: &Mat<D>) -> Result<(), MatError> {
+        self.mat_to_lhs_mat(other, "cast")
     }
     pub fn add_mat(&mut self, other: &Self) -> Result<(), MatError> {
         self.mat_to_lhs_mat(other, "add")

@@ -12,6 +12,7 @@ use pyo3::basic::CompareOp;
 use std::ops::Range;
 use numpy::{PyArray, PY_ARRAY_API, npyffi, Element, PyReadonlyArrayDyn, DataType, PyArrayDyn, ToNpyDims};
 use numpy::npyffi::{PyArray_Dims, NPY_TYPES, NPY_ARRAY_WRITEABLE};
+use ndalgebra::kernel::LinAlgProgram;
 
 #[pyclass]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -150,6 +151,7 @@ impl PyNum for u8 {
 pub trait DynMatTrait: Display {
     fn len(&self) -> usize;
     fn dtype(&self) -> DTypeEnum;
+    fn lin_alg(&self) -> &LinAlgProgram;
     fn dtype_size(&self) -> usize;
     fn untyped_mat(&self) -> &Mat<u8>;
     fn untyped_mat_mut(&mut self) -> &mut Mat<u8>;
@@ -328,6 +330,10 @@ impl<T: PyNum> DynMatTrait for Mat<T> {
         T::to_dtype()
     }
 
+    fn lin_alg(&self) -> &LinAlgProgram {
+        Mat::lin_alg(self)
+    }
+
     fn dtype_size(&self) -> usize {
         std::mem::size_of::<T>()
     }
@@ -391,7 +397,18 @@ impl<T: PyNum> DynMatTrait for Mat<T> {
         Mat::fill(self, T::extract_from(scalar)?).map_err(ocl_err_to_py_ex)
     }
     fn copy_from(&mut self, other: &DynMat) -> Result<(), MatError> {
-        todo!()
+        match other.m.dtype(){
+            DTypeEnum::u8 => Mat::copy_from(self,other.try_as_dtype::<u8>().unwrap()),
+            DTypeEnum::u16 => Mat::copy_from(self,other.try_as_dtype::<u16>().unwrap()),
+            DTypeEnum::u32 => Mat::copy_from(self,other.try_as_dtype::<u32>().unwrap()),
+            DTypeEnum::u64 => Mat::copy_from(self,other.try_as_dtype::<u64>().unwrap()),
+            DTypeEnum::i8 => Mat::copy_from(self,other.try_as_dtype::<i8>().unwrap()),
+            DTypeEnum::i16 => Mat::copy_from(self,other.try_as_dtype::<i16>().unwrap()),
+            DTypeEnum::i32 => Mat::copy_from(self,other.try_as_dtype::<i32>().unwrap()),
+            DTypeEnum::i64 => Mat::copy_from(self,other.try_as_dtype::<i64>().unwrap()),
+            DTypeEnum::f32 => Mat::copy_from(self,other.try_as_dtype::<f32>().unwrap()),
+        }
+
     }
     fn numpy<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny> {
         let vec = self.to_vec().map_err(ocl_err_to_py_ex)?;
@@ -566,6 +583,10 @@ pub fn from_numpy(input: &PyAny, context: &NeatContext) -> Result<DynMat, PyErr>
 #[pyfunction]
 #[text_signature = "(list, context, dtype/)"]
 pub fn array(array: &PyAny, context: &NeatContext, dtype: Option<DType>) -> PyResult<DynMat> {
+    list_to_tensor(array, context.c.lin_alg(), dtype)
+}
+
+pub fn list_to_tensor(array: &PyAny, context: &LinAlgProgram, dtype: Option<DType>) -> PyResult<DynMat> {
     let mut dims = vec![];
     fn find_shape<'a>(elem: &'a PyAny, dims: &mut Vec<usize>) -> Option<&'a PyAny> {
         if let Ok(array) = elem.cast_as::<PyList>() {
@@ -707,7 +728,7 @@ pub fn array(array: &PyAny, context: &NeatContext, dtype: Option<DType>) -> PyRe
             {
                 let mut elements = vec![];
                 recursive_cast::<$dtype>(array,dtype, &dims,&mut elements)?;
-                Mat::<$dtype>::from_slice_boxed(context.c.lin_alg(),elements.as_slice(), dims.into_boxed_slice()).map(DynMat::from)
+                Mat::<$dtype>::from_slice_boxed(context,elements.as_slice(), dims.into_boxed_slice()).map(DynMat::from)
             }
         };
     }
@@ -743,7 +764,7 @@ impl PySequenceProtocol for DynMat {
     }
 }
 
-fn extract_py_slice(key: &PyAny, dim:usize) -> PyResult<Range<usize>> {
+fn extract_py_slice(key: &PyAny, dim: usize) -> PyResult<Range<usize>> {
     if let Ok(slice) = key.cast_as::<PySlice>() {
         let from = slice.getattr("start")?;
         let to = slice.getattr("stop")?;
@@ -759,10 +780,9 @@ fn extract_py_slice(key: &PyAny, dim:usize) -> PyResult<Range<usize>> {
         };
         Ok(from..to)
     } else {
-        let index= key.extract::<usize>()?;
+        let index = key.extract::<usize>()?;
         Ok(index..index + 1)
     }
-
 }
 
 fn get_subview(me: &DynMat, key: &PyAny) -> PyResult<DynMat> {
@@ -778,7 +798,7 @@ fn get_subview(me: &DynMat, key: &PyAny) -> PyResult<DynMat> {
     }
     let mut ranges = Vec::with_capacity(slices.len());
     for (i, key) in slices.iter().enumerate() {
-        let slice = extract_py_slice(key,me.m.shape()[i])?;
+        let slice = extract_py_slice(key, me.m.shape()[i])?;
         ranges.push(slice)
     }
     me.m.view(ranges.as_slice()).map_err(ocl_err_to_py_ex)
@@ -788,8 +808,8 @@ fn get_subview(me: &DynMat, key: &PyAny) -> PyResult<DynMat> {
 impl PyMappingProtocol for DynMat {
     fn __getitem__(&self, key: &PyAny) -> PyResult<PyObject> {
         if self.m.ndim() == 1 {
-            if let Ok(slice) = extract_py_slice(key,self.m.len()) {
-                if slice.start+1==slice.end {
+            if let Ok(slice) = extract_py_slice(key, self.m.len()) {
+                if slice.start + 1 == slice.end {
                     return self.m.read_item(key.py(), &[slice.start]);
                 }
             }
@@ -798,14 +818,16 @@ impl PyMappingProtocol for DynMat {
     }
     fn __setitem__(&mut self, key: &PyAny, value: &PyAny) -> PyResult<()> {
         let mut sub_view = get_subview(self, key)?;
-        if PyFloat::is_type_of(value) || PyLong::is_type_of(value) || PyBool::is_type_of(value){
+        if PyFloat::is_type_of(value) || PyLong::is_type_of(value) || PyBool::is_type_of(value) {
             sub_view.m.fill(value)
-        } else  {
+        } else if PyList::is_type_of(value) {
+            let tensor = list_to_tensor(value, self.m.lin_alg(), Some(DType { e: self.m.dtype() }))?;
+            sub_view.m.copy_from(&tensor).map_err(ocl_err_to_py_ex)
+        } else {
             let tensor = value.cast_as::<PyCell<DynMat>>()?;
-            let tensor: PyRef<DynMat> = tensor.try_borrow()?;
-            Ok(())
+            let tensor = tensor.try_borrow()?;
+            sub_view.m.copy_from(&tensor).map_err(ocl_err_to_py_ex)
         }
-
     }
 }
 

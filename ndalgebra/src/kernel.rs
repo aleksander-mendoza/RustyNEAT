@@ -128,20 +128,26 @@ __kernel void {t}_scalar_mat_clamp(__global {t} * mat, {t} min_val, {t} max_val)
 }
 
 fn source_scalar_to_lhs_mat<N: Num>(fmt: &mut Formatter<'_>, _p: PhantomData<N>) -> std::fmt::Result {
-    for (built_in, name) in [("", "fill"), ("/", "div"), ("*", "mul"), ("-", "sub"), ("+", "add")] {
+    fn write_beginning(dims: usize, name: &'static str, fmt: &mut Formatter<'_>, dtype: &'static str) -> std::fmt::Result {
         write!(fmt, "
-__kernel void {t}_scalar_to_lhs_mat_{name}(__global {t} * lhs, {t} scalar){{
-    lhs[get_global_id(0)] {built_in}= scalar;
-}}
-", built_in = built_in, name = name, t = N::OPENCL_TYPE_STR)?;
+__kernel void scalar_to_lhs_mat_{dtype}_{dims}_{name}(__global {dtype} * lhs, {dtype} rhs", dims = dims, name = name, dtype=dtype)?;
+        source_stride_arguments(fmt, "dim", &["lhs"], dims)?;
+        write!(fmt, "){{
+    size_t s = get_global_id(0);")?;
+        source_index_to_coordiantes(fmt, "dim", "s", dims)?;
+        source_offsets(fmt, "s", &["lhs"], dims)?;
+        write!(fmt, "\n    ")
     }
-    for built_in in ["min", "max"] {
-        write!(fmt, "
-__kernel void {t}_scalar_to_lhs_mat_{built_in}(__global {t} * mat, {t} scalar){{
-    size_t i = get_global_id(0);
-    mat[i] = {built_in}(mat[i], scalar);
-}}
-", built_in = built_in, t = N::OPENCL_TYPE_STR)?;
+    for dims in 0..=MAX_MAT_DIMS {
+        for (built_in, name) in [("", "fill"), ("/", "div"), ("*", "mul"), ("-", "sub"), ("+", "add"), ("min", "min"), ("max", "max")] {
+            write_beginning(dims, name, fmt, N::OPENCL_TYPE_STR)?;
+            if built_in.bytes().any(|c| !c.is_ascii_alphanumeric()) {
+                write!(fmt, "lhs[lhs_offset] {built_in}= rhs;", built_in = built_in)?;
+            } else {
+                write!(fmt, "lhs[lhs_offset] = {built_in}(lhs[lhs_offset], rhs);", built_in = built_in)?;
+            }
+            write!(fmt, "\n}}")?;
+        }
     }
     Ok(())
 }
@@ -158,7 +164,7 @@ __kernel void mat_{input_type}_to_lhs_mat_{output_type}_{dims}_{name}(__global {
         write!(fmt, "\n    ")
     }
     for dims in 0..=MAX_MAT_DIMS {
-        for (built_in, name) in [("", "copy"), ("/", "div"), ("*", "hadamard"), ("-", "sub"), ("+", "add"), ("min", "min"), ("max", "max")] {
+        for (built_in, name) in [("/", "div"), ("*", "hadamard"), ("-", "sub"), ("+", "add"), ("min", "min"), ("max", "max")] {
             write_beginning(dims, name, fmt, N::OPENCL_TYPE_STR, N::OPENCL_TYPE_STR)?;
             if built_in.bytes().any(|c| !c.is_ascii_alphanumeric()) {
                 write!(fmt, "lhs[lhs_offset] {built_in}= rhs[rhs_offset];", built_in = built_in)?;

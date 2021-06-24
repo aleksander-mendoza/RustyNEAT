@@ -27,3 +27,11 @@ x = x.reshape(2, 2)
 assert str(x) == "[[6, 6], [6, 6]]"
 x[0, :] = 2
 assert str(x) == "[[2, 2], [6, 6]]"
+
+y = nd.array([1, 2], context)
+x[:, 0] = y
+assert str(x) == "[[1, 2], [2, 6]]"
+x[:, 1] = [14, 32]
+assert str(x) == "[[1, 14], [2, 32]]"
+x[:, 1] = -3
+assert str(x) == "[[1, -3], [2, -3]]"
