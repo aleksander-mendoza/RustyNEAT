@@ -293,31 +293,31 @@ impl DynMat {
     fn exp(&self) -> PyResult<DynMat> {
         self.m.exp().map_err(ocl_err_to_py_ex)
     }
-    fn exp2(&mut self) -> PyResult<DynMat> {
+    fn exp2(&self) -> PyResult<DynMat> {
         self.m.exp2().map_err(ocl_err_to_py_ex)
     }
-    fn exp10(&mut self) -> PyResult<DynMat> {
+    fn exp10(&self) -> PyResult<DynMat> {
         self.m.exp10().map_err(ocl_err_to_py_ex)
     }
-    fn sin(&mut self) -> PyResult<DynMat> {
+    fn sin(&self) -> PyResult<DynMat> {
         self.m.sin().map_err(ocl_err_to_py_ex)
     }
-    fn cos(&mut self) -> PyResult<DynMat> {
+    fn cos(&self) -> PyResult<DynMat> {
         self.m.cos().map_err(ocl_err_to_py_ex)
     }
-    fn tan(&mut self) -> PyResult<DynMat> {
+    fn tan(&self) -> PyResult<DynMat> {
         self.m.tan().map_err(ocl_err_to_py_ex)
     }
-    fn tanh(&mut self) -> PyResult<DynMat> {
+    fn tanh(&self) -> PyResult<DynMat> {
         self.m.tanh().map_err(ocl_err_to_py_ex)
     }
-    fn log(&mut self) -> PyResult<DynMat> {
+    fn log(&self) -> PyResult<DynMat> {
         self.m.log().map_err(ocl_err_to_py_ex)
     }
-    fn log2(&mut self) -> PyResult<DynMat> {
+    fn log2(&self) -> PyResult<DynMat> {
         self.m.log2().map_err(ocl_err_to_py_ex)
     }
-    fn log10(&mut self) -> PyResult<DynMat> {
+    fn log10(&self) -> PyResult<DynMat> {
         self.m.log10().map_err(ocl_err_to_py_ex)
     }
     fn numpy<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny> {
@@ -660,15 +660,65 @@ pub fn ones(py: Python<'_>, shape: Vec<usize>, context: &NeatContext, dtype: Opt
 #[pyfunction]
 #[text_signature = "(tensor/)"]
 pub fn exp<'py>(py: Python<'py>, tensor_or_scalar: &'py PyAny) -> PyResult<&'py PyAny> {
+    unary_op(py,tensor_or_scalar,f64::exp,|x|x.exp())
+}
+#[pyfunction]
+#[text_signature = "(tensor/)"]
+pub fn exp2<'py>(py: Python<'py>, tensor_or_scalar: &'py PyAny) -> PyResult<&'py PyAny> {
+    unary_op(py,tensor_or_scalar,f64::exp2,|x|x.exp2())
+}
+#[pyfunction]
+#[text_signature = "(tensor/)"]
+pub fn exp10<'py>(py: Python<'py>, tensor_or_scalar: &'py PyAny) -> PyResult<&'py PyAny> {
+    unary_op(py,tensor_or_scalar,|x|10f64.powf(x),|x|x.exp10())
+}
+#[pyfunction]
+#[text_signature = "(tensor/)"]
+pub fn log<'py>(py: Python<'py>, tensor_or_scalar: &'py PyAny) -> PyResult<&'py PyAny> {
+    unary_op(py,tensor_or_scalar,f64::ln,|x|x.log())
+}
+#[pyfunction]
+#[text_signature = "(tensor/)"]
+pub fn log2<'py>(py: Python<'py>, tensor_or_scalar: &'py PyAny) -> PyResult<&'py PyAny> {
+    unary_op(py,tensor_or_scalar,f64::log2,|x|x.log2())
+}
+#[pyfunction]
+#[text_signature = "(tensor/)"]
+pub fn log10<'py>(py: Python<'py>, tensor_or_scalar: &'py PyAny) -> PyResult<&'py PyAny> {
+    unary_op(py,tensor_or_scalar,f64::log10,|x|x.log10())
+}
+#[pyfunction]
+#[text_signature = "(tensor/)"]
+pub fn sin<'py>(py: Python<'py>, tensor_or_scalar: &'py PyAny) -> PyResult<&'py PyAny> {
+    unary_op(py,tensor_or_scalar,f64::sin,|x|x.sin())
+}
+#[pyfunction]
+#[text_signature = "(tensor/)"]
+pub fn cos<'py>(py: Python<'py>, tensor_or_scalar: &'py PyAny) -> PyResult<&'py PyAny> {
+    unary_op(py,tensor_or_scalar,f64::cos,|x|x.cos())
+}
+#[pyfunction]
+#[text_signature = "(tensor/)"]
+pub fn tan<'py>(py: Python<'py>, tensor_or_scalar: &'py PyAny) -> PyResult<&'py PyAny> {
+    unary_op(py,tensor_or_scalar,f64::tan,|x|x.tan())
+}
+#[pyfunction]
+#[text_signature = "(tensor/)"]
+pub fn tanh<'py>(py: Python<'py>, tensor_or_scalar: &'py PyAny) -> PyResult<&'py PyAny> {
+    unary_op(py,tensor_or_scalar,f64::tanh,|x|x.tanh())
+}
+
+
+pub fn unary_op<'py>(py: Python<'py>, tensor_or_scalar: &'py PyAny, op:fn(f64)->f64, mat:fn(PyRef<DynMat>)->PyResult<DynMat>) -> PyResult<&'py PyAny> {
     if let Ok(scalar) = tensor_or_scalar.cast_as::<PyFloat>() {
-        let scalar: &PyAny = PyFloat::new(py, scalar.extract::<f64>()?.exp());
+        let scalar: &PyAny = PyFloat::new(py, op(scalar.extract::<f64>()?));
         Ok(scalar)
     } else if let Ok(scalar) = tensor_or_scalar.cast_as::<PyInt>() {
-        let scalar: &PyAny = PyFloat::new(py, (scalar.extract::<i64>()? as f64).exp());
+        let scalar: &PyAny = PyFloat::new(py, op(scalar.extract::<i64>()? as f64));
         Ok(scalar)
     } else if let Ok(tensor) = tensor_or_scalar.cast_as::<PyCell<DynMat>>() {
         let mut tensor: PyRef<DynMat> = tensor.try_borrow()?;
-        let tensor = tensor.exp()?;
+        let tensor = mat(tensor)?;
         let tensor_as_py = Py::new(py, tensor)?.into_ref(py);
         return Ok(tensor_as_py);
     } else {

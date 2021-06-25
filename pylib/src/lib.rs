@@ -64,6 +64,15 @@ pub fn ndalgebra(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(empty, m)?)?;
     m.add_function(wrap_pyfunction!(array, m)?)?;
     m.add_function(wrap_pyfunction!(exp, m)?)?;
+    m.add_function(wrap_pyfunction!(exp2, m)?)?;
+    m.add_function(wrap_pyfunction!(exp10, m)?)?;
+    m.add_function(wrap_pyfunction!(log, m)?)?;
+    m.add_function(wrap_pyfunction!(log2, m)?)?;
+    m.add_function(wrap_pyfunction!(log10, m)?)?;
+    m.add_function(wrap_pyfunction!(sin, m)?)?;
+    m.add_function(wrap_pyfunction!(cos, m)?)?;
+    m.add_function(wrap_pyfunction!(tan, m)?)?;
+    m.add_function(wrap_pyfunction!(tanh, m)?)?;
     m.add_function(wrap_pyfunction!(from_numpy, m)?)?;
     m.add_function(wrap_pyfunction!(full, m)?)?;
     m.add_function(wrap_pyfunction!(zeros, m)?)?;
