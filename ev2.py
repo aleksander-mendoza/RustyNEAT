@@ -72,7 +72,7 @@ while True:
         agent_lidars = lidars[agent]
         net = nets[agent]
         if hunger <= 0:
-            agents[agent] = [100, 100, 0, initial_hunger]
+            agents[agent] = [100, 100, 0, initial_hunger, 0, 0]
             new_cppn = random.choice(cppns).crossover(random.choice(cppns))
             cppns[agent] = new_cppn
             neat.mutate(new_cppn,

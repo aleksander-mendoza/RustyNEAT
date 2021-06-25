@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::{wrap_pyfunction, wrap_pymodule, PyObjectProtocol, PyTypeInfo, PyClass, PyMappingProtocol, FromPyPointer, PySequenceProtocol, PyDowncastError, AsPyPointer, PyIterProtocol, ffi, PyNativeType};
+use pyo3::{wrap_pyfunction, wrap_pymodule, PyObjectProtocol, PyTypeInfo, PyClass, PyMappingProtocol, FromPyPointer, PySequenceProtocol, PyDowncastError, AsPyPointer, PyIterProtocol, ffi, PyNativeType, PyNumberProtocol};
 use pyo3::PyResult;
 use ndalgebra::mat::{Mat, MatError, AsShape};
 use ndalgebra::num::Num;
@@ -164,11 +164,25 @@ pub trait DynMatTrait: Display {
     fn strides(&self) -> &[usize] {
         self.untyped_mat().strides()
     }
+    fn astype(&self, dtype:DTypeEnum) -> Result<DynMat, MatError>;
     fn unsqueeze(&self, idx: usize) -> Result<DynMat, MatError>;
     fn squeeze(&self, idx: usize) -> Result<DynMat, MatError>;
     fn reshape(&self, shape: Box<[usize]>) -> Result<DynMat, MatError>;
     fn reshape_infer_wildcard(&self, shape: &[isize]) -> Result<DynMat, MatError>;
     fn view(&self, view: &[Range<usize>]) -> Result<DynMat, MatError>;
+    fn matmul(&self, tensor: &PyAny) -> PyResult<DynMat>;
+    fn add(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
+    fn sub(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
+    fn mul(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
+    fn div(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
+    fn min(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
+    fn max(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
+    fn add_(&mut self, scalar_or_tensor: &PyAny) -> PyResult<()>;
+    fn sub_(&mut self, scalar_or_tensor: &PyAny) -> PyResult<()>;
+    fn mul_(&mut self, scalar_or_tensor: &PyAny) -> PyResult<()>;
+    fn div_(&mut self, scalar_or_tensor: &PyAny) -> PyResult<()>;
+    fn min_(&mut self, scalar_or_tensor: &PyAny) -> PyResult<()>;
+    fn max_(&mut self, scalar_or_tensor: &PyAny) -> PyResult<()>;
     fn exp(&self) -> Result<DynMat, MatError>;
     fn exp2(&self) -> Result<DynMat, MatError>;
     fn exp10(&self) -> Result<DynMat, MatError>;
@@ -213,6 +227,30 @@ impl DynMat {
             Err(PyValueError::new_err(format!("Tensor is of type {} but expected {}", self.m.dtype(), D::to_dtype())))
         }
     }
+
+    pub fn match_dtype<X, Y,
+        U8: FnOnce(X, &Mat<u8>) -> Y,
+        U16: FnOnce(X, &Mat<u16>) -> Y,
+        U32: FnOnce(X, &Mat<u32>) -> Y,
+        U64: FnOnce(X, &Mat<u64>) -> Y,
+        I8: FnOnce(X, &Mat<i8>) -> Y,
+        I16: FnOnce(X, &Mat<i16>) -> Y,
+        I32: FnOnce(X, &Mat<i32>) -> Y,
+        I64: FnOnce(X, &Mat<i64>) -> Y,
+        F32: FnOnce(X, &Mat<f32>) -> Y,
+    >(&self, x: X, u8: U8, u16: U16, u32: U32, u64: U64, i8: I8, i16: I16, i32: I32, i64: I64, f32: F32) -> Y {
+        match self.m.dtype() {
+            DTypeEnum::u8 => u8(x, self.try_as_dtype::<u8>().unwrap()),
+            DTypeEnum::u16 => u16(x, self.try_as_dtype::<u16>().unwrap()),
+            DTypeEnum::u32 => u32(x, self.try_as_dtype::<u32>().unwrap()),
+            DTypeEnum::u64 => u64(x, self.try_as_dtype::<u64>().unwrap()),
+            DTypeEnum::i8 => i8(x, self.try_as_dtype::<i8>().unwrap()),
+            DTypeEnum::i16 => i16(x, self.try_as_dtype::<i16>().unwrap()),
+            DTypeEnum::i32 => i32(x, self.try_as_dtype::<i32>().unwrap()),
+            DTypeEnum::i64 => i64(x, self.try_as_dtype::<i64>().unwrap()),
+            DTypeEnum::f32 => f32(x, self.try_as_dtype::<f32>().unwrap()),
+        }
+    }
 }
 
 
@@ -233,6 +271,9 @@ impl DynMat {
     #[getter]
     fn dtype(&self) -> DType {
         DType { e: self.m.dtype() }
+    }
+    fn astype(&self, dtype:DType) -> PyResult<DynMat> {
+        self.m.astype(dtype.e).map_err(ocl_err_to_py_ex)
     }
     fn unsqueeze(&self, position: Option<usize>) -> PyResult<DynMat> {
         self.m.unsqueeze(position.unwrap_or(0)).map_err(ocl_err_to_py_ex)
@@ -321,6 +362,36 @@ impl ToDtype for isize {
     }
 }
 
+fn dyn_mat_op<T: PyNum>(slf: &Mat<T>, scalar_or_tensor: &PyAny, op: fn(&mut Mat<T>, T) -> Result<(), MatError>, mat: fn(&mut Mat<T>, &Mat<T>) -> Result<(), MatError>) -> PyResult<DynMat> {
+    if PyFloat::is_type_of(scalar_or_tensor) || PyInt::is_type_of(scalar_or_tensor) || PyBool::is_type_of(scalar_or_tensor) {
+        let scalar = T::extract_from(scalar_or_tensor).map_err(ocl_err_to_py_ex)?;
+        let mut out = slf.copy().map_err(ocl_err_to_py_ex)?;
+        op(&mut out, scalar).map_err(ocl_err_to_py_ex)?;
+        Ok(DynMat::from(out))
+    } else if let Ok(tensor) = scalar_or_tensor.cast_as::<PyCell<DynMat>>() {
+        let tensor = tensor.try_borrow()?;
+        let mut out = slf.copy().map_err(ocl_err_to_py_ex)?;
+        mat(&mut out, tensor.try_as_dtype()?).map_err(ocl_err_to_py_ex)?;
+        Ok(DynMat::from(out))
+    } else {
+        Err(PyValueError::new_err(format!("Could not perform this operation on {}", scalar_or_tensor.get_type())))
+    }
+}
+
+fn dyn_mat_op_in_place<T: PyNum>(slf: &mut Mat<T>, scalar_or_tensor: &PyAny, op: fn(&mut Mat<T>, T) -> Result<(), MatError>, mat: fn(&mut Mat<T>, &Mat<T>) -> Result<(), MatError>) -> PyResult<()> {
+    if PyFloat::is_type_of(scalar_or_tensor) || PyInt::is_type_of(scalar_or_tensor) || PyBool::is_type_of(scalar_or_tensor) {
+        let scalar = T::extract_from(scalar_or_tensor).map_err(ocl_err_to_py_ex)?;
+        op(slf, scalar).map_err(ocl_err_to_py_ex)?;
+        Ok(())
+    } else if let Ok(tensor) = scalar_or_tensor.cast_as::<PyCell<DynMat>>() {
+        let tensor = tensor.try_borrow()?;
+        mat(slf, tensor.try_as_dtype()?).map_err(ocl_err_to_py_ex)?;
+        Ok(())
+    } else {
+        Err(PyValueError::new_err(format!("Could not perform this operation on {}", scalar_or_tensor.get_type())))
+    }
+}
+
 impl<T: PyNum> DynMatTrait for Mat<T> {
     fn len(&self) -> usize {
         Mat::len(self)
@@ -344,7 +415,19 @@ impl<T: PyNum> DynMatTrait for Mat<T> {
     fn untyped_mat_mut(&mut self) -> &mut Mat<u8> {
         unsafe { std::mem::transmute::<&mut Mat<T>, &mut Mat<u8>>(self) }
     }
-
+    fn astype(&self, dtype:DTypeEnum) -> Result<DynMat, MatError>{
+        match dtype{
+            DTypeEnum::u8 => self.cast::<u8>()  .map(DynMat::from),
+            DTypeEnum::u16 => self.cast::<u16>().map(DynMat::from),
+            DTypeEnum::u32 => self.cast::<u32>().map(DynMat::from),
+            DTypeEnum::u64 => self.cast::<u64>().map(DynMat::from),
+            DTypeEnum::i8 =>  self.cast::<i8>() .map(DynMat::from),
+            DTypeEnum::i16 => self.cast::<i16>().map(DynMat::from),
+            DTypeEnum::i32 => self.cast::<i32>().map(DynMat::from),
+            DTypeEnum::i64 => self.cast::<i64>().map(DynMat::from),
+            DTypeEnum::f32 => self.cast::<f32>().map(DynMat::from),
+        }
+    }
     fn unsqueeze(&self, idx: usize) -> Result<DynMat, MatError> {
         self.unsqueeze(idx).map(DynMat::from)
     }
@@ -363,6 +446,59 @@ impl<T: PyNum> DynMatTrait for Mat<T> {
 
     fn view(&self, view: &[Range<usize>]) -> Result<DynMat, MatError> {
         self.view(view).map(DynMat::from)
+    }
+    fn matmul(&self, tensor: &PyAny) -> PyResult<DynMat> {
+        let tensor = tensor.cast_as::<PyCell<DynMat>>()?;
+        let tensor = tensor.try_borrow()?;
+        let out = Mat::matmul(self,tensor.try_as_dtype::<T>()?).map_err(ocl_err_to_py_ex)?;
+        Ok(DynMat::from(out))
+    }
+    fn add(&self, scalar: &PyAny) -> PyResult<DynMat> {
+        dyn_mat_op(self, scalar, Mat::add_scalar, Mat::add_mat)
+    }
+
+    fn sub(&self, scalar: &PyAny) -> PyResult<DynMat> {
+        dyn_mat_op(self, scalar, Mat::sub_scalar, Mat::sub_mat)
+    }
+
+    fn mul(&self, scalar: &PyAny) -> PyResult<DynMat> {
+        dyn_mat_op(self, scalar, Mat::mul_scalar, Mat::mul_mat)
+    }
+
+    fn div(&self, scalar: &PyAny) -> PyResult<DynMat> {
+        dyn_mat_op(self, scalar, Mat::div_scalar, Mat::div_mat)
+    }
+
+    fn min(&self, scalar: &PyAny) -> PyResult<DynMat> {
+        dyn_mat_op(self, scalar, Mat::min_scalar, Mat::min_mat)
+    }
+
+    fn max(&self, scalar: &PyAny) -> PyResult<DynMat> {
+        dyn_mat_op(self, scalar, Mat::max_scalar, Mat::max_mat)
+    }
+
+    fn add_(&mut self, scalar: &PyAny) -> PyResult<()> {
+        dyn_mat_op_in_place(self, scalar, Mat::add_scalar, Mat::add_mat)
+    }
+
+    fn sub_(&mut self, scalar: &PyAny) -> PyResult<()> {
+        dyn_mat_op_in_place(self, scalar, Mat::sub_scalar, Mat::sub_mat)
+    }
+
+    fn mul_(&mut self, scalar: &PyAny) -> PyResult<()> {
+        dyn_mat_op_in_place(self, scalar, Mat::mul_scalar, Mat::mul_mat)
+    }
+
+    fn div_(&mut self, scalar: &PyAny) -> PyResult<()> {
+        dyn_mat_op_in_place(self, scalar, Mat::div_scalar, Mat::div_mat)
+    }
+
+    fn min_(&mut self, scalar: &PyAny) -> PyResult<()> {
+        dyn_mat_op_in_place(self, scalar, Mat::min_scalar, Mat::min_mat)
+    }
+
+    fn max_(&mut self, scalar: &PyAny) -> PyResult<()> {
+        dyn_mat_op_in_place(self, scalar, Mat::max_scalar, Mat::max_mat)
     }
 
     fn exp(&self) -> Result<DynMat, MatError> {
@@ -397,18 +533,17 @@ impl<T: PyNum> DynMatTrait for Mat<T> {
         Mat::fill(self, T::extract_from(scalar)?).map_err(ocl_err_to_py_ex)
     }
     fn copy_from(&mut self, other: &DynMat) -> Result<(), MatError> {
-        match other.m.dtype(){
-            DTypeEnum::u8 => Mat::copy_from(self,other.try_as_dtype::<u8>().unwrap()),
-            DTypeEnum::u16 => Mat::copy_from(self,other.try_as_dtype::<u16>().unwrap()),
-            DTypeEnum::u32 => Mat::copy_from(self,other.try_as_dtype::<u32>().unwrap()),
-            DTypeEnum::u64 => Mat::copy_from(self,other.try_as_dtype::<u64>().unwrap()),
-            DTypeEnum::i8 => Mat::copy_from(self,other.try_as_dtype::<i8>().unwrap()),
-            DTypeEnum::i16 => Mat::copy_from(self,other.try_as_dtype::<i16>().unwrap()),
-            DTypeEnum::i32 => Mat::copy_from(self,other.try_as_dtype::<i32>().unwrap()),
-            DTypeEnum::i64 => Mat::copy_from(self,other.try_as_dtype::<i64>().unwrap()),
-            DTypeEnum::f32 => Mat::copy_from(self,other.try_as_dtype::<f32>().unwrap()),
+        match other.m.dtype() {
+            DTypeEnum::u8 => Mat::copy_from(self, other.try_as_dtype::<u8>().unwrap()),
+            DTypeEnum::u16 => Mat::copy_from(self, other.try_as_dtype::<u16>().unwrap()),
+            DTypeEnum::u32 => Mat::copy_from(self, other.try_as_dtype::<u32>().unwrap()),
+            DTypeEnum::u64 => Mat::copy_from(self, other.try_as_dtype::<u64>().unwrap()),
+            DTypeEnum::i8 => Mat::copy_from(self, other.try_as_dtype::<i8>().unwrap()),
+            DTypeEnum::i16 => Mat::copy_from(self, other.try_as_dtype::<i16>().unwrap()),
+            DTypeEnum::i32 => Mat::copy_from(self, other.try_as_dtype::<i32>().unwrap()),
+            DTypeEnum::i64 => Mat::copy_from(self, other.try_as_dtype::<i64>().unwrap()),
+            DTypeEnum::f32 => Mat::copy_from(self, other.try_as_dtype::<f32>().unwrap()),
         }
-
     }
     fn numpy<'py>(&self, py: Python<'py>) -> PyResult<&'py PyAny> {
         let vec = self.to_vec().map_err(ocl_err_to_py_ex)?;
@@ -890,5 +1025,36 @@ impl PyIterProtocol for DynMat {
             };
             Ok(i.into_py(py))
         }
+    }
+}
+
+#[pyproto]
+impl PyNumberProtocol for DynMat {
+    fn __add__(lhs: PyRef<DynMat>, rhs: &PyAny) -> PyResult<DynMat> {
+        lhs.m.add(rhs)
+    }
+    fn __sub__(lhs: PyRef<DynMat>, rhs: &PyAny) -> PyResult<DynMat> {
+        lhs.m.sub(rhs)
+    }
+    fn __truediv__(lhs: PyRef<DynMat>, rhs: &PyAny) -> PyResult<DynMat> {
+        lhs.m.div(rhs)
+    }
+    fn __mul__(lhs: PyRef<DynMat>, rhs: &PyAny) -> PyResult<DynMat> {
+        lhs.m.mul(rhs)
+    }
+    fn __matmul__(lhs: PyRef<DynMat>, rhs: &PyAny) -> PyResult<DynMat> {
+        lhs.m.matmul(rhs)
+    }
+    fn __iadd__(&mut self, rhs: &PyAny) -> PyResult<()> {
+        self.m.add_(rhs)
+    }
+    fn __isub__(&mut self, rhs: &PyAny) -> PyResult<()> {
+        self.m.sub_(rhs)
+    }
+    fn __itruediv__(&mut self, rhs: &PyAny) -> PyResult<()> {
+        self.m.div_(rhs)
+    }
+    fn __imul__(&mut self, rhs: &PyAny) -> PyResult<()> {
+        self.m.mul_(rhs)
     }
 }
