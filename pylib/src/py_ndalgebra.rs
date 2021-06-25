@@ -173,16 +173,22 @@ pub trait DynMatTrait: Display {
     fn matmul(&self, tensor: &PyAny) -> PyResult<DynMat>;
     fn add(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
     fn sub(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
+    fn swapped_sub(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
     fn mul(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
     fn div(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
+    fn swapped_div(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
     fn min(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
     fn max(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
     fn add_(&mut self, scalar_or_tensor: &PyAny) -> PyResult<()>;
     fn sub_(&mut self, scalar_or_tensor: &PyAny) -> PyResult<()>;
+    fn swapped_sub_(&mut self, scalar_or_tensor: &PyAny) -> PyResult<()>;
     fn mul_(&mut self, scalar_or_tensor: &PyAny) -> PyResult<()>;
     fn div_(&mut self, scalar_or_tensor: &PyAny) -> PyResult<()>;
+    fn swapped_div_(&mut self, scalar_or_tensor: &PyAny) -> PyResult<()>;
     fn min_(&mut self, scalar_or_tensor: &PyAny) -> PyResult<()>;
     fn max_(&mut self, scalar_or_tensor: &PyAny) -> PyResult<()>;
+    fn neg_(&mut self) -> Result<(), MatError>;
+    fn neg(&self) -> Result<DynMat, MatError>;
     fn exp(&self) -> Result<DynMat, MatError>;
     fn exp2(&self) -> Result<DynMat, MatError>;
     fn exp10(&self) -> Result<DynMat, MatError>;
@@ -461,12 +467,20 @@ impl<T: PyNum> DynMatTrait for Mat<T> {
         dyn_mat_op(self, scalar, Mat::sub_scalar, Mat::sub_mat)
     }
 
+    fn swapped_sub(&self, scalar: &PyAny) -> PyResult<DynMat> {
+        dyn_mat_op(self, scalar, Mat::swapped_sub_scalar, |a,b|unreachable!("Should be handled by __sub__ instead of __rsub__"))
+    }
+
     fn mul(&self, scalar: &PyAny) -> PyResult<DynMat> {
         dyn_mat_op(self, scalar, Mat::mul_scalar, Mat::mul_mat)
     }
 
     fn div(&self, scalar: &PyAny) -> PyResult<DynMat> {
         dyn_mat_op(self, scalar, Mat::div_scalar, Mat::div_mat)
+    }
+
+    fn swapped_div(&self, scalar: &PyAny) -> PyResult<DynMat> {
+        dyn_mat_op(self, scalar, Mat::swapped_div_scalar, |a,b|unreachable!("Should be handled by __truediv__ instead of __rtruediv__"))
     }
 
     fn min(&self, scalar: &PyAny) -> PyResult<DynMat> {
@@ -485,6 +499,10 @@ impl<T: PyNum> DynMatTrait for Mat<T> {
         dyn_mat_op_in_place(self, scalar, Mat::sub_scalar, Mat::sub_mat)
     }
 
+    fn swapped_sub_(&mut self, scalar: &PyAny) -> PyResult<()> {
+        dyn_mat_op_in_place(self, scalar, Mat::swapped_sub_scalar, |a,b|unreachable!("Should be handled by __sub__ instead of __rsub__"))
+    }
+
     fn mul_(&mut self, scalar: &PyAny) -> PyResult<()> {
         dyn_mat_op_in_place(self, scalar, Mat::mul_scalar, Mat::mul_mat)
     }
@@ -493,12 +511,26 @@ impl<T: PyNum> DynMatTrait for Mat<T> {
         dyn_mat_op_in_place(self, scalar, Mat::div_scalar, Mat::div_mat)
     }
 
+    fn swapped_div_(&mut self, scalar: &PyAny) -> PyResult<()> {
+        dyn_mat_op_in_place(self, scalar, Mat::swapped_div_scalar, |a,b|unreachable!("Should be handled by __truediv__ instead of __rtruediv__"))
+    }
+
     fn min_(&mut self, scalar: &PyAny) -> PyResult<()> {
         dyn_mat_op_in_place(self, scalar, Mat::min_scalar, Mat::min_mat)
     }
 
     fn max_(&mut self, scalar: &PyAny) -> PyResult<()> {
         dyn_mat_op_in_place(self, scalar, Mat::max_scalar, Mat::max_mat)
+    }
+
+    fn neg_(&mut self) -> Result<(), MatError> {
+        Mat::swapped_sub_scalar(self, T::zero())
+    }
+
+    fn neg(&self) -> Result<DynMat, MatError> {
+        let mut out = self.copy()?;
+        Mat::swapped_sub_scalar(&mut out, T::zero())?;
+        Ok(DynMat::from(out))
     }
 
     fn exp(&self) -> Result<DynMat, MatError> {
@@ -1106,5 +1138,20 @@ impl PyNumberProtocol for DynMat {
     }
     fn __imul__(&mut self, rhs: &PyAny) -> PyResult<()> {
         self.m.mul_(rhs)
+    }
+    fn __radd__(&self, lhs: &PyAny) -> PyResult<DynMat> {
+        self.m.add(lhs)
+    }
+    fn __rsub__(&self, lhs: &PyAny) -> PyResult<DynMat> {
+        self.m.swapped_sub(lhs)
+    }
+    fn __rtruediv__(&self, lhs: &PyAny) -> PyResult<DynMat> {
+        self.m.swapped_div(lhs)
+    }
+    fn __rmul__(&self, lhs: &PyAny) -> PyResult<DynMat> {
+        self.m.mul(lhs)
+    }
+    fn __neg__(&self) -> PyResult<DynMat>{
+        self.m.neg().map_err(ocl_err_to_py_ex)
     }
 }

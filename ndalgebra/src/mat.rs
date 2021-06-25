@@ -1,6 +1,6 @@
 use ocl::{ProQue, SpatialDims, flags, Platform, Device, Error, Queue};
 use std::mem::MaybeUninit;
-use std::ops::{Index, IndexMut, Mul, Add, Range, Sub, Div, AddAssign, DivAssign, SubAssign, MulAssign, RangeFull, RangeFrom, RangeTo, RangeToInclusive, RangeInclusive};
+use std::ops::{Index, IndexMut, Mul, Add, Range, Sub, Div, AddAssign, DivAssign, SubAssign, MulAssign, RangeFull, RangeFrom, RangeTo, RangeToInclusive, RangeInclusive, Neg};
 use std::fmt::{Display, Formatter, Debug};
 use crate::kernel::{LinAlgProgram, MAX_MAT_DIMS};
 use crate::num::Num;
@@ -694,6 +694,14 @@ impl<T: Num> Mat<T> {
     pub fn sub_scalar(&mut self, scalar: T) -> Result<(), MatError> {
         self.scalar_to_lhs_mat(scalar, "sub")
     }
+    /**Instead of performing (self - scalar), it performs (scalar - self)*/
+    pub fn swapped_sub_scalar(&mut self, scalar: T) -> Result<(), MatError> {
+        self.scalar_to_lhs_mat(scalar, "swapped_sub")
+    }
+    /**Instead of performing (self / scalar), it performs (scalar / self)*/
+    pub fn swapped_div_scalar(&mut self, scalar: T) -> Result<(), MatError> {
+        self.scalar_to_lhs_mat(scalar, "swapped_div")
+    }
     pub fn mul_scalar(&mut self, scalar: T) -> Result<(), MatError> {
         self.scalar_to_lhs_mat(scalar, "mul")
     }
@@ -739,11 +747,19 @@ impl<T: Num> Mat<T> {
     pub fn div_mat(&mut self, other: &Self) -> Result<(), MatError> {
         self.mat_to_lhs_mat(other, "div")
     }
+    /**performs in-place division but instead of saving output in lhs matrix, it does so in rhs*/
+    pub fn swapped_div_mat(&self, other: &mut Self) -> Result<(), MatError> {
+        other.mat_to_lhs_mat(self, "swapped_div")
+    }
     pub fn mul_mat(&mut self, other: &Self) -> Result<(), MatError> {
         self.mat_to_lhs_mat(other, "hadamard")
     }
     pub fn sub_mat(&mut self, other: &Self) -> Result<(), MatError> {
         self.mat_to_lhs_mat(other, "sub")
+    }
+    /**performs in-place subtraction but instead of saving output in lhs matrix, it does so in rhs*/
+    pub fn swapped_sub_mat(&self, other: &mut Self) -> Result<(), MatError> {
+        other.mat_to_lhs_mat(self, "swapped_sub")
     }
     pub fn min_mat(&mut self, other: &Self) -> Result<(), MatError> {
         self.mat_to_lhs_mat(other, "min")
@@ -952,6 +968,14 @@ impl<T: Num> Mul<T> for Mat<T> {
     }
 }
 
+impl<T: Num> Neg for Mat<T> {
+    type Output = Mat<T>;
+
+    fn neg(mut self) -> Self::Output {
+        self.swapped_sub_scalar(T::zero()).unwrap();
+        self
+    }
+}
 
 impl<T: Num> AddAssign<&Self> for Mat<T> {
     fn add_assign(&mut self, rhs: &Self) {

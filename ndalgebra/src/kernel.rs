@@ -139,9 +139,11 @@ __kernel void scalar_to_lhs_mat_{dtype}_{dims}_{name}(__global {dtype} * lhs, {d
         write!(fmt, "\n    ")
     }
     for dims in 0..=MAX_MAT_DIMS {
-        for (built_in, name) in [("", "fill"), ("/", "div"), ("*", "mul"), ("-", "sub"), ("+", "add"), ("min", "min"), ("max", "max")] {
+        for (built_in, name) in [("", "fill"), ("/", "div"), ("/", "swapped_div"), ("*", "mul"), ("-", "sub"), ("-", "swapped_sub"),("+", "add"), ("min", "min"), ("max", "max")] {
             write_beginning(dims, name, fmt, N::OPENCL_TYPE_STR)?;
-            if built_in.bytes().any(|c| !c.is_ascii_alphanumeric()) {
+            if name.starts_with("swapped_") {
+                write!(fmt, "lhs[lhs_offset] = rhs {built_in} lhs[lhs_offset];", built_in = built_in)?;
+            } else if built_in.bytes().any(|c| !c.is_ascii_alphanumeric()) {
                 write!(fmt, "lhs[lhs_offset] {built_in}= rhs;", built_in = built_in)?;
             } else {
                 write!(fmt, "lhs[lhs_offset] = {built_in}(lhs[lhs_offset], rhs);", built_in = built_in)?;
@@ -164,15 +166,18 @@ __kernel void mat_{input_type}_to_lhs_mat_{output_type}_{dims}_{name}(__global {
         write!(fmt, "\n    ")
     }
     for dims in 0..=MAX_MAT_DIMS {
-        for (built_in, name) in [("/", "div"), ("*", "hadamard"), ("-", "sub"), ("+", "add"), ("min", "min"), ("max", "max")] {
+        for (built_in, name) in [("/", "div"), ("/", "swapped_div"), ("*", "hadamard"), ("-", "sub"), ("-", "swapped_sub"), ("+", "add"), ("min", "min"), ("max", "max")] {
             write_beginning(dims, name, fmt, N::OPENCL_TYPE_STR, N::OPENCL_TYPE_STR)?;
-            if built_in.bytes().any(|c| !c.is_ascii_alphanumeric()) {
+            if name.starts_with("swapped_") {
+                write!(fmt, "lhs[lhs_offset] = rhs[rhs_offset] {built_in} lhs[lhs_offset];", built_in = built_in)?;
+            } else if built_in.bytes().any(|c| !c.is_ascii_alphanumeric()) {
                 write!(fmt, "lhs[lhs_offset] {built_in}= rhs[rhs_offset];", built_in = built_in)?;
             } else {
                 write!(fmt, "lhs[lhs_offset] = {built_in}(lhs[lhs_offset], rhs[rhs_offset]);", built_in = built_in)?;
             }
             write!(fmt, "\n}}")?;
         }
+
         for new_t in [u8::OPENCL_TYPE_STR, u16::OPENCL_TYPE_STR, u32::OPENCL_TYPE_STR, u64::OPENCL_TYPE_STR,
             i8::OPENCL_TYPE_STR, i16::OPENCL_TYPE_STR, i32::OPENCL_TYPE_STR, i64::OPENCL_TYPE_STR,
             f32::OPENCL_TYPE_STR] {

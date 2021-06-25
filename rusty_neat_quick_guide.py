@@ -347,8 +347,8 @@ assert (second_input.numpy() - numpy1 < 0.00001).all()
 # Alternatively you may use L-systems to evolve fractal neural networks.
 
 
-def sigmoid(x: np.ndarray):  # This function will be necessary later to normalise pixel values
-    return 1 / (1 + np.exp(-x))
+def sigmoid(x: nd.ndarray):  # This function will be necessary later to normalise pixel values
+    return 1 / (1 + nd.exp(-x))
 
 
 # A great introduction to HyperNEAT is by first exploring picbreeder. You can generate images
@@ -393,8 +393,8 @@ assert picture.shape == (64, 64, 3)
 
 if VISUALISE_PICBREEDER_2D:
     # The values might exceed allowed 0-1 range for float RGB values, so let's normalise it first
-    picture = sigmoid(picture.numpy())
-    plt.imshow(picture)
+    picture = sigmoid(picture)
+    plt.imshow(picture.numpy())
     plt.show()
 
 # Now, the following code is almost identical to the one above with one tiny twist.
@@ -428,8 +428,8 @@ picture = gpu_net([64, 64],  # pixel_count_per_dimension
 assert picture.shape == (64, 64, 3)
 
 if VISUALISE_PICBREEDER_2D_PLUS_BIAS_AND_CENTER_DIST:
-    picture = sigmoid(picture.numpy())
-    plt.imshow(picture)
+    picture = sigmoid(picture)
+    plt.imshow(picture.numpy())
     plt.show()
 
 # Now that we've seen picbreeder it will be easier to understand HyperNEAT.
