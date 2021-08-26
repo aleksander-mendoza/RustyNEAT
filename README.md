@@ -39,6 +39,6 @@ Then open a Python shell in the same folder and you'll be able to `import rusty_
 
 ### Usage:
 
-Check out this [tutorial](tests.py) for details.
+Check out this [tutorial](rusty_neat_quick_guide.py) for details.
 
 
