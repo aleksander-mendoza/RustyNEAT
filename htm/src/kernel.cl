@@ -64,8 +64,10 @@ __kernel void htm_calculate_overlap2_overlap_per_minicolumn(
     uint overlap = 0;
     for(uint i = 0;i<connection_index_len;i++){
         const uint feedforward_connection_idx = connection_indices[connection_index_offset + i];
-        const uint input_id = feedforward_connections[feedforward_connection_idx].input_id;
-        overlap += inputs[input_id].is_active;
+        if(feedforward_connections[feedforward_connection_idx].permanence > permanence_threshold){
+            const uint input_id = feedforward_connections[feedforward_connection_idx].input_id;
+            overlap += inputs[input_id].is_active;
+        }
     }
     minicolumns[minicolumn_idx].overlap = overlap;
 }

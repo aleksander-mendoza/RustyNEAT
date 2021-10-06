@@ -153,8 +153,10 @@ impl CpuHTM {
             let mut overlap = 0;
             for i in 0..connection_index_len {
                 let feedforward_connection_idx = self.connection_indices[(connection_index_offset + i) as usize];
-                let input_id = self.feedforward_connections[feedforward_connection_idx as usize].input_id;
-                overlap += self.inputs[input_id as usize].is_active as i32;
+                if self.feedforward_connections[feedforward_connection_idx as usize].permanence > self.permanence_threshold {
+                    let input_id = self.feedforward_connections[feedforward_connection_idx as usize].input_id;
+                    overlap += self.inputs[input_id as usize].is_active as i32;
+                }
             }
             self.minicolumns[minicolumn_idx].overlap = overlap;
         }

@@ -27,6 +27,7 @@ impl OclHTM{
         let feedforward_connections = prog.buffer_from_slice(MemFlags::READ_WRITE, ch.feedforward_connections_as_slice())?;
         let connection_indices = prog.buffer_from_slice(MemFlags::READ_WRITE, ch.connection_indices_as_slice())?;
         let inputs = prog.buffer_from_slice(MemFlags::READ_WRITE, ch.inputs_as_slice())?;
+        assert_eq!(ch.inputs_as_slice(),inputs.to_vec(prog.queue())?.as_slice());
         let minicolumns = prog.buffer_from_slice(MemFlags::READ_WRITE, ch.minicolumns_as_slice())?;
         Ok(Self{
             prog,
@@ -181,6 +182,7 @@ impl OclHTM{
         self.htm_calculate_overlap(sdr_input)?;
         let number_of_minicolumns_per_overlap = self.prog.buffer_filled(MemFlags::READ_WRITE,self.max_overlap as usize,0)?;
         self.htm_calculate_number_of_minicolumns_per_overlap(sdr_input, &number_of_minicolumns_per_overlap)?;
+        self.prog.q.finish();
         let smallest_overlap_that_made_it_to_top_n = self.htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n(&number_of_minicolumns_per_overlap)?;
         let top_n_minicolumns = unsafe{self.prog.buffer_empty(MemFlags::READ_WRITE,self.n as usize)?};
         let current_top_n_minicolumn_idx = self.prog.buffer_filled(MemFlags::READ_WRITE,1,0)?;
@@ -200,6 +202,7 @@ impl OclHTM{
         self.htm_calculate_overlap2_overlap_per_minicolumn()?;
         let mut number_of_minicolumns_per_overlap = self.prog.buffer_filled(MemFlags::READ_WRITE,self.max_overlap as usize,0)?;
         self.htm_calculate_number_of_minicolumns_per_overlap2(&number_of_minicolumns_per_overlap);
+        self.prog.q.finish();
         let smallest_overlap_that_made_it_to_top_n = self.htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n(&number_of_minicolumns_per_overlap)?;
         let top_n_minicolumns = unsafe{self.prog.buffer_empty(MemFlags::READ_WRITE,self.n as usize)?};
         let current_top_n_minicolumn_idx = self.prog.buffer_filled(MemFlags::READ_WRITE,1,0)?;
