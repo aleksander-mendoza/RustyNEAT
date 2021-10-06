@@ -1,5 +1,5 @@
 use ocl::{ProQue, SpatialDims, flags, Platform, Device, Buffer, Program, Kernel, Queue};
-use ndalgebra::kernel::LinAlgProgram;
+use ndalgebra::lin_alg_program::LinAlgProgram;
 use ndalgebra::mat::{Mat, MatError, AsShape};
 use crate::context::NeatContext;
 use ndalgebra::kernel_builder::KernelBuilder;

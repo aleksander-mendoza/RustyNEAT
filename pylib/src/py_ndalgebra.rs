@@ -12,7 +12,7 @@ use pyo3::basic::CompareOp;
 use std::ops::Range;
 use numpy::{PyArray, PY_ARRAY_API, npyffi, Element, PyReadonlyArrayDyn, DataType, PyArrayDyn, ToNpyDims};
 use numpy::npyffi::{PyArray_Dims, NPY_TYPES, NPY_ARRAY_WRITEABLE};
-use ndalgebra::kernel::LinAlgProgram;
+use ndalgebra::lin_alg_program::LinAlgProgram;
 
 #[pyclass]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]

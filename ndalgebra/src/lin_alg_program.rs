@@ -1,4 +1,5 @@
-use ocl::{ProQue, SpatialDims, Error, Platform, Device, DeviceType, MemFlags, Queue, Context};
+use ocl::{ProQue, Error, SpatialDims, Platform, Device, DeviceType, MemFlags, Queue};
+use ocl::core::Program;
 use std::fmt::{Formatter, Display};
 use std::marker::PhantomData;
 use crate::num::Num;
@@ -7,6 +8,9 @@ use std::fs::File;
 use std::io::Write;
 use crate::kernel_builder::KernelBuilder;
 use crate::buffer::Buffer;
+use crate::context::Context;
+use std::ops::Deref;
+use std::ffi::CString;
 
 pub const MAX_MAT_DIMS: usize = 3;
 
@@ -227,6 +231,8 @@ fn source<N: Num>(fmt: &mut Formatter<'_>, _p: PhantomData<N>) -> std::fmt::Resu
     Ok(())
 }
 
+
+
 fn source_for_all_types(fmt: &mut Formatter<'_>) -> std::fmt::Result {
     source::<f32>(fmt, PhantomData)?;
     source::<i8>(fmt, PhantomData)?;
@@ -250,62 +256,40 @@ impl Display for SourceCode {
 
 #[derive(Clone)]
 pub struct LinAlgProgram {
-    pub pro_que: ProQue,
+    pub ctx: Context,
+    pub prog: Program,
 }
+impl Deref for LinAlgProgram{
+    type Target = Context;
 
+    fn deref(&self) -> &Self::Target {
+        &self.ctx
+    }
+}
 impl LinAlgProgram {
-    pub fn device_list(platform: &Platform) -> Vec<Device> {
-        Device::list_all(platform).unwrap_or_else(|_| vec![])
-    }
 
-
-    pub fn device_by_type(platform: Platform, dev_type: DeviceType) -> Option<Device> {
-        Device::list_all(platform).ok().and_then(|dl| dl.into_iter().find(|d| match d.info(DeviceInfo::Type) {
-            Ok(DeviceInfoResult::Type(dev_type)) => true,
-            _ => false
-        }))
-    }
-    pub fn gpu() -> Result<LinAlgProgram, Error> {
-        let p = Platform::default();
-        Self::device_by_type(p, DeviceType::GPU).ok_or_else(|| Error::from(format!("No GPU device"))).and_then(|d| Self::new(p, d))
-    }
-    pub fn cpu() -> Result<LinAlgProgram, Error> {
-        let p = Platform::default();
-        Self::device_by_type(p, DeviceType::CPU).ok_or_else(|| Error::from(format!("No CPU device"))).and_then(|d| Self::new(p, d))
-    }
-    pub fn new(platform: Platform, device: Device) -> Result<LinAlgProgram, Error> {
+    pub fn new(ctx:Context)->Result<Self,Error>{
         let src = format!("{}", SourceCode {});
-        // std::fs::write("tmp.txt",&src);  // add for debugging purposes
-        ProQue::builder()
-            .platform(platform)
-            .device(device)
-            .src(src)
-            .dims(SpatialDims::Unspecified)
-            .build().map(|pro_que| Self { pro_que })
+        let src = CString::new(src)?;
+        let prog = ocl::core::create_program_with_source(ctx.context(),&[src])?;
+        ocl::core::build_program(&prog,Some(ctx.context().devices().as_slice()),&CString::new("").unwrap(),None,None)?;
+        Ok(Self{ctx:ctx.clone(),prog})
     }
 
+    pub fn gpu()->Result<Self,Error>{
+        Context::gpu().and_then(Self::new)
+    }
+
+    pub fn cpu()->Result<Self,Error>{
+        Context::cpu().and_then(Self::new)
+    }
+
+    pub fn program(&self)->&Program{
+        &self.prog
+    }
     pub fn kernel_builder<S: AsRef<str>>(&self, name:S) -> Result<KernelBuilder, ocl::core::Error> {
-        KernelBuilder::new(self.pro_que.program(),name)
+        KernelBuilder::new(self.program(),name)
     }
-
-    pub fn buffer_from_slice<T:Num>(&self, flags:MemFlags, slice:&[T]) -> Result<Buffer<T>, ocl::core::Error> {
-        Buffer::from_slice(self.context(),flags,slice)
-    }
-    pub unsafe fn buffer_empty<T:Num>(&self, flags:MemFlags, len:usize) -> Result<Buffer<T>, ocl::core::Error> {
-        Buffer::empty(self.context(),flags,len)
-    }
-    pub fn queue(&self) -> &Queue{
-        self.pro_que.queue()
-    }
-    pub fn context(&self) -> &Context{
-        self.pro_que.context()
-    }
-    pub fn buffer_filled<T:Num>(&self, flags:MemFlags, len:usize, fill_val:T) -> Result<Buffer<T>, ocl::core::Error> {
-        let mut buff = unsafe{self.buffer_empty(flags,len)}?;
-        buff.fill(self.queue(),fill_val)?;
-        Ok(buff)
-    }
-
 
 
 }

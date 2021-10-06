@@ -1,5 +1,6 @@
 use ocl::core::{Kernel, ArgVal, Mem, Error};
-use ocl::{OclPrm, Queue, Program};
+use ocl::{OclPrm, Queue};
+use ocl::core::Program;
 use crate::buffer::Buffer;
 use crate::mat::AsShape;
 

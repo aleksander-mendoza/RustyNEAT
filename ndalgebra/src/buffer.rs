@@ -25,39 +25,48 @@ pub struct Buffer<T: OclPrm> {
 }
 
 impl<T: OclPrm> Buffer<T> {
-    pub unsafe fn empty<C: ClContextPtr>(context:C, flags: MemFlags, len: usize) -> Result<Buffer<T>, Error> {
+    pub unsafe fn empty<C: ClContextPtr>(context:C, flags: MemFlags, len: usize) -> Result<Buffer<T>, OclError> {
         ocl::core::create_buffer::<C,T>(context, flags, len, None).map(|obj_core|Buffer {
             obj_core,
             len,
             offset: None,
             _data: PhantomData,
-        })
+        }).map_err(OclError::from)
     }
-    pub fn from_slice<C: ClContextPtr>(context:C, mut flags: MemFlags, host_slice: &[T]) -> Result<Buffer<T>, Error> {
+    pub fn from_slice<C: ClContextPtr>(context:C, mut flags: MemFlags, host_slice: &[T]) -> Result<Buffer<T>, OclError> {
         flags.insert(MemFlags::new().copy_host_ptr());
         unsafe{ocl::core::create_buffer(context, flags, host_slice.len(), Some(host_slice))}.map(|obj_core|Buffer {
             obj_core,
             len:host_slice.len(),
             offset: None,
             _data: PhantomData,
-        })
+        }).map_err(OclError::from)
     }
-    pub fn fill(&mut self, queue:&Queue, fill_val:T) -> Result<(), Error> {
+    pub fn fill(&mut self, queue:&Queue, fill_val:T) -> Result<(), OclError> {
         unsafe{
             ocl::core::enqueue_fill_buffer(queue.as_core(), &self.obj_core, fill_val,0, self.len(), None::<core::Event>, None::<&mut core::Event>, Some(&queue.device_version()))
-        }
+        }.map_err(OclError::from)
     }
 
-    pub fn read(&self, queue:&Queue, offset:usize, dst:&mut[T]) -> Result<(),Error>{
+    pub fn read(&self, queue:&Queue, offset:usize, dst:&mut[T]) -> Result<(),OclError>{
         if offset+dst.len() > self.len(){
-            return Err(Error::from(format!("Buffer has length {} is less that destination length {} plus offset {}",self.len(),dst.len(),offset)));
+            return Err(OclError::from(format!("Buffer has length {} is less that destination length {} plus offset {}",self.len(),dst.len(),offset)));
         }
         unsafe {
             ocl::core::enqueue_read_buffer(&queue, &self.obj_core, true, offset, dst, None::<core::Event>, None::<&mut core::Event>)
-        }
+        }.map_err(OclError::from)
     }
 
-    pub fn to_vec(&self, queue:&Queue) -> Result<Vec<T>,Error>{
+    pub fn write(&self, queue:&Queue, offset:usize, data:&[T]) -> Result<(),OclError>{
+        if offset+data.len() > self.len(){
+            return Err(OclError::from(format!("Buffer has length {} is less that data length {} plus offset {}",self.len(),data.len(),offset)));
+        }
+        unsafe {
+            ocl::core::enqueue_write_buffer(&queue, &self.obj_core, true, offset, data, None::<core::Event>, None::<&mut core::Event>)
+        }.map_err(OclError::from)
+    }
+
+    pub fn to_vec(&self, queue:&Queue) -> Result<Vec<T>,OclError>{
         let mut vec = Vec::with_capacity(self.len());
         unsafe{vec.set_len(vec.capacity())};
         self.read(queue,0,vec.as_mut_slice())?;

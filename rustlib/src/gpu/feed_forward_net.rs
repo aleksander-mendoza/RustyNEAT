@@ -2,7 +2,7 @@ use crate::cppn::FeedForwardNet;
 use ocl::{ProQue, SpatialDims, Device, Error, Platform, flags, Program, Kernel, Queue};
 use crate::gpu::PREAMBLE;
 use std::fmt::Write;
-use ndalgebra::kernel::LinAlgProgram;
+use ndalgebra::lin_alg_program::LinAlgProgram;
 use ndalgebra::mat::{MatError, Mat, AsShape};
 use crate::context::NeatContext;
 use ndalgebra::kernel_builder::KernelBuilder;

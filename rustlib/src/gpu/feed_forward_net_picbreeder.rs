@@ -3,7 +3,7 @@ use ocl::{ProQue, SpatialDims, Device, Error, Platform, flags, Program, Kernel, 
 use crate::gpu::PREAMBLE;
 use std::fmt::Write;
 use ndalgebra::mat::{Mat, MatError};
-use ndalgebra::kernel::LinAlgProgram;
+use ndalgebra::lin_alg_program::LinAlgProgram;
 use crate::context::NeatContext;
 use ndalgebra::buffer::Buffer;
 use ndalgebra::kernel_builder::KernelBuilder;

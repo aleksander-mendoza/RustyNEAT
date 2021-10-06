@@ -2,7 +2,7 @@ use ocl::{ProQue, SpatialDims, flags, Platform, Device, Error, Queue};
 use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut, Mul, Add, Range, Sub, Div, AddAssign, DivAssign, SubAssign, MulAssign, RangeFull, RangeFrom, RangeTo, RangeToInclusive, RangeInclusive, Neg};
 use std::fmt::{Display, Formatter, Debug};
-use crate::kernel::{LinAlgProgram, MAX_MAT_DIMS};
+use crate::lin_alg_program::{LinAlgProgram, MAX_MAT_DIMS};
 use crate::num::Num;
 use ocl::core::{MemInfo, MemInfoResult, BufferRegion, Mem, ArgVal};
 use crate::buffer::Buffer;
@@ -241,7 +241,7 @@ impl<T: Num> Mat<T> {
         if len == 0 {
             Self::new_with_strides(lin_alg, None, true, strides, shape)
         } else {
-            lin_alg.buffer_empty(flags::MEM_READ_WRITE,len).map_err(|e| MatError::OpenCLCoreError(e))
+            lin_alg.buffer_empty(flags::MEM_READ_WRITE,len).map_err(|e| MatError::OpenCLError(e))
                 .and_then(|buff| Self::new_with_strides(lin_alg, Some(buff), true, strides, shape))
         }
     }
@@ -460,7 +460,7 @@ impl<T: Num> Mat<T> {
     pub fn get(&self, index: &[usize]) -> Result<T, MatError> {
         if let Some(buff) = &self.buff {
             let mut tmp = [T::zero(); 1];
-            buff.read(self.lin_alg.pro_que.queue(), self.offset_into_buffer(index)?, &mut tmp[..])?;
+            buff.read(self.lin_alg.queue(), self.offset_into_buffer(index)?, &mut tmp[..])?;
             Ok(tmp[0])
         } else {
             Err(MatError::InvalidIndex(index.to_vec(), self.shape.to_vec()))
@@ -506,7 +506,7 @@ impl<T: Num> Mat<T> {
             }
         }
     }
-    fn read_contiguous(&self, offset:usize, dst: &mut [T]) -> Result<(), ocl::core::Error> {
+    fn read_contiguous(&self, offset:usize, dst: &mut [T]) -> Result<(), Error> {
         assert!(offset+dst.len() <= self.len_buffer());
         unsafe {
             if let Some(buff) = &self.buff {
@@ -548,7 +548,7 @@ impl<T: Num> Mat<T> {
         Ok(kernel)
     }
     pub fn queue(&self)->&Queue{
-        self.lin_alg.pro_que.queue()
+        self.lin_alg.queue()
     }
     /**Matrix multiplication*/
     pub fn mm(&self, rhs: &Self) -> Result<Self, MatError> {

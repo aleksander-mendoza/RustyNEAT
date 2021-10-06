@@ -4,5 +4,6 @@ members = [
     "ndalgebra",
     "rustlib",
     "pylib",
-    "envs"
+    "envs",
+    "htm"
 ]

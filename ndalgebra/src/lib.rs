@@ -10,9 +10,10 @@ extern crate failure;
 
 pub mod mat;
 pub mod num;
-pub mod kernel;
+pub mod lin_alg_program;
 pub mod buffer;
 pub mod kernel_builder;
+pub mod context;
 
 #[cfg(test)]
 mod tests {
@@ -20,7 +21,7 @@ mod tests {
     use ocl::{SpatialDims, Platform, Device, Context, Program, Queue, Buffer, flags, Kernel, ProQue};
     use ocl::core::BufferRegion;
     use crate::mat::{Mat, MatError};
-    use crate::kernel::LinAlgProgram;
+    use crate::lin_alg_program::LinAlgProgram;
 
     #[test]
     fn test_mat_null() -> Result<(), String> {

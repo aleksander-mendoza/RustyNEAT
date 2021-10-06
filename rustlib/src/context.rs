@@ -1,4 +1,4 @@
-use ndalgebra::kernel::LinAlgProgram;
+use ndalgebra::lin_alg_program::LinAlgProgram;
 use ocl::{Platform, Device, Error};
 use ocl::{DeviceType};
 use std::any::Any;
