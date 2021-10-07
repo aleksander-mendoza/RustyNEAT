@@ -57,26 +57,6 @@ impl OclHTM{
             map_err(Error::from)
     }
 
-    fn htm_calculate_overlap2_active_inputs(&mut self, sdr_input: &OclSDR) -> Result<(), Error> {
-        self.prog.kernel_builder("htm_calculate_overlap2_active_inputs")?.
-            add_num(self.permanence_threshold)?. // float permanence_threshold,
-            add_buff(sdr_input.buffer())?.// __global uint * sdr_input,
-            add_buff(&self.inputs)?.// __global HtmInput * inputs,
-            enq(self.prog.queue(),&[sdr_input.number_of_active_neurons(),1,1]).
-            map_err(Error::from)
-    }
-
-    fn htm_calculate_overlap2_overlap_per_minicolumn(&mut self) -> Result<(), Error> {
-        self.prog.kernel_builder("htm_calculate_overlap2_overlap_per_minicolumn")?.
-            add_num(self.permanence_threshold)?. // float permanence_threshold,
-            add_buff(&self.minicolumns)?.// __global HtmMinicolumn * minicolumns,
-            add_buff(&self.inputs)?.// __global HtmInput * inputs,
-            add_buff(&self.feedforward_connections)?.// __global HtmFeedforwardConnection * feedforward_connections
-            add_buff(&self.connection_indices)?. // __global uint * connection_indices
-            enq(self.prog.queue(),&[self.minicolumn_count(),1,1]).
-            map_err(Error::from)
-    }
-
     fn htm_calculate_number_of_minicolumns_per_overlap(&mut self, sdr_input: &OclSDR, number_of_minicolumns_per_overlap: &Buffer<i32>) -> Result<(), Error> {
         self.prog.kernel_builder("htm_calculate_number_of_minicolumns_per_overlap")?.
             add_num(self.permanence_threshold)?. // float permanence_threshold,
@@ -86,15 +66,6 @@ impl OclHTM{
             add_buff(number_of_minicolumns_per_overlap)?.// __global int * number_of_minicolumns_per_overlap
             add_buff(&self.feedforward_connections)?. // __global HtmFeedforwardConnection * feedforward_connections
             enq(self.prog.queue(),&[sdr_input.number_of_active_neurons(),1,1]).
-            map_err(Error::from)
-    }
-
-    fn htm_calculate_number_of_minicolumns_per_overlap2(&self, number_of_minicolumns_per_overlap: &Buffer<i32>) -> Result<(), Error> {
-        self.prog.kernel_builder("htm_calculate_number_of_minicolumns_per_overlap2")?.
-            add_num(self.permanence_threshold)?. // float permanence_threshold,
-            add_buff(&self.minicolumns)?.// __global HtmMinicolumn * minicolumns,
-            add_buff(number_of_minicolumns_per_overlap)?.// __global int * number_of_minicolumns_per_overlap
-            enq(self.prog.queue(),&[self.minicolumn_count(),1,1]).
             map_err(Error::from)
     }
 
@@ -159,24 +130,6 @@ impl OclHTM{
             map_err(Error::from)
     }
 
-    fn htm_clean_up_overlap2(&mut self) -> Result<(), Error> {
-        self.prog.kernel_builder("htm_clean_up_overlap2")?.
-            add_buff(&self.minicolumns)?.// __global HtmMinicolumn * minicolumns,
-            enq(self.prog.queue(),&[self.minicolumn_count(),1,1]).
-            map_err(Error::from)
-    }
-
-    fn htm_find_top_minicolumns2(&mut self, number_of_minicolumns_per_overlap_that_made_it_to_top_n: &Buffer<i32>, smallest_overlap_that_made_it_to_top_n: u32, top_n_minicolumns: &Buffer<u32>, current_top_n_minicolumn_idx: &Buffer<u32>)  -> Result<(), Error> {
-        self.prog.kernel_builder("htm_find_top_minicolumns2")?.
-            add_num(self.permanence_threshold)?. // float permanence_threshold,
-            add_buff(&self.minicolumns)?.// __global HtmMinicolumn * minicolumns,
-            add_buff(number_of_minicolumns_per_overlap_that_made_it_to_top_n)?.// __global int * number_of_minicolumns_per_overlap_that_made_it_to_top_n,
-            add_num(smallest_overlap_that_made_it_to_top_n)?.// int smallest_overlap_that_made_it_to_top_n,
-            add_buff(&top_n_minicolumns)?.// __global uint * top_n_minicolumns,
-            add_buff(&current_top_n_minicolumn_idx)?.// __global uint * current_top_n_minicolumn_idx,
-            enq(self.prog.queue(),&[self.minicolumn_count(),1,1]).
-            map_err(Error::from)
-    }
 
     pub fn infer(&mut self, sdr_input: &OclSDR, learn: bool) -> Result<OclSDR, Error> {
         self.htm_calculate_overlap(sdr_input)?;
@@ -194,27 +147,8 @@ impl OclHTM{
         }
         self.htm_clean_up_active_inputs(sdr_input)?;
         self.htm_clean_up_overlap(sdr_input)?;
-        Ok(OclSDR::from_buff(self.prog.clone(),top_n_minicolumns, top_minicolumn_count as usize))
+        Ok(OclSDR::from_buff(self.prog.ctx.clone(),top_n_minicolumns, top_minicolumn_count as usize))
     }
 
-    pub fn infer2(&mut self, sdr_input: &OclSDR, learn: bool) -> Result<OclSDR, Error> {
-        self.htm_calculate_overlap2_active_inputs(sdr_input)?;
-        self.htm_calculate_overlap2_overlap_per_minicolumn()?;
-        let mut number_of_minicolumns_per_overlap = self.prog.buffer_filled(MemFlags::READ_WRITE,self.max_overlap as usize,0)?;
-        self.htm_calculate_number_of_minicolumns_per_overlap2(&number_of_minicolumns_per_overlap);
-        self.prog.q.finish();
-        let smallest_overlap_that_made_it_to_top_n = self.htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n(&number_of_minicolumns_per_overlap)?;
-        let top_n_minicolumns = unsafe{self.prog.buffer_empty(MemFlags::READ_WRITE,self.n as usize)?};
-        let current_top_n_minicolumn_idx = self.prog.buffer_filled(MemFlags::READ_WRITE,1,0)?;
-        self.htm_find_top_minicolumns2(&number_of_minicolumns_per_overlap, smallest_overlap_that_made_it_to_top_n, &top_n_minicolumns, &current_top_n_minicolumn_idx);
-        let mut top_minicolumn_count = 0;
-        current_top_n_minicolumn_idx.read(self.prog.queue(),0,&mut [top_minicolumn_count])?;
-        if learn {
-            self.htm_update_permanence(&top_n_minicolumns, top_minicolumn_count)?
-        }
-        self.htm_clean_up_active_inputs(sdr_input)?;
-        self.htm_clean_up_overlap2();
-        Ok(OclSDR::from_buff(self.prog.clone(),top_n_minicolumns, top_minicolumn_count as usize))
-    }
 }
 

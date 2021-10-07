@@ -7,28 +7,28 @@ use std::io::Write;
 use std::ops::Deref;
 use ndalgebra::context::Context;
 use ndalgebra::kernel_builder::KernelBuilder;
-use crate::htm_program2::HtmProgram2;
+use crate::htm_program::HtmProgram;
 
 #[derive(Clone)]
-pub struct HtmProgram {
+pub struct HtmProgram2 {
     pub ctx: Context,
     pub prog: Program,
 }
-impl Deref for HtmProgram{
+impl Deref for HtmProgram2{
     type Target = Context;
 
     fn deref(&self) -> &Self::Target {
         &self.ctx
     }
 }
-impl HtmProgram {
+impl HtmProgram2 {
 
-    pub fn from(t: &HtmProgram2) -> Result<Self, Error> {
+    pub fn from(t: &HtmProgram) -> Result<Self, Error> {
         Self::new(t.ctx.clone())
     }
 
     pub fn new(ctx:Context)->Result<Self,Error>{
-        let src = include_str!("kernel.cl");
+        let src = include_str!("kernel2.cl");
         let prog = Program::builder().source(src).build(ctx.context())?;
         Ok(Self{ctx:ctx.clone(),prog})
     }

@@ -103,7 +103,6 @@ impl CpuHTM {
             minicolumns.push(HtmMinicolumn {
                 connection_index_offset: connection_indices_begin,
                 connection_index_len: connection_indices_end - connection_indices_begin,
-                active_layer: 0,
                 overlap: 0,
             });
         }
@@ -133,35 +132,6 @@ impl CpuHTM {
         }
     }
 
-
-    /**This function does the exact same thing as htm_calculate_overlap, but that function works
-    optimally when the input is so sparse that only a tiny fraction of minicolumns has even a single
-    connection to some active input. In cases where vast majority minicolumns is expected to have
-    at least one connection to some active input, then htm_calculate_overlap2 will be much more optimal.
-    The htm_calculate_overlap2 is implemented in two parts. First you call htm_calculate_overlap2_active_inputs
-    and then you call htm_calculate_overlap2_overlap_per_minicolumn*/
-    fn htm_calculate_overlap2_active_inputs(&mut self, sdr_input: &CpuSDR) {
-        for &input_neuron_idx in sdr_input.iter() {
-            self.inputs[input_neuron_idx as usize].is_active = true;
-        }
-    }
-
-    fn htm_calculate_overlap2_overlap_per_minicolumn(&mut self) {
-        for minicolumn_idx in 0..self.minicolumns.len() {
-            let connection_index_offset = self.minicolumns[minicolumn_idx].connection_index_offset;
-            let connection_index_len = self.minicolumns[minicolumn_idx].connection_index_len;
-            let mut overlap = 0;
-            for i in 0..connection_index_len {
-                let feedforward_connection_idx = self.connection_indices[(connection_index_offset + i) as usize];
-                if self.feedforward_connections[feedforward_connection_idx as usize].permanence > self.permanence_threshold {
-                    let input_id = self.feedforward_connections[feedforward_connection_idx as usize].input_id;
-                    overlap += self.inputs[input_id as usize].is_active as i32;
-                }
-            }
-            self.minicolumns[minicolumn_idx].overlap = overlap;
-        }
-    }
-
     fn htm_calculate_number_of_minicolumns_per_overlap(&mut self, sdr_input: &CpuSDR, number_of_minicolumns_per_overlap: &mut [i32]) {
         for &input_neuron_idx in sdr_input.iter() {
             let input_neuron = &self.inputs[input_neuron_idx as usize];
@@ -178,19 +148,7 @@ impl CpuHTM {
             }
         }
     }
-    /**This function does the exact same thing as htm_calculate_number_of_minicolumns_per_overlap, but that function works
-       optimally when the input is so sparse that only a tiny fraction of minicolumns has even a single
-       connection to some active input. In cases where vast majority minicolumns is expected to have
-       at least one connection to some active input, then htm_calculate_number_of_minicolumns_per_overlap2 will be much more optimal.
-       */
-    fn htm_calculate_number_of_minicolumns_per_overlap2(&self, number_of_minicolumns_per_overlap: &mut [i32]) {
-        for minicolumn_idx in 0..self.minicolumns.len() {
-            let overlap = self.minicolumns[minicolumn_idx].overlap;
-            if overlap > 0 {
-                number_of_minicolumns_per_overlap[overlap as usize] += 1;
-            }
-        }
-    }
+
     /**returns smallest_overlap_that_made_it_to_top_n.
     By the end of running this function, the number_of_minicolumns_per_overlap array will become
     number_of_minicolumns_per_overlap_that_made_it_to_top_n.
@@ -260,25 +218,6 @@ impl CpuHTM {
         }
     }
 
-    // pub fn htm_higher_order_memory(&mut self,
-    //                                number_of_minicolumns_per_overlap_that_made_it_to_top_n: &mut [i32],
-    //                                top_n_minicolumns: &mut [u32],
-    //                                current_top_n_minicolumn_idx: u32) {
-    //     for top_minicolumn_idx in 0..current_top_n_minicolumn_idx {
-    //         let minicolumn_idx = top_n_minicolumns[top_minicolumn_idx as usize];
-    //         let connection_index_offset = self.minicolumns[minicolumn_idx as usize].connection_index_offset;
-    //         let connection_index_len = self.minicolumns[minicolumn_idx as usize].connection_index_len;
-    //         for i in 0..connection_index_len{
-    //             let feedforward_connection_idx = self.connection_indices[(connection_index_offset + i) as usize];
-    //             let input_id = self.feedforward_connections[feedforward_connection_idx].input_id;
-    //             let permanence_change = self.permanence_decrement_increment[inputs[input_idx].is_active];
-    //             let old_permanence = self.feedforward_connections[feedforward_connection_idx].permanence;
-    //             let new_permanence = (old_permanence + permanence_change).clamp(0., 1.);
-    //             feedforward_connections[feedforward_connection_idx].permanence = new_permanence;
-    //         }
-    //     }
-    // }
-
     fn htm_clean_up_active_inputs(&mut self, sdr_input: &CpuSDR) {
         for &input_neuron_idx in sdr_input.iter() {
             self.inputs[input_neuron_idx as usize].is_active = false;
@@ -295,33 +234,7 @@ impl CpuHTM {
             }
         }
     }
-    fn htm_clean_up_overlap2(&mut self) {
-        for minicolumn in &mut self.minicolumns {
-            minicolumn.overlap = 0;
-        }
-    }
 
-    /**This function does the exact same thing as htm_find_top_minicolumns, but that function works
-    optimally when the input is so sparse that only a tiny fraction of minicolumns has even a single
-    connection to some active input. In cases where vast majority minicolumns is expected to have
-    at least one connection to some active input, then htm_find_top_minicolumns2 will be much more optimal.
-    */
-    fn htm_find_top_minicolumns2(&mut self,
-                                 number_of_minicolumns_per_overlap_that_made_it_to_top_n: &mut [i32],
-                                 smallest_overlap_that_made_it_to_top_n: u32,
-                                 top_n_minicolumns: &mut [u32],
-                                 current_top_n_minicolumn_idx: &mut u32) {
-        for minicolumn_idx in 0..self.minicolumns.len() {
-            let overlap = self.minicolumns[minicolumn_idx].overlap;
-            if overlap >= smallest_overlap_that_made_it_to_top_n as i32 { // the array number_of_minicolumns_per_overlap_that_made_it_to_top_n holds rubbish for any overlap lower than smallest_overlap_that_made_it_to_top_n
-                if number_of_minicolumns_per_overlap_that_made_it_to_top_n[overlap as usize] > 0 { // only add those columns that made it to top n
-                    number_of_minicolumns_per_overlap_that_made_it_to_top_n[overlap as usize] -= 1;
-                    top_n_minicolumns[*current_top_n_minicolumn_idx as usize] = minicolumn_idx as u32;
-                    *current_top_n_minicolumn_idx += 1;
-                }
-            }
-        }
-    }
 
 
     pub fn infer(&mut self, sdr_input: &CpuSDR, learn: bool) -> CpuSDR {
@@ -342,23 +255,5 @@ impl CpuHTM {
         CpuSDR::from(top_n_minicolumns)
     }
 
-    pub fn infer2(&mut self, sdr_input: &CpuSDR, learn: bool) -> CpuSDR{
-        self.htm_calculate_overlap2_active_inputs(sdr_input);
-        self.htm_calculate_overlap2_overlap_per_minicolumn();
-        let mut number_of_minicolumns_per_overlap = vec![0; self.max_overlap as usize];
-        self.htm_calculate_number_of_minicolumns_per_overlap2(number_of_minicolumns_per_overlap.as_mut_slice());
-        let smallest_overlap_that_made_it_to_top_n = self.htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n(number_of_minicolumns_per_overlap.as_mut_slice());
-        let mut top_n_minicolumns = Vec::with_capacity(self.n as usize);
-        unsafe { top_n_minicolumns.set_len(self.n as usize) }
-        let mut current_top_n_minicolumn_idx = 0;
-        self.htm_find_top_minicolumns2(number_of_minicolumns_per_overlap.as_mut_slice(), smallest_overlap_that_made_it_to_top_n, top_n_minicolumns.as_mut_slice(), &mut current_top_n_minicolumn_idx);
-        let top_minicolumn_count = current_top_n_minicolumn_idx;
-        if learn {
-            self.htm_update_permanence(top_n_minicolumns.as_mut_slice(), top_minicolumn_count)
-        }
-        self.htm_clean_up_active_inputs(sdr_input);
-        self.htm_clean_up_overlap2();
-        CpuSDR::from(top_n_minicolumns)
-    }
 }
 

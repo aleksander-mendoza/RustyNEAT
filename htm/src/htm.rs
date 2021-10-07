@@ -24,7 +24,6 @@ unsafe impl OclPrm for HtmInput{}
 pub struct HtmMinicolumn {
     pub connection_index_offset: u32,
     pub connection_index_len: u32,
-    pub active_layer: u32,
     pub overlap: i32,
 }
 unsafe impl OclPrm for HtmMinicolumn{}
