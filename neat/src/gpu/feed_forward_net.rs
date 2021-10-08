@@ -4,8 +4,8 @@ use crate::gpu::PREAMBLE;
 use std::fmt::Write;
 use ndalgebra::lin_alg_program::LinAlgProgram;
 use ndalgebra::mat::{MatError, Mat, AsShape};
-use crate::context::NeatContext;
 use ndalgebra::kernel_builder::KernelBuilder;
+use ndalgebra::context::Context;
 
 pub struct FeedForwardNetOpenCL {
     in_columns: usize,
@@ -15,18 +15,17 @@ pub struct FeedForwardNetOpenCL {
 }
 
 impl FeedForwardNetOpenCL {
-    pub fn new(context:&NeatContext, net: &FeedForwardNet<f32>) -> Result<Self, Error> {
+    pub fn new(lin_alg:&LinAlgProgram  , net: &FeedForwardNet<f32>) -> Result<Self, Error> {
         let mut src = String::from(PREAMBLE);
         write!(src, "{}", net.opencl_view());
         let program = Program::builder()
-            .devices(context.device().clone())
             .src(src)
-            .build(context.lin_alg().pro_que.context())?;
+            .build(lin_alg.context())?;
         Ok(FeedForwardNetOpenCL {
             in_columns: net.get_input_size(),
             out_columns: net.get_output_size(),
             program,
-            lin_alg:context.lin_alg().clone()
+            lin_alg:lin_alg.clone()
         })
     }
     pub fn get_input_size(&self) -> usize {
@@ -36,7 +35,7 @@ impl FeedForwardNetOpenCL {
         &self.lin_alg
     }
     pub fn queue(&self) -> &Queue {
-        self.lin_alg.pro_que.queue()
+        self.lin_alg.queue()
     }
     pub fn get_output_size(&self) -> usize {
         self.out_columns

@@ -235,12 +235,12 @@ fn source<N: Num>(fmt: &mut Formatter<'_>, _p: PhantomData<N>) -> std::fmt::Resu
 
 fn source_for_all_types(fmt: &mut Formatter<'_>) -> std::fmt::Result {
     source::<f32>(fmt, PhantomData)?;
-    source::<i8>(fmt, PhantomData)?;
-    source::<i16>(fmt, PhantomData)?;
+    // source::<i8>(fmt, PhantomData)?;
+    // source::<i16>(fmt, PhantomData)?;
     source::<i32>(fmt, PhantomData)?;
     source::<i64>(fmt, PhantomData)?;
-    source::<u8>(fmt, PhantomData)?;
-    source::<u16>(fmt, PhantomData)?;
+    // source::<u8>(fmt, PhantomData)?;
+    // source::<u16>(fmt, PhantomData)?;
     source::<u32>(fmt, PhantomData)?;
     source::<u64>(fmt, PhantomData)
 }
@@ -275,6 +275,9 @@ impl LinAlgProgram {
         ocl::core::build_program(&prog,Some(ctx.context().devices().as_slice()),&CString::new("").unwrap(),None,None)?;
         Ok(Self{ctx:ctx.clone(),prog})
     }
+    pub fn default()->Result<Self,Error>{
+        Context::default().and_then(Self::new)
+    }
 
     pub fn gpu()->Result<Self,Error>{
         Context::gpu().and_then(Self::new)
@@ -283,7 +286,9 @@ impl LinAlgProgram {
     pub fn cpu()->Result<Self,Error>{
         Context::cpu().and_then(Self::new)
     }
-
+    pub fn device(&self)->Device{
+        self.ctx.device()
+    }
     pub fn program(&self)->&Program{
         &self.prog
     }

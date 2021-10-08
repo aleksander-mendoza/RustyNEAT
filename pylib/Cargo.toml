@@ -16,9 +16,10 @@ name = "rusty_neat"
 crate-type = ["cdylib"]
 
 [dependencies]
-rusty_neat_core = {path="../rustlib"}
+rusty_neat_core = {path= "../neat" }
 numpy = "0.13"
 ndalgebra = {path="../ndalgebra"}
+htm = {path="../htm"}
 
 [dependencies.pyo3]
 version = "0.13.2"

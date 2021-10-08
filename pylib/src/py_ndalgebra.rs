@@ -3,7 +3,6 @@ use pyo3::{wrap_pyfunction, wrap_pymodule, PyObjectProtocol, PyTypeInfo, PyClass
 use pyo3::PyResult;
 use ndalgebra::mat::{Mat, MatError, AsShape};
 use ndalgebra::num::Num;
-use crate::py_ocl::NeatContext;
 use crate::{ocl_err_to_py_ex, slice_box};
 use std::fmt::{Display, Formatter};
 use pyo3::types::{PyType, PyList, PyTuple, PyInt, PyFloat, PyBool, PySlice, PyLong};
@@ -12,7 +11,7 @@ use pyo3::basic::CompareOp;
 use std::ops::Range;
 use numpy::{PyArray, PY_ARRAY_API, npyffi, Element, PyReadonlyArrayDyn, DataType, PyArrayDyn, ToNpyDims};
 use numpy::npyffi::{PyArray_Dims, NPY_TYPES, NPY_ARRAY_WRITEABLE};
-use ndalgebra::lin_alg_program::LinAlgProgram;
+use crate::py_ocl::Context;
 
 #[pyclass]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -151,7 +150,7 @@ impl PyNum for u8 {
 pub trait DynMatTrait: Display {
     fn len(&self) -> usize;
     fn dtype(&self) -> DTypeEnum;
-    fn lin_alg(&self) -> &LinAlgProgram;
+    fn lin_alg(&self) -> &ndalgebra::lin_alg_program::LinAlgProgram;
     fn dtype_size(&self) -> usize;
     fn untyped_mat(&self) -> &Mat<u8>;
     fn untyped_mat_mut(&mut self) -> &mut Mat<u8>;
@@ -407,7 +406,7 @@ impl<T: PyNum> DynMatTrait for Mat<T> {
         T::to_dtype()
     }
 
-    fn lin_alg(&self) -> &LinAlgProgram {
+    fn lin_alg(&self) -> &ndalgebra::lin_alg_program::LinAlgProgram {
         Mat::lin_alg(self)
     }
 
@@ -643,49 +642,51 @@ impl<T: PyNum> From<Mat<T>> for DynMat {
 
 #[pyfunction]
 #[text_signature = "(shape_tuple, context, dtype/)"]
-pub fn empty(shape: Vec<usize>, context: &NeatContext, dtype: Option<DType>) -> PyResult<DynMat> {
+pub fn empty(shape: Vec<usize>, context: &mut Context, dtype: Option<DType>) -> PyResult<DynMat> {
+    let lin_alg = context.compile_lin_alg_program()?;
     unsafe {
         match dtype.map(|d| d.e).unwrap_or(DTypeEnum::f32) {
-            DTypeEnum::u8 => Mat::<u8>::empty(context.c.lin_alg(), shape.as_slice()).map(DynMat::from),
-            DTypeEnum::u16 => Mat::<u16>::empty(context.c.lin_alg(), shape.as_slice()).map(DynMat::from),
-            DTypeEnum::u32 => Mat::<u32>::empty(context.c.lin_alg(), shape.as_slice()).map(DynMat::from),
-            DTypeEnum::u64 => Mat::<u64>::empty(context.c.lin_alg(), shape.as_slice()).map(DynMat::from),
-            DTypeEnum::i8 => Mat::<i8>::empty(context.c.lin_alg(), shape.as_slice()).map(DynMat::from),
-            DTypeEnum::i16 => Mat::<i16>::empty(context.c.lin_alg(), shape.as_slice()).map(DynMat::from),
-            DTypeEnum::i32 => Mat::<i32>::empty(context.c.lin_alg(), shape.as_slice()).map(DynMat::from),
-            DTypeEnum::i64 => Mat::<i64>::empty(context.c.lin_alg(), shape.as_slice()).map(DynMat::from),
-            DTypeEnum::f32 => Mat::<f32>::empty(context.c.lin_alg(), shape.as_slice()).map(DynMat::from),
+            DTypeEnum::u8 => Mat::<u8>::empty(lin_alg, shape.as_slice()).map(DynMat::from),
+            DTypeEnum::u16 => Mat::<u16>::empty(lin_alg, shape.as_slice()).map(DynMat::from),
+            DTypeEnum::u32 => Mat::<u32>::empty(lin_alg, shape.as_slice()).map(DynMat::from),
+            DTypeEnum::u64 => Mat::<u64>::empty(lin_alg, shape.as_slice()).map(DynMat::from),
+            DTypeEnum::i8 => Mat::<i8>::empty(lin_alg, shape.as_slice()).map(DynMat::from),
+            DTypeEnum::i16 => Mat::<i16>::empty(lin_alg, shape.as_slice()).map(DynMat::from),
+            DTypeEnum::i32 => Mat::<i32>::empty(lin_alg, shape.as_slice()).map(DynMat::from),
+            DTypeEnum::i64 => Mat::<i64>::empty(lin_alg, shape.as_slice()).map(DynMat::from),
+            DTypeEnum::f32 => Mat::<f32>::empty(lin_alg, shape.as_slice()).map(DynMat::from),
         }.map_err(ocl_err_to_py_ex)
     }
 }
 
 #[pyfunction]
 #[text_signature = "(shape_tuple, fill_value, ontext, dtype/)"]
-pub fn full(shape: Vec<usize>, fill_value: &PyAny, context: &NeatContext, dtype: Option<DType>) -> PyResult<DynMat> {
+pub fn full(shape: Vec<usize>, fill_value: &PyAny, context: &mut Context, dtype: Option<DType>) -> PyResult<DynMat> {
+    let lin_alg = context.compile_lin_alg_program()?;
     unsafe {
         match dtype.map(|d| d.e).unwrap_or_else(|| if PyInt::is_type_of(fill_value) { DTypeEnum::i64 } else if PyBool::is_type_of(fill_value) { DTypeEnum::u8 } else { DTypeEnum::f32 }) {
-            DTypeEnum::u8 => Mat::<u8>::full(context.c.lin_alg(), shape.as_slice(), fill_value.extract::<u8>()?).map(DynMat::from),
-            DTypeEnum::u16 => Mat::<u16>::full(context.c.lin_alg(), shape.as_slice(), fill_value.extract::<u16>()?).map(DynMat::from),
-            DTypeEnum::u32 => Mat::<u32>::full(context.c.lin_alg(), shape.as_slice(), fill_value.extract::<u32>()?).map(DynMat::from),
-            DTypeEnum::u64 => Mat::<u64>::full(context.c.lin_alg(), shape.as_slice(), fill_value.extract::<u64>()?).map(DynMat::from),
-            DTypeEnum::i8 => Mat::<i8>::full(context.c.lin_alg(), shape.as_slice(), fill_value.extract::<i8>()?).map(DynMat::from),
-            DTypeEnum::i16 => Mat::<i16>::full(context.c.lin_alg(), shape.as_slice(), fill_value.extract::<i16>()?).map(DynMat::from),
-            DTypeEnum::i32 => Mat::<i32>::full(context.c.lin_alg(), shape.as_slice(), fill_value.extract::<i32>()?).map(DynMat::from),
-            DTypeEnum::i64 => Mat::<i64>::full(context.c.lin_alg(), shape.as_slice(), fill_value.extract::<i64>()?).map(DynMat::from),
-            DTypeEnum::f32 => Mat::<f32>::full(context.c.lin_alg(), shape.as_slice(), fill_value.extract::<f32>()?).map(DynMat::from),
+            DTypeEnum::u8 => Mat::<u8>::full(lin_alg, shape.as_slice(), fill_value.extract::<u8>()?).map(DynMat::from),
+            DTypeEnum::u16 => Mat::<u16>::full(lin_alg, shape.as_slice(), fill_value.extract::<u16>()?).map(DynMat::from),
+            DTypeEnum::u32 => Mat::<u32>::full(lin_alg, shape.as_slice(), fill_value.extract::<u32>()?).map(DynMat::from),
+            DTypeEnum::u64 => Mat::<u64>::full(lin_alg, shape.as_slice(), fill_value.extract::<u64>()?).map(DynMat::from),
+            DTypeEnum::i8 => Mat::<i8>::full(lin_alg, shape.as_slice(), fill_value.extract::<i8>()?).map(DynMat::from),
+            DTypeEnum::i16 => Mat::<i16>::full(lin_alg, shape.as_slice(), fill_value.extract::<i16>()?).map(DynMat::from),
+            DTypeEnum::i32 => Mat::<i32>::full(lin_alg, shape.as_slice(), fill_value.extract::<i32>()?).map(DynMat::from),
+            DTypeEnum::i64 => Mat::<i64>::full(lin_alg, shape.as_slice(), fill_value.extract::<i64>()?).map(DynMat::from),
+            DTypeEnum::f32 => Mat::<f32>::full(lin_alg, shape.as_slice(), fill_value.extract::<f32>()?).map(DynMat::from),
         }.map_err(ocl_err_to_py_ex)
     }
 }
 
 #[pyfunction]
 #[text_signature = "(shape_tuple, context, dtype/)"]
-pub fn zeros(py: Python<'_>, shape: Vec<usize>, context: &NeatContext, dtype: Option<DType>) -> PyResult<DynMat> {
+pub fn zeros(py: Python<'_>, shape: Vec<usize>, context: &mut Context, dtype: Option<DType>) -> PyResult<DynMat> {
     full(shape, PyFloat::new(py, 0.), context, dtype)
 }
 
 #[pyfunction]
 #[text_signature = "(shape_tuple, context, dtype/)"]
-pub fn ones(py: Python<'_>, shape: Vec<usize>, context: &NeatContext, dtype: Option<DType>) -> PyResult<DynMat> {
+pub fn ones(py: Python<'_>, shape: Vec<usize>, context: &mut Context, dtype: Option<DType>) -> PyResult<DynMat> {
     full(shape, PyFloat::new(py, 1.), context, dtype)
 }
 
@@ -760,7 +761,7 @@ pub fn unary_op<'py>(py: Python<'py>, tensor_or_scalar: &'py PyAny, op:fn(f64)->
 
 #[pyfunction]
 #[text_signature = "(numpy_array, context/)"]
-pub fn from_numpy(input: &PyAny, context: &NeatContext) -> Result<DynMat, PyErr> {
+pub fn from_numpy(input: &PyAny, context: &mut Context) -> Result<DynMat, PyErr> {
     let array = unsafe {
         if npyffi::PyArray_Check(input.as_ptr()) == 0 {
             return Err(PyDowncastError::new(input, "PyArray<T, D>").into());
@@ -769,13 +770,13 @@ pub fn from_numpy(input: &PyAny, context: &NeatContext) -> Result<DynMat, PyErr>
     };
     let dtype = array.dtype().get_datatype().ok_or_else(|| PyValueError::new_err("No numpy array has no dtype"))?;
     let shape = array.shape();
-
+    let lin_alg = context.compile_lin_alg_program()?;
     macro_rules! e {
         ($dtype:ident) =>{
             {
                 let array = unsafe{ &*(input as *const PyAny as *const PyArrayDyn<$dtype>) };
                 let arr = unsafe { array.as_slice()? };
-                Mat::<$dtype>::from_slice(context.c.lin_alg(),arr,shape).map(DynMat::from).map_err(ocl_err_to_py_ex)
+                Mat::<$dtype>::from_slice(lin_alg,arr,shape).map(DynMat::from).map_err(ocl_err_to_py_ex)
             }
         };
     }
@@ -799,12 +800,14 @@ pub fn from_numpy(input: &PyAny, context: &NeatContext) -> Result<DynMat, PyErr>
 
 #[pyfunction]
 #[text_signature = "(list, context, dtype/)"]
-pub fn array(array: &PyAny, context: &NeatContext, dtype: Option<DType>) -> PyResult<DynMat> {
-    list_to_tensor(array, context.c.lin_alg(), dtype)
+pub fn array(array: &PyAny, context: &mut Context, dtype: Option<DType>) -> PyResult<DynMat> {
+    let lin_alg = context.compile_lin_alg_program()?;
+    list_to_tensor(array, lin_alg, dtype)
 }
 
-pub fn list_to_tensor(array: &PyAny, context: &LinAlgProgram, dtype: Option<DType>) -> PyResult<DynMat> {
+pub fn list_to_tensor(array: &PyAny, lin_alg: &ndalgebra::lin_alg_program::LinAlgProgram, dtype: Option<DType>) -> PyResult<DynMat> {
     let mut dims = vec![];
+
     fn find_shape<'a>(elem: &'a PyAny, dims: &mut Vec<usize>) -> Option<&'a PyAny> {
         if let Ok(array) = elem.cast_as::<PyList>() {
             dims.push(array.len());
@@ -945,7 +948,7 @@ pub fn list_to_tensor(array: &PyAny, context: &LinAlgProgram, dtype: Option<DTyp
             {
                 let mut elements = vec![];
                 recursive_cast::<$dtype>(array,dtype, &dims,&mut elements)?;
-                Mat::<$dtype>::from_slice_boxed(context,elements.as_slice(), dims.into_boxed_slice()).map(DynMat::from)
+                Mat::<$dtype>::from_slice_boxed(lin_alg,elements.as_slice(), dims.into_boxed_slice()).map(DynMat::from)
             }
         };
     }

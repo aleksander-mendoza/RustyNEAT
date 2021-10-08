@@ -14,10 +14,6 @@ pub mod activations;
 pub mod num;
 pub mod util;
 pub mod cppn;
-pub mod envs;
 pub mod gpu;
-pub mod context;
-pub use ocl::Device;
-pub use ocl::Platform;
 extern crate ocl;
 

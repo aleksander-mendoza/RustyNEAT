@@ -5,9 +5,9 @@ from matplotlib import pyplot as plt
 
 # Here are some settings for testing
 # (This tutorial is also a test script at the same time)
-VISUALISE_PICBREEDER_2D = True
-VISUALISE_PICBREEDER_2D_PLUS_BIAS_AND_CENTER_DIST = True
-USE_PYTORCH = True
+VISUALISE_PICBREEDER_2D = False
+VISUALISE_PICBREEDER_2D_PLUS_BIAS_AND_CENTER_DIST = False
+USE_PYTORCH = False
 
 if USE_PYTORCH:
     import torch
@@ -31,7 +31,7 @@ neat1 = rusty_neat.Neat32(input_neurons, output_neurons,
                           ["sigmoid", "relu", "sin", "cos", "tan", "tanh", "abs", "identity"])
 
 # You can later lookup functions used by NEAT
-assert neat1.get_activation_functions() == ["sigmoid", "relu", "sin", "cos", "tan", "tanh", "abs", "identity"];
+assert neat1.get_activation_functions() == ["sigmoid", "relu", "sin", "cos", "tan", "tanh", "abs", "identity"]
 
 # By default all activation functions are allowed
 assert neat.get_activation_functions() == rusty_neat.activation_functions()
@@ -272,8 +272,8 @@ assert len(platform_list) > 0, "No OpenCL available!"
 # Then you can use it to instantiate OpenCL context.
 context = rusty_neat.make_new_context(platform, device)
 # You can later query this information using
-assert context.platform() == platform
-assert context.device() == device
+print(context.platform())
+print(context.device())
 
 # You can even get additional details with
 print(context.platform_info())
@@ -281,14 +281,10 @@ print(context.device_info())
 
 # Alternatively you can create a default context by omitting one or both parameters
 context = rusty_neat.make_new_context()
-assert context.platform() == platform
-assert context.device() == device
 
 # You may also want to get the default context for a specific type of device
 # like CPU
 context = rusty_neat.make_cpu_context()
-assert context.platform() == platform
-assert context.device() == device
 # or the default GPU
 context = rusty_neat.make_gpu_context()  # could fail if you don't have GPU
 

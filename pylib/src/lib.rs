@@ -4,7 +4,7 @@ mod slice_box;
 mod py_ndalgebra;
 mod py_rustyneat;
 mod py_ocl;
-mod py_envs;
+mod py_htm;
 
 use pyo3::prelude::*;
 use pyo3::{wrap_pyfunction, wrap_pymodule, PyObjectProtocol};
@@ -22,11 +22,8 @@ use pyo3::basic::CompareOp;
 use numpy::{PyReadonlyArrayDyn, PyArrayDyn, IntoPyArray, PyArray, PY_ARRAY_API, npyffi, Element,ToNpyDims};
 use numpy::npyffi::{NPY_ORDER, npy_intp, NPY_ARRAY_WRITEABLE};
 use std::os::raw::c_int;
-use rusty_neat_core::envs::evol::{AGENT_ATTRIBUTES, LIDAR_ATTRIBUTES};
 use crate::py_rustyneat::{CPPN32, Neat32, FeedForwardNet32, FeedForwardNetSubstrate32, FeedForwardNetOpenCL32, FeedForwardNetPicbreeder32};
-use crate::py_envs::Evol;
 use ndalgebra::mat::MatError;
-
 
 
 #[pymodule]
@@ -81,8 +78,13 @@ pub fn ndalgebra(py: Python, m: &PyModule) -> PyResult<()> {
 }
 
 #[pymodule]
-pub fn envs(py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_class::<Evol>()?;
+pub fn htm(py: Python, m: &PyModule) -> PyResult<()> {
+    use py_htm::*;
+    m.add_class::<CpuHTM>()?;
+    m.add_class::<CpuHTM2>()?;
+    m.add_class::<OclSDR>()?;
+    m.add_class::<OclHTM>()?;
+    m.add_class::<OclHTM2>()?;
     Ok(())
 }
 
@@ -97,9 +99,10 @@ fn rusty_neat(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(make_new_context, m)?)?;
     m.add_function(wrap_pyfunction!(make_gpu_context, m)?)?;
     m.add_function(wrap_pyfunction!(make_cpu_context, m)?)?;
-    m.add_wrapped(wrap_pymodule!(envs))?;
     m.add_wrapped(wrap_pymodule!(ndalgebra))?;
-    m.add_class::<py_ocl::NeatContext>()?;
+    m.add_wrapped(wrap_pymodule!(htm))?;
+    m.add_class::<py_ocl::Context>()?;
+    m.add_class::<CPPN32>()?;
     m.add_class::<CPPN32>()?;
     m.add_class::<Neat32>()?;
     m.add_class::<FeedForwardNet32>()?;

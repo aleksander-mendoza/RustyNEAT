@@ -3,6 +3,7 @@ typedef struct _HtmFeedforwardConnection2{
     float permanence;
     uint input_id;
 } HtmFeedforwardConnection2;
+
 typedef struct _HtmMinicolumn2{
     uint connection_offset;
     uint connection_len;

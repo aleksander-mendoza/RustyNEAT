@@ -4,9 +4,9 @@ use crate::gpu::PREAMBLE;
 use std::fmt::Write;
 use ndalgebra::mat::{Mat, MatError};
 use ndalgebra::lin_alg_program::LinAlgProgram;
-use crate::context::NeatContext;
 use ndalgebra::buffer::Buffer;
 use ndalgebra::kernel_builder::KernelBuilder;
+use ndalgebra::context::Context;
 
 pub struct FeedForwardNetPicbreeder {
     in_dimensions: usize,
@@ -16,19 +16,18 @@ pub struct FeedForwardNetPicbreeder {
 }
 
 impl FeedForwardNetPicbreeder {
-    pub fn new(context:&NeatContext, net: &FeedForwardNet<f32>, with_distance_from_center: Option<&[f32]>, with_bias: bool) -> Result<Self, Error> {
+    pub fn new(ling_alg:&LinAlgProgram  , net: &FeedForwardNet<f32>, with_distance_from_center: Option<&[f32]>, with_bias: bool) -> Result<Self, Error> {
         let mut src = String::from(PREAMBLE);
         write!(src, "{}", net.picbreeder_view(with_distance_from_center, with_bias).map_err(Error::from)?);
         let program = Program::builder()
-            .devices(context.device().clone())
             .src(src)
-            .build(context.lin_alg().pro_que.context())?;
+            .build(ling_alg.context())?;
         let spacial_dimensions = net.get_input_size() - if with_distance_from_center.is_some() { 1 } else { 0 } - if with_bias { 1 } else { 0 };
         Ok(FeedForwardNetPicbreeder {
             in_dimensions: spacial_dimensions,
             out_dimensions: net.get_output_size(),
             program,
-            lin_alg:context.lin_alg().clone()
+            lin_alg:ling_alg.clone()
         })
     }
     pub fn get_input_size(&self) -> usize {
@@ -38,7 +37,7 @@ impl FeedForwardNetPicbreeder {
         &self.lin_alg
     }
     pub fn queue(&self) -> &Queue {
-        self.lin_alg.pro_que.queue()
+        self.lin_alg.queue()
     }
     pub fn get_output_size(&self) -> usize {
         self.out_dimensions

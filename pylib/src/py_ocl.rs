@@ -3,54 +3,96 @@ use pyo3::{wrap_pyfunction, wrap_pymodule, PyObjectProtocol};
 use pyo3::PyResult;
 use pyo3::basic::CompareOp;
 use pyo3::types::PyString;
-use rusty_neat_core::context::NeatContext as NC;
 use crate::ocl_err_to_py_ex;
 use std::any::Any;
-use rusty_neat_core::{Platform, Device};
+use ndalgebra::{Platform, Device};
+use ndalgebra::context::Context as C;
+use htm::htm_program::HtmProgram;
+use htm::htm_program2::HtmProgram2;
+use ndalgebra::lin_alg_program::LinAlgProgram;
 
 #[pyclass]
-pub struct NeatContext {
-    pub(crate) c: rusty_neat_core::context::NeatContext,
+pub struct Context {
+    pub(crate) c: C,
+    pub(crate) htm: Option<htm::htm_program::HtmProgram>,
+    pub(crate) htm2: Option<htm::htm_program2::HtmProgram2>,
+    pub(crate) lin_alg: Option<ndalgebra::lin_alg_program::LinAlgProgram>,
 }
 
-fn platform_to_str(p:Platform)->String{
-    p.version().unwrap_or_else(|e|e.to_string())
+impl Context{
+    pub fn new(c:C)->Self{
+        Self{
+            c,
+            htm: None,
+            htm2: None,
+            lin_alg: None
+        }
+    }
+    pub fn compile_htm_program(&mut self) -> PyResult<&HtmProgram> {
+        if self.htm.is_none(){
+            let htm = htm::htm_program::HtmProgram::new(self.c.clone()).map_err(ocl_err_to_py_ex)?;
+            self.htm.insert(htm);
+        }
+        Ok(self.htm.as_ref().unwrap())
+    }
+    pub fn compile_htm_program2(&mut self) -> PyResult<&HtmProgram2> {
+        if self.htm2.is_none(){
+            let htm2 = htm::htm_program2::HtmProgram2::new(self.c.clone()).map_err(ocl_err_to_py_ex)?;
+            self.htm2.insert(htm2);
+        }
+        Ok(self.htm2.as_ref().unwrap())
+    }
+    pub fn compile_lin_alg_program(&mut self) -> PyResult<&LinAlgProgram> {
+        if self.lin_alg.is_none(){
+            let alg = ndalgebra::lin_alg_program::LinAlgProgram::new(self.c.clone()).map_err(ocl_err_to_py_ex)?;
+            self.lin_alg.insert(alg);
+        }
+        Ok(self.lin_alg.as_ref().unwrap())
+    }
 }
 
-fn device_to_str(p:Device)->String{
-    p.name().unwrap_or_else(|e|e.to_string())
+fn platform_to_str(p: Platform) -> String {
+    p.version().unwrap_or_else(|e| e.to_string())
+}
+
+fn device_to_str(p: Device) -> String {
+    p.name().unwrap_or_else(|e| e.to_string())
 }
 
 #[pyfunction]
-pub fn devices() -> Vec<(String,String)> {
-    rusty_neat_core::context::NeatContext::opencl_platforms().into_iter().flat_map(|p| rusty_neat_core::context::NeatContext::device_list(p).into_iter().map(move |d|(platform_to_str(p),device_to_str(d)))).collect()
+pub fn devices() -> Vec<(String, String)> {
+    C::opencl_platforms().into_iter().flat_map(|p| C::device_list(&p).into_iter().map(move |d| (platform_to_str(p), device_to_str(d)))).collect()
 }
 
 #[pyfunction]
 #[text_signature = "(platform, device, /)"]
-pub fn make_new_context(platform:Option<String>, device:Option<String>) -> PyResult<NeatContext> {
-    let platform = platform.and_then(|platform| NC::opencl_platforms().into_iter().find(|p|p.version().contains(&platform))).unwrap_or_else(||NC::opencl_default_platform());
-    let device = device.and_then(|device| NC::device_list(platform).into_iter().find(|d|d.name().contains(&device)));
-    let device = if let Some(device) = device{
+pub fn make_new_context(platform: Option<String>, device: Option<String>) -> PyResult<Context> {
+    let platform = platform.and_then(|platform| C::opencl_platforms().into_iter().find(|p| p.version().contains(&platform))).unwrap_or_else(|| C::opencl_default_platform());
+    let device = device.and_then(|device| C::device_list(&platform).into_iter().find(|d| d.name().contains(&device)));
+    let device = if let Some(device) = device {
         device
-    }else{
-        NC::opencl_default_device(platform).map_err(ocl_err_to_py_ex)?
+    } else {
+        C::opencl_default_device(platform).map_err(ocl_err_to_py_ex)?
     };
-    NC::new(platform,device).map(|c|NeatContext { c }).map_err(ocl_err_to_py_ex)
-}
-#[pyfunction]
-#[text_signature = "( /)"]
-pub fn make_gpu_context() -> PyResult<NeatContext> {
-    NC::gpu().map(|c|NeatContext { c }).map_err(ocl_err_to_py_ex)
-}
-#[pyfunction]
-#[text_signature = "( /)"]
-pub fn make_cpu_context() -> PyResult<NeatContext> {
-    NC::gpu().map(|c|NeatContext { c }).map_err(ocl_err_to_py_ex)
+    C::new(platform, device).map( Context::new).map_err(ocl_err_to_py_ex)
 }
 
+#[pyfunction]
+#[text_signature = "( /)"]
+pub fn make_gpu_context() -> PyResult<Context> {
+    C::gpu().map(Context::new).map_err(ocl_err_to_py_ex)
+}
+
+#[pyfunction]
+#[text_signature = "( /)"]
+pub fn make_cpu_context() -> PyResult<Context> {
+    C::gpu().map(Context::new).map_err(ocl_err_to_py_ex)
+}
+
+
 #[pymethods]
-impl NeatContext {
+impl Context {
+
     #[text_signature = "( /)"]
     fn device_info(&self) -> String {
         self.c.device().to_string()
@@ -61,30 +103,31 @@ impl NeatContext {
     }
     #[text_signature = "( /)"]
     fn platform(&self) -> PyResult<String> {
-        self.c.platform().version().map_err(ocl_err_to_py_ex)
+        self.c.platform_version().map(|v| v.to_string()).map_err(ocl_err_to_py_ex)
     }
     #[text_signature = "( /)"]
-    fn platform_info(&self) -> String {
-        self.c.platform().to_string()
+    fn platform_info(&self) -> PyResult<Option<String>> {
+        self.c.platform().map(|v| v.map(|v| v.to_string())).map_err(ocl_err_to_py_ex)
     }
 
 }
 
 
 #[pyproto]
-impl PyObjectProtocol for NeatContext {
-    fn __richcmp__(&self, other: PyRef<NeatContext>, op: CompareOp) -> PyResult<bool> {
-        let eq = self.c.device() == other.c.device() && self.c.platform().as_core()==other.c.platform().as_core();
-        match op {
-            CompareOp::Eq => Ok(eq),
-            CompareOp::Ne => Ok(!eq),
-            op => Err(ocl_err_to_py_ex("Cannot compare platforms"))
-        }
-    }
+impl PyObjectProtocol for Context {
+    // fn __richcmp__(&self, other: PyRef<Context>, op: CompareOp) -> PyResult<bool> {
+    //     let eq = self.c.device() == other.c.device() && self.c.platform().as_core() == other.c.platform().as_core();
+    //     match op {
+    //         CompareOp::Eq => Ok(eq),
+    //         CompareOp::Ne => Ok(!eq),
+    //         op => Err(ocl_err_to_py_ex("Cannot compare platforms"))
+    //     }
+    // }
     fn __str__(&self) -> PyResult<String> {
-        Ok(format!("NeatContext(platform='{}', device='{}')", self.c.platform(), self.c.device()))
+        Ok(format!("Context(platform='{}', device='{}')", self.c.platform().map_err(ocl_err_to_py_ex)?.map(|v|v.to_string()).unwrap_or(String::from("None")), self.c.device()))
     }
     fn __repr__(&self) -> PyResult<String> {
         self.__str__()
     }
 }
+

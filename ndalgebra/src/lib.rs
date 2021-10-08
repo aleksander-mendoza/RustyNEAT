@@ -14,6 +14,8 @@ pub mod lin_alg_program;
 pub mod buffer;
 pub mod kernel_builder;
 pub mod context;
+pub use ocl::Device;
+pub use ocl::Platform;
 
 #[cfg(test)]
 mod tests {

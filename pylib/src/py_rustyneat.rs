@@ -15,10 +15,9 @@ use pyo3::basic::CompareOp;
 use numpy::{PyReadonlyArrayDyn, PyArrayDyn, IntoPyArray, PyArray, PY_ARRAY_API, npyffi, Element, ToNpyDims};
 use numpy::npyffi::{NPY_ORDER, npy_intp, NPY_ARRAY_WRITEABLE};
 use std::os::raw::c_int;
-use rusty_neat_core::envs::evol::{AGENT_ATTRIBUTES, LIDAR_ATTRIBUTES};
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
-use crate::py_ocl::NeatContext;
+use crate::py_ocl::Context;
 
 
 #[pyfunction]
@@ -366,17 +365,20 @@ impl FeedForwardNet32 {
     // }
 
     #[text_signature = "(neat_context, /)"]
-    fn to(&self, context: &NeatContext) -> PyResult<FeedForwardNetOpenCL32> {
-        let n = self.net.to(&context.c).map_err(ocl_err_to_py_ex)?;
+    fn to(&self, context: &mut Context) -> PyResult<FeedForwardNetOpenCL32> {
+        let lin_alg = context.compile_lin_alg_program()?;
+        let n = self.net.to(lin_alg).map_err(ocl_err_to_py_ex)?;
         Ok(FeedForwardNetOpenCL32 { net: n })
     }
     #[text_signature = "(platform, device, /)"]
-    fn to_picbreeder(&self, center: Option<Vec<f32>>, bias: Option<bool>, context: &NeatContext) -> PyResult<FeedForwardNetPicbreeder32> {
-        Ok(FeedForwardNetPicbreeder32 { net: self.net.to_picbreeder( center.as_ref(), bias.unwrap_or(false), &context.c).map_err(ocl_err_to_py_ex)? })
+    fn to_picbreeder(&self, center: Option<Vec<f32>>, bias: Option<bool>, context: &mut Context) -> PyResult<FeedForwardNetPicbreeder32> {
+        let lin_alg = context.compile_lin_alg_program()?;
+        Ok(FeedForwardNetPicbreeder32 { net: self.net.to_picbreeder( center.as_ref(), bias.unwrap_or(false), lin_alg).map_err(ocl_err_to_py_ex)? })
     }
     #[text_signature = "(input_dimensions, output_dimensions, platform, device, /)"]
-    fn to_substrate(&self, input_dimensions: usize, output_dimensions: Option<usize>, context:&NeatContext) -> PyResult<FeedForwardNetSubstrate32> {
-        Ok(FeedForwardNetSubstrate32 { net: self.net.to_substrate(input_dimensions, output_dimensions, &context.c).map_err(ocl_err_to_py_ex)? })
+    fn to_substrate(&self, input_dimensions: usize, output_dimensions: Option<usize>, context: &mut Context) -> PyResult<FeedForwardNetSubstrate32> {
+        let lin_alg = context.compile_lin_alg_program()?;
+        Ok(FeedForwardNetSubstrate32 { net: self.net.to_substrate(input_dimensions, output_dimensions, lin_alg).map_err(ocl_err_to_py_ex)? })
     }
     #[getter]
     fn get_input_size(&self) -> usize {
@@ -416,7 +418,7 @@ impl FeedForwardNetPicbreeder32 {
     }
     #[getter]
     fn get_device(&self) -> String {
-        self.net.lin_alg().pro_que.device().to_string()
+        self.net.lin_alg().device().to_string()
     }
     #[call]
     // #[text_signature = "(pixel_count_per_dimension, pixel_size_per_dimension, location_offset_per_dimension,/)"]
@@ -443,7 +445,7 @@ impl FeedForwardNetOpenCL32 {
     }
     #[getter]
     fn get_device(&self) -> String {
-        self.net.lin_alg().pro_que.device().to_string()
+        self.net.lin_alg().device().to_string()
     }
     #[getter]
     fn get_output_size(&self) -> usize {
@@ -464,7 +466,7 @@ impl FeedForwardNetSubstrate32 {
     }
     #[getter]
     fn get_device(&self) -> String {
-        self.net.lin_alg().pro_que.device().to_string()
+        self.net.lin_alg().device().to_string()
     }
     #[getter]
     fn get_output_size(&self) -> usize {

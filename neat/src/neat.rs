@@ -196,8 +196,9 @@ mod tests {
     use crate::gpu::{FeedForwardNetOpenCL, FeedForwardNetPicbreeder};
     use rand::random;
     use ocl::core::default_platform;
-    use crate::context::NeatContext;
     use ndalgebra::mat::{Mat, MatError};
+    use ndalgebra::context::Context;
+    use ndalgebra::lin_alg_program::LinAlgProgram;
 
     #[test]
     fn cppn_1() {
@@ -234,9 +235,9 @@ mod tests {
         let input = [4f32, 5.0, 5.0];
         net.run(&input, &mut out);
         println!("{}", net);
-        let p = NeatContext::default()?;
+        let p = LinAlgProgram::default()?;
         let gpu = FeedForwardNetOpenCL::new(&p,&net)?;
-        let i = Mat::from_slice_infer_wildcard(p.lin_alg(),&input,&[1, -1])?;
+        let i = Mat::from_slice_infer_wildcard(&p,&input,&[1, -1])?;
         let out3 = gpu.run(&i)?;
         assert_eq!(out, out3.to_vec()?.as_slice());
 
@@ -254,8 +255,8 @@ mod tests {
         net.run(&input[3..6], &mut out[4..8]);
 
         println!("{}", net);
-        let p = NeatContext::default()?;
-        let input = Mat::array1(p.lin_alg(),input)?.reshape2(2,3)?;
+        let p = LinAlgProgram::default()?;
+        let input = Mat::array1(&p,input)?.reshape2(2,3)?;
         let gpu = FeedForwardNetOpenCL::new(&p, &net)?;
         let out3 = gpu.run(&input)?;
         assert_eq!(out, out3.to_vec()?.as_slice());
@@ -279,7 +280,7 @@ mod tests {
         net.run(&[1f32, 1.0], &mut out[3..4]);
         println!("{}", net);
         println!("{}", net.picbreeder_view(None, false).unwrap());
-        let p = NeatContext::default()?;
+        let p = LinAlgProgram::default()?;
         let gpu = FeedForwardNetPicbreeder::new(&p, &net, None, false)?;
         let out2 = gpu.run(&dimensions, &pixel_sizes, &pixel_offsets)?;
         assert_eq!(out2.shape(), &[2,2,1]);
@@ -306,7 +307,7 @@ mod tests {
         net.run(&[1f32 * pixel_sizes[0] + pixel_offsets[0], 1.0 * pixel_sizes[1] + pixel_offsets[1], 1. * pixel_sizes[2] + pixel_offsets[2]], &mut out[14..16]);
         println!("{}", net);
         println!("{}", net.picbreeder_view(None,false).unwrap());
-        let p = NeatContext::default()?;
+        let p = LinAlgProgram::default()?;
         let gpu = FeedForwardNetPicbreeder::new(&p, &net, None, false)?;
         let out2 = gpu.run(&dimensions, &pixel_sizes, &pixel_offsets)?;
         assert_eq!(out2.shape(), &[2,2,2,2]);
@@ -340,14 +341,14 @@ mod tests {
             neat.mutate(&mut cppn, 0.1, 0.2, 0.1, 0.1, 0.1, 0.01);
         }
         let net = cppn.build_feed_forward_net();
-        let p = NeatContext::default()?;
+        let p = LinAlgProgram::default()?;
         println!("{}",net.substrate_view(2,2).unwrap());
         let gpu_net = net.to_substrate(2,Some(2),&p)?;
         let in_neurons = [1f32,2.,3.,4.,5.,6.];
         let out_neurons = [0.1f32,0.2,0.3,0.4,0.5,0.6];
         let ann = gpu_net.run(
-            &Mat::from_slice(p.lin_alg(),&in_neurons,&[3,2])?,
-            &Mat::from_slice(p.lin_alg(),&out_neurons,&[3,2])?)?;
+            &Mat::from_slice(&p,&in_neurons,&[3,2])?,
+            &Mat::from_slice(&p,&out_neurons,&[3,2])?)?;
         let mut ann2 = [0f32;3*3];
         for (row, i) in in_neurons.chunks(2).enumerate(){
             for (col, o) in out_neurons.chunks(2).enumerate(){

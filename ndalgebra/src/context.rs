@@ -1,5 +1,5 @@
 use ocl::{Platform, Error, Device, DeviceType, SpatialDims, MemFlags, Queue, OclPrm};
-use ocl::core::{DeviceInfoResult, DeviceInfo, ArgVal};
+use ocl::core::{DeviceInfoResult, DeviceInfo, ArgVal, ClVersions, OpenclVersion};
 use crate::buffer::Buffer;
 use crate::num::Num;
 use crate::kernel_builder::KernelBuilder;
@@ -11,6 +11,18 @@ pub struct Context {
 }
 
 impl Context {
+
+    pub fn opencl_platforms() -> Vec<Platform> {
+        Platform::list()
+    }
+
+    pub fn opencl_default_platform() -> Platform {
+        Platform::default()
+    }
+    pub fn opencl_default_device(platform:Platform) -> Result<Device,Error> {
+        Device::first(platform)
+    }
+
     pub fn device_list(platform: &Platform) -> Vec<Device> {
         Device::list_all(platform).unwrap_or_else(|_| vec![])
     }
@@ -21,6 +33,10 @@ impl Context {
             Ok(DeviceInfoResult::Type(d_type)) => d_type==dev_type,
             _ => false
         }))
+    }
+    pub fn default() -> Result<Self, Error> {
+        let p = Platform::default();
+        Self::opencl_default_device(p).and_then(|d| Self::new(p, d))
     }
     pub fn gpu() -> Result<Self, Error> {
         let p = Platform::default();
@@ -48,6 +64,16 @@ impl Context {
     pub fn queue(&self) -> &Queue{
         &self.q
     }
+    pub fn device(&self) -> Device{
+        self.q.device()
+    }
+    pub fn platform(&self) -> ocl::Result<Option<Platform>> {
+        self.context().platform()
+    }
+    pub fn platform_version(&self) -> ocl::core::Result<OpenclVersion> {
+        self.context().platform_version()
+    }
+
     pub fn context(&self) -> &ocl::Context{
         &self.ctx
     }

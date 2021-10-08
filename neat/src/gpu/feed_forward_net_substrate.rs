@@ -4,8 +4,8 @@ use crate::gpu::PREAMBLE;
 use std::fmt::Write;
 use ndalgebra::lin_alg_program::LinAlgProgram;
 use ndalgebra::mat::{Mat, MatError, AsShape};
-use crate::context::NeatContext;
 use ndalgebra::kernel_builder::KernelBuilder;
+use ndalgebra::context::Context;
 
 pub struct FeedForwardNetSubstrate {
     in_dimensions: usize,
@@ -16,20 +16,19 @@ pub struct FeedForwardNetSubstrate {
 }
 
 impl FeedForwardNetSubstrate {
-    pub fn new(context:&NeatContext, net: &FeedForwardNet<f32>, input_dimensions: usize, output_dimensions: usize) -> Result<Self, Error> {
+    pub fn new(lin_alg:&LinAlgProgram, net: &FeedForwardNet<f32>, input_dimensions: usize, output_dimensions: usize) -> Result<Self, Error> {
         let mut src = String::from(PREAMBLE);
         write!(src, "{}", net.substrate_view(input_dimensions, output_dimensions).map_err(Error::from)?);
         let program = Program::builder()
-            .devices(context.device().clone())
             .src(src)
-            .build(context.lin_alg().pro_que.context())?;
+            .build(lin_alg.context())?;
 
         Ok(FeedForwardNetSubstrate {
             in_dimensions: input_dimensions,
             out_dimensions: output_dimensions,
             weight_dimensions: net.get_output_size(),
             program,
-            lin_alg:context.lin_alg().clone()
+            lin_alg:lin_alg.clone()
         })
     }
     pub fn get_input_size(&self) -> usize {
@@ -39,7 +38,7 @@ impl FeedForwardNetSubstrate {
         &self.lin_alg
     }
     pub fn queue(&self) -> &Queue {
-        &self.lin_alg.pro_que.queue()
+        &self.lin_alg.queue()
     }
     pub fn get_output_size(&self) -> usize {
         self.out_dimensions
