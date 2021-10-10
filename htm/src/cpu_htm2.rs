@@ -15,10 +15,10 @@ pub struct CpuHTM2 {
     feedforward_connections: Vec<HtmFeedforwardConnection2>,
     inputs: Vec<u32>,
     minicolumns: Vec<HtmMinicolumn2>,
-    permanence_threshold: f32,
-    n: u32,
-    permanence_decrement_increment: [f32; 2],
-    max_overlap: u32,
+    pub permanence_threshold: f32,
+    pub n: u32,
+    pub permanence_decrement_increment: [f32; 2],
+    pub max_overlap: u32,
 }
 
 impl From<&CpuHTM> for CpuHTM2{

@@ -7,15 +7,15 @@ use crate::ocl_err_to_py_ex;
 use std::any::Any;
 use ndalgebra::{Platform, Device};
 use ndalgebra::context::Context as C;
-use htm::htm_program::HtmProgram;
-use htm::htm_program2::HtmProgram2;
+use htm::HtmProgram;
+use htm::HtmProgram2;
 use ndalgebra::lin_alg_program::LinAlgProgram;
 
 #[pyclass]
 pub struct Context {
     pub(crate) c: C,
-    pub(crate) htm: Option<htm::htm_program::HtmProgram>,
-    pub(crate) htm2: Option<htm::htm_program2::HtmProgram2>,
+    pub(crate) htm: Option<htm::HtmProgram>,
+    pub(crate) htm2: Option<htm::HtmProgram2>,
     pub(crate) lin_alg: Option<ndalgebra::lin_alg_program::LinAlgProgram>,
 }
 
@@ -30,14 +30,14 @@ impl Context{
     }
     pub fn compile_htm_program(&mut self) -> PyResult<&HtmProgram> {
         if self.htm.is_none(){
-            let htm = htm::htm_program::HtmProgram::new(self.c.clone()).map_err(ocl_err_to_py_ex)?;
+            let htm = htm::HtmProgram::new(self.c.clone()).map_err(ocl_err_to_py_ex)?;
             self.htm.insert(htm);
         }
         Ok(self.htm.as_ref().unwrap())
     }
     pub fn compile_htm_program2(&mut self) -> PyResult<&HtmProgram2> {
         if self.htm2.is_none(){
-            let htm2 = htm::htm_program2::HtmProgram2::new(self.c.clone()).map_err(ocl_err_to_py_ex)?;
+            let htm2 = htm::HtmProgram2::new(self.c.clone()).map_err(ocl_err_to_py_ex)?;
             self.htm2.insert(htm2);
         }
         Ok(self.htm2.as_ref().unwrap())

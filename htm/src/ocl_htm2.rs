@@ -17,14 +17,14 @@ pub struct OclHTM2 {
     feedforward_connections: Buffer<HtmFeedforwardConnection2>,
     inputs: Buffer<u32>,
     minicolumns: Buffer<HtmMinicolumn2>,
-    permanence_threshold: f32,
-    n: u32,
-    permanence_decrement_increment: [f32; 2],
-    max_overlap: u32,
+    pub permanence_threshold: f32,
+    pub n: u32,
+    pub permanence_decrement_increment: [f32; 2],
+    pub max_overlap: u32,
 }
 
 impl OclHTM2{
-    pub fn new(ch:CpuHTM2, prog:HtmProgram2)->Result<Self,Error>{
+    pub fn new(ch:&CpuHTM2, prog:HtmProgram2)->Result<Self,Error>{
         let feedforward_connections = prog.buffer_from_slice(MemFlags::READ_WRITE, ch.feedforward_connections_as_slice())?;
         let inputs = prog.buffer_from_slice(MemFlags::READ_WRITE, ch.inputs_as_slice())?;
         assert_eq!(ch.inputs_as_slice(),inputs.to_vec(prog.queue())?.as_slice());

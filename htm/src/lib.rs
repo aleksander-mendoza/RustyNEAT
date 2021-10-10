@@ -1,14 +1,24 @@
-pub mod ocl_sdr;
-pub mod ocl_htm;
-pub mod htm_program;
-pub mod cpu_htm;
-pub mod htm;
-pub mod cpu_sdr;
-pub mod cpu_htm2;
-pub mod htm2;
-pub mod ocl_htm2;
-pub mod htm_program2;
+mod ocl_sdr;
+mod ocl_htm;
+mod htm_program;
+mod cpu_htm;
+mod htm;
+mod cpu_sdr;
+mod cpu_htm2;
+mod htm2;
+mod ocl_htm2;
+mod htm_program2;
 
+pub use ocl_sdr::OclSDR;
+pub use ocl_htm::OclHTM;
+pub use htm_program::HtmProgram;
+pub use cpu_htm::CpuHTM;
+pub use htm::*;
+pub use cpu_sdr::CpuSDR;
+pub use cpu_htm2::CpuHTM2;
+pub use htm2::*;
+pub use ocl_htm2::OclHTM2;
+pub use htm_program2::HtmProgram2;
 
 #[cfg(test)]
 mod tests {
