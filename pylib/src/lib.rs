@@ -82,6 +82,17 @@ pub fn htm(py: Python, m: &PyModule) -> PyResult<()> {
     use py_htm::*;
     m.add_class::<CpuHTM>()?;
     m.add_class::<CpuHTM2>()?;
+    m.add_class::<CpuSDR>()?;
+    m.add_class::<EncoderBuilder>()?;
+    m.add_class::<IntegerEncoder>()?;
+    m.add_class::<FloatEncoder>()?;
+    m.add_class::<DayOfYearEncoder>()?;
+    m.add_class::<DayOfWeekEncoder>()?;
+    m.add_class::<DayOfMonthEncoder>()?;
+    m.add_class::<BoolEncoder>()?;
+    m.add_class::<TimeOfDayEncoder>()?;
+    m.add_class::<IsWeekendEncoder>()?;
+    m.add_class::<CircularIntegerEncoder>()?;
     m.add_class::<OclSDR>()?;
     m.add_class::<OclHTM>()?;
     m.add_class::<OclHTM2>()?;

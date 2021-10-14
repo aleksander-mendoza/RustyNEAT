@@ -6,7 +6,7 @@ use ocl::core::{MemInfo, MemInfoResult, BufferRegion, Mem, ArgVal};
 use ndalgebra::buffer::Buffer;
 use crate::htm_program::HtmProgram;
 use ndalgebra::context::Context;
-use crate::cpu_sdr::CpuSDR;
+use crate::CpuSDR;
 
 #[derive(Clone)]
 pub struct OclSDR {
@@ -30,6 +30,9 @@ impl OclSDR {
         self.buffer.read(self.queue(), 0, v.as_mut_slice())?;
         Ok(v)
     }
+    pub fn to_cpu(&self)->Result<CpuSDR,Error>{
+        self.get().map(CpuSDR::from)
+    }
     pub fn number_of_active_neurons(&self)->usize{
         self.number_of_active_neurons
     }
@@ -39,7 +42,7 @@ impl OclSDR {
         self.buffer.len()
     }
     pub fn from_sdr(context:Context,sdr:&CpuSDR, max_active_neurons:usize) -> Result<Self,Error>{
-        Self::from_slice(context,sdr.as_slice(),max_active_neurons)
+        Self::from_slice(context,sdr,max_active_neurons)
     }
     pub fn from_slice(context:Context,sdr:&[u32],max_active_neurons:usize) -> Result<Self,Error>{
         let mut ocl_sdr = Self::new(context,max_active_neurons)?;

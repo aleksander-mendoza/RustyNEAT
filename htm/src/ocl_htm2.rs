@@ -6,10 +6,9 @@ use ocl::core::{MemInfo, MemInfoResult, BufferRegion, Mem, ArgVal};
 use crate::ocl_sdr::OclSDR;
 use crate::htm_program::HtmProgram;
 use ndalgebra::buffer::Buffer;
-use crate::cpu_htm::CpuHTM;
 use crate::htm2::*;
 use crate::htm_program2::HtmProgram2;
-use crate::cpu_htm2::CpuHTM2;
+use crate::CpuHTM2;
 
 #[derive(Clone)]
 pub struct OclHTM2 {

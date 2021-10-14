@@ -6,50 +6,27 @@ use ocl::core::{MemInfo, MemInfoResult, BufferRegion, Mem, ArgVal};
 use crate::cpu_sdr::CpuSDR;
 use crate::htm_program::HtmProgram;
 use ndalgebra::buffer::Buffer;
-use crate::htm2::*;
-use crate::cpu_htm::CpuHTM;
+use crate::htm4::*;
 
 /***This implementation assumes that most of the time  vast majority of minicolumns are connected to at least one active
 input. Hence instead of iterating the input and then visiting only connected minicolumns, it's better to just iterate all
 minicolumns. If you are confident that your input is so sparse than only a sparse number of minicolumns
 sees some active connections at any time, then use CpuHTM. It will only visit those minicolumns that are connected
-to some active input.*/
+to some active input.
+
+This implementation allows some feedforward connections to be inhibitory (this is predetermined upon initialization of HTM and cannot change later)*/
 #[derive(Clone)]
-pub struct CpuHTM2 {
-    feedforward_connections: Vec<HtmFeedforwardConnection2>,
+pub struct CpuHTM4 {
+    feedforward_connections: Vec<HtmFeedforwardConnection4>,
     inputs: Vec<u32>,
-    minicolumns: Vec<HtmMinicolumn2>,
+    minicolumns: Vec<HtmMinicolumn4>,
     pub permanence_threshold: f32,
     pub n: u32,
     pub permanence_decrement_increment: [f32; 2],
     pub max_overlap: u32,
 }
 
-impl From<&CpuHTM> for CpuHTM2{
-    fn from(htm: &CpuHTM) -> Self {
-        Self{
-            feedforward_connections: htm.connection_indices_as_slice().iter().map(| &connection_index|{
-                let feedforward_connection = &htm.feedforward_connections_as_slice()[connection_index as usize];
-                HtmFeedforwardConnection2{
-                    permanence: feedforward_connection.permanence,
-                    input_id: feedforward_connection.input_id
-                }
-            }).collect(),
-            inputs: vec![0u32;(htm.inputs_as_slice().len()+31)/32],
-            minicolumns: htm.minicolumns_as_slice().iter().map(|m|HtmMinicolumn2{
-                connection_offset: m.connection_index_offset,
-                connection_len: m.connection_index_len,
-                overlap: 0
-            }).collect(),
-            permanence_threshold: htm.permanence_threshold(),
-            n: htm.n(),
-            permanence_decrement_increment: htm.permanence_decrement_increment(),
-            max_overlap: htm.max_overlap()
-        }
-    }
-}
-
-impl CpuHTM2 {
+impl CpuHTM4 {
     pub fn permanence_threshold(&self) -> f32{
         self.permanence_threshold
     }
@@ -62,24 +39,24 @@ impl CpuHTM2 {
     pub fn max_overlap(&self) -> u32{
         self.max_overlap
     }
-    pub fn feedforward_connections_as_slice(&self)->&[HtmFeedforwardConnection2]{
+    pub fn feedforward_connections_as_slice(&self)->&[HtmFeedforwardConnection4]{
         self.feedforward_connections.as_slice()
     }
     pub fn inputs_as_slice(&self)->&[u32]{
         self.inputs.as_slice()
     }
-    pub fn minicolumns_as_slice(&self)->&[HtmMinicolumn2]{
+    pub fn minicolumns_as_slice(&self)->&[HtmMinicolumn4]{
         self.minicolumns.as_slice()
     }
-    pub fn new_globally_uniform_prob(input_size: u32, minicolumns: u32, n: u32, permanence_threshold: f32, permanence_decrement: f32, permanence_increment: f32, inputs_per_minicolumn: u32) -> Self {
+    pub fn new_globally_uniform_prob(input_size: u32, minicolumns: u32, n: u32, permanence_threshold: f32, permanence_decrement: f32, permanence_increment: f32, inputs_per_minicolumn: u32, inhibitory_connection_probability:f32) -> Self {
         assert!(inputs_per_minicolumn < minicolumns);
-        Self::new(input_size, minicolumns, n, permanence_threshold, permanence_decrement, permanence_increment, |minicolumn_id| rand::random::<u32>() % minicolumns, |minicolumn_id| inputs_per_minicolumn)
+        Self::new(input_size, minicolumns, n, permanence_threshold, permanence_decrement, permanence_increment, |minicolumn_id| (rand::random::<u32>() % minicolumns, rand::random::<f32>() > inhibitory_connection_probability), |minicolumn_id| inputs_per_minicolumn)
     }
     /**n = how many minicolumns to activate. We will always take the top n minicolumns with the greatest overlap value.*/
-    pub fn new(input_size: u32, minicolumns_count: u32, n: u32, permanence_threshold: f32, permanence_decrement: f32, permanence_increment: f32, mut random_input_close_to_minicolumn: impl FnMut(u32) -> u32, mut input_count_incoming_to_minicolumn: impl FnMut(u32) -> u32) -> Self {
-        let mut feedforward_connections: Vec<HtmFeedforwardConnection2> = vec![];
+    pub fn new(input_size: u32, minicolumns_count: u32, n: u32, permanence_threshold: f32, permanence_decrement: f32, permanence_increment: f32, mut random_input_close_to_minicolumn: impl FnMut(u32) -> (u32,bool), mut input_count_incoming_to_minicolumn: impl FnMut(u32) -> u32) -> Self {
+        let mut feedforward_connections: Vec<HtmFeedforwardConnection4> = vec![];
         let mut inputs = vec![0u32;(input_size as usize+31)/32];
-        let mut minicolumns: Vec<HtmMinicolumn2> = Vec::with_capacity(minicolumns_count as usize);
+        let mut minicolumns: Vec<HtmMinicolumn4> = Vec::with_capacity(minicolumns_count as usize);
 
         let mut connected_inputs = vec![false; input_size as usize];
         for minicolumn_id in 0..minicolumns_count as u32 {
@@ -87,18 +64,20 @@ impl CpuHTM2 {
             let mut inputs_to_this_minicolumns: Vec<u32> = vec![];
             let connection_begin = feedforward_connections.len() as u32;
             for _ in 0..input_count {
-                let mut input_id = random_input_close_to_minicolumn(minicolumn_id);
-                while connected_inputs[input_id as usize] { // find some input that has not been connected to this minicolumn yet
-                    input_id = random_input_close_to_minicolumn(minicolumn_id)
+                let mut input = random_input_close_to_minicolumn(minicolumn_id);
+                while connected_inputs[input.0 as usize] { // find some input that has not been connected to this minicolumn yet
+                    input = random_input_close_to_minicolumn(minicolumn_id)
                 }
+                let (input_id, is_excitatory) = input;
                 connected_inputs[input_id as usize] = true;
-                feedforward_connections.push(HtmFeedforwardConnection2 {
+                feedforward_connections.push(HtmFeedforwardConnection4 {
                     permanence: rand::random::<f32>(),
                     input_id: input_id as u32,
+                    overlap_gain: if is_excitatory {1}else{-1}
                 });
                 inputs_to_this_minicolumns.push(input_id);
             }
-            minicolumns.push(HtmMinicolumn2 {
+            minicolumns.push(HtmMinicolumn4 {
                 connection_offset: connection_begin,
                 connection_len: inputs_to_this_minicolumns.len() as u32,
                 overlap: 0,
@@ -147,12 +126,12 @@ impl CpuHTM2 {
         for minicolumn_idx in 0..self.minicolumns.len() {
             let connection_offset = self.minicolumns[minicolumn_idx].connection_offset;
             let connection_len = self.minicolumns[minicolumn_idx].connection_len;
-            let mut overlap = 0;
+            let mut overlap = 0i32;
             for feedforward_connection_idx in connection_offset..(connection_offset+connection_len) {
                 if self.feedforward_connections[feedforward_connection_idx as usize].permanence > self.permanence_threshold {
                     let input_id = self.feedforward_connections[feedforward_connection_idx as usize].input_id;
                     if self.is_input_active(input_id){
-                        overlap += 1;
+                        overlap += self.feedforward_connections[feedforward_connection_idx as usize].overlap_gain;
                     }
                 }
             }
@@ -190,7 +169,9 @@ impl CpuHTM2 {
             let connection_len = self.minicolumns[minicolumn_idx as usize].connection_len;
             for feedforward_connection_idx in connection_offset..(connection_offset+connection_len) {
                 let input_id = self.feedforward_connections[feedforward_connection_idx as usize].input_id;
-                let permanence_change = self.permanence_decrement_increment[self.is_input_active(input_id) as usize];
+                let is_active = self.is_input_active(input_id);
+                let is_excitatory = self.feedforward_connections[feedforward_connection_idx as usize].overlap_gain < 0;
+                let permanence_change = self.permanence_decrement_increment[(is_active ^ is_excitatory) as usize];
                 let old_permanence = self.feedforward_connections[feedforward_connection_idx as usize].permanence;
                 let new_permanence = (old_permanence + permanence_change).clamp(0., 1.);
                 self.feedforward_connections[feedforward_connection_idx as usize].permanence = new_permanence;
@@ -227,7 +208,7 @@ impl CpuHTM2 {
         }
     }
 
-    pub fn infer2(&mut self, sdr_input: &CpuSDR, learn: bool) -> CpuSDR{
+    pub fn infer4(&mut self, sdr_input: &CpuSDR, learn: bool) -> CpuSDR{
         self.htm_calculate_overlap2_active_inputs(sdr_input);
         let mut number_of_minicolumns_per_overlap = vec![0; self.max_overlap as usize];
         self.htm_calculate_overlap2_overlap_per_minicolumn(number_of_minicolumns_per_overlap.as_mut_slice());

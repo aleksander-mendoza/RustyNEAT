@@ -1,14 +1,14 @@
-use ocl::{ProQue, SpatialDims, flags, Platform, Device, Error, Queue, MemFlags};
 use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut, Mul, Add, Range, Sub, Div, AddAssign, DivAssign, SubAssign, MulAssign, RangeFull, RangeFrom, RangeTo, RangeToInclusive, RangeInclusive, Neg};
 use std::fmt::{Display, Formatter, Debug};
-use ocl::core::{MemInfo, MemInfoResult, BufferRegion, Mem, ArgVal};
 use crate::cpu_sdr::CpuSDR;
-use crate::htm_program::HtmProgram;
-use ndalgebra::buffer::Buffer;
 use crate::htm::*;
 
-
+/***This implementation assumes that most of the time very few minicolumns are connected to at least one active
+input. Hence instead of iterating all minicolumns, it's better to iterate the input and then visit only the connected minicolumns.
+If you are confident that your input is so dense than almost all minicolumns will have at least one active
+ connection at any time, then use CpuHTM2. It will visit all minicolumns, without wasting time on determining the
+ ones with active connections.*/
 #[derive(Clone)]
 pub struct CpuHTM {
     feedforward_connections: Vec<HtmFeedforwardConnection>,

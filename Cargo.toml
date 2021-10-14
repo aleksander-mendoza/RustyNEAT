@@ -5,5 +5,5 @@ members = [
     "neat",
     "pylib",
     "envs",
-    "htm"
+    "htm",
 ]
