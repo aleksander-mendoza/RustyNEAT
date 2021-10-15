@@ -1,9 +1,13 @@
 
-# RustyNEAT
+# Biological and Machine Intelligence Library
 
-A Python library written in Rust
+A Python library written in Rust. Provides various tools for biologically-inspired machine learning.
 
-### Implemented features:
+
+
+### NEAT genetic algorithms 
+
+#### Implemented features:
 
 - Compositional Pattern Producing Networks (CPPN) with crossover
 - Picbreeder 
@@ -11,7 +15,7 @@ A Python library written in Rust
 - numpy integration
 - GPU acceleration (with OpenCL)
 
-### Planned:
+#### Planned:
 
 - ES-HyperNEAT
 - Plastic Hyper-HEAT
@@ -20,7 +24,21 @@ A Python library written in Rust
 - L-systems producing deep fractal neural networks
 - L-systems producing plastic neural networks
 
-### Building
+### HTM biologically-constrained neural networks
+
+#### Implemented features:
+
+- Sparse distributed representation (SDR)
+- SDR encoders 
+- Spacial Poolers
+- Pattern separation with negative spacial poolers
+- GPU acceleration with OpenCL 
+
+#### Planned:
+
+- Higher order memory with the temporal memory algorithm
+
+## Building
 
 ```
 cargo build --release
@@ -37,7 +55,7 @@ Then open a Python shell in the same folder and you'll be able to `import rusty_
 
 
 
-### Usage:
+## Usage:
 
 Check out this [tutorial](rusty_neat_quick_guide.py) for details.
 
