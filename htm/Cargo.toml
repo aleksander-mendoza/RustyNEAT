@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 ocl = "0.19.3"
 chrono = "0.4.19"
+itertools = "0.10.0"
 ndalgebra = {path="../ndalgebra"}
 num-traits = "0.2.14"
 failure = "0.1.8"

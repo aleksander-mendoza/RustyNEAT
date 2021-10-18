@@ -21,7 +21,6 @@ at least one connection to some active input, then htm_calculate_overlap2 will b
 The htm_calculate_overlap2 is implemented in two parts. First you call htm_calculate_overlap2_active_inputs
 and then you call htm_calculate_overlap2_overlap_per_minicolumn*/
 __kernel void htm_calculate_overlap2_active_inputs(
-                  float permanence_threshold,
                   __global uint * sdr_input,
                   __global uint * inputs){
       const size_t input_idx = get_global_id(0);

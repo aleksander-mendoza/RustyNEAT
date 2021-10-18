@@ -81,8 +81,11 @@ pub fn ndalgebra(py: Python, m: &PyModule) -> PyResult<()> {
 pub fn htm(py: Python, m: &PyModule) -> PyResult<()> {
     use py_htm::*;
     m.add_class::<CpuHTM>()?;
+    m.add_class::<CpuHOM>()?;
     m.add_class::<CpuHTM2>()?;
+    m.add_class::<CpuHTM4>()?;
     m.add_class::<CpuSDR>()?;
+    m.add_class::<CategoricalEncoder>()?;
     m.add_class::<EncoderBuilder>()?;
     m.add_class::<IntegerEncoder>()?;
     m.add_class::<FloatEncoder>()?;

@@ -3,8 +3,8 @@ mod htm;
 mod cpu_sdr;
 mod cpu_htm2;
 mod htm2;
-mod cpu_higher_order_memory;
-mod higher_order_memory;
+mod cpu_hom;
+mod hom;
 mod cpu_htm3;
 mod htm3;
 mod encoder;
@@ -13,18 +13,21 @@ mod ocl_htm;
 mod htm_program;
 mod ocl_htm2;
 mod htm_program2;
-mod ocl_higher_order_memory;
+mod ocl_hom;
 mod cpu_htm4;
 mod htm4;
+mod hom_program;
+mod cpu_hom2;
 
 pub use ocl_sdr::OclSDR;
 pub use ocl_htm::OclHTM;
 pub use htm_program::HtmProgram;
 pub use cpu_htm::CpuHTM;
+pub use cpu_hom::*;
 pub use htm::*;
 pub use htm4::*;
 pub use ocl_htm2::OclHTM2;
-// pub use cpu_htm3::CpuHTM3;
+pub use cpu_htm4::CpuHTM4;
 pub use cpu_sdr::CpuSDR;
 pub use cpu_htm2::CpuHTM2;
 pub use htm2::*;
@@ -56,7 +59,7 @@ mod tests {
         let p2 = HtmProgram2::new(c)?;
         let mut sdr = CpuSDR::with_capacity(16);
         sdr.set(&[4, 6, 14, 3]);
-        let mut htm = CpuHTM::new_globally_uniform_prob(16, 16, 4, 0.76, -0.01, 0.02, 12);
+        let mut htm = CpuHTM::new_globally_uniform_prob(16, 16, 4, 12);
         let output_sdr = htm.infer(&sdr, false);
         let mut htm2 = CpuHTM2::from(&htm);
         let output_sdr2 = htm2.infer2(&sdr, false);
@@ -195,7 +198,7 @@ mod tests {
 
     #[test]
     fn test6() -> Result<(), String> {
-        fn overlap(a:&[u32],b:&[u32])->u32 {
+        fn overlap(a: &[u32], b: &[u32]) -> u32 {
             let mut sdr1 = CpuSDR::new();
             sdr1.set(a);
             let mut sdr2 = CpuSDR::new();
@@ -204,14 +207,94 @@ mod tests {
             sdr2.normalize();
             sdr1.overlap(&sdr2)
         }
-        assert_eq!(overlap(&[1,5,6,76],&[1]),1);
-        assert_eq!(overlap(&[1,5,6,76],&[]),0);
-        assert_eq!(overlap(&[],&[]),0);
-        assert_eq!(overlap(&[],&[1]),0);
-        assert_eq!(overlap(&[1,5,6,76],&[1,5,6,76]),4);
-        assert_eq!(overlap(&[1,5,6,76],&[5,76,6,1]),4);
-        assert_eq!(overlap(&[1,5,6,76],&[53,746,6,1]),2);
-        assert_eq!(overlap(&[1,5,6,76],&[53,746,6,1,5,78,3,6,7]),3);
+        assert_eq!(overlap(&[1, 5, 6, 76], &[1]), 1);
+        assert_eq!(overlap(&[1, 5, 6, 76], &[]), 0);
+        assert_eq!(overlap(&[], &[]), 0);
+        assert_eq!(overlap(&[], &[1]), 0);
+        assert_eq!(overlap(&[1, 5, 6, 76], &[1, 5, 6, 76]), 4);
+        assert_eq!(overlap(&[1, 5, 6, 76], &[5, 76, 6, 1]), 4);
+        assert_eq!(overlap(&[1, 5, 6, 76], &[53, 746, 6, 1]), 2);
+        assert_eq!(overlap(&[1, 5, 6, 76], &[53, 746, 6, 1, 5, 78, 3, 6, 7]), 3);
+        Ok(())
+    }
+
+    #[test]
+    fn test7() -> Result<(), String> {
+        fn intersect(a: &[u32], b: &[u32]) -> CpuSDR {
+            let mut sdr1 = CpuSDR::new();
+            sdr1.set(a);
+            let mut sdr2 = CpuSDR::new();
+            sdr2.set(b);
+            sdr1.normalize();
+            sdr2.normalize();
+            sdr1.intersection(&sdr2)
+        }
+        assert_eq!(intersect(&[1, 5, 6, 76], &[1]).as_slice(), &[1]);
+        assert_eq!(intersect(&[1, 5, 6, 76], &[]).as_slice(), &[]);
+        assert_eq!(intersect(&[], &[]).as_slice(), &[]);
+        assert_eq!(intersect(&[], &[1]).as_slice(), &[]);
+        assert_eq!(intersect(&[1, 5, 6, 76], &[1, 5, 6, 76]).as_slice(), &[1, 5, 6, 76]);
+        assert_eq!(intersect(&[1, 5, 6, 76], &[5, 76, 6, 1]).as_slice(), &[1, 5, 6, 76]);
+        assert_eq!(intersect(&[1, 5, 6, 76], &[53, 746, 6, 1]).as_slice(), &[1, 6]);
+        assert_eq!(intersect(&[1, 5, 6, 76], &[53, 746, 6, 1, 5, 78, 3, 6, 7]).as_slice(), &[1, 5, 6]);
+        Ok(())
+    }
+
+    #[test]
+    fn test8() -> Result<(), String> {
+        let mut encoder = EncoderBuilder::new();
+        let cat_enc = encoder.add_categorical(4, 8);
+        let number_of_minicolumns = 100;
+        let mut htm = CpuHTM2::new_globally_uniform_prob(
+            encoder.input_size(),
+            number_of_minicolumns,
+            16,
+            (encoder.input_size() as f32 *0.8) as u32
+        );
+        let mut hom = CpuHOM::new(8, number_of_minicolumns);
+        hom.hyp.predicted_decrement = -0.05;
+        let mut sdr = CpuSDR::new();
+        const NOTE_A:u32 = 0;
+        const NOTE_B:u32 = 1;
+        const NOTE_C_SHARP:u32 = 2;
+        const NOTE_D:u32 = 3;
+        let mut predicted_after_a = CpuSDR::new();
+        let mut activated_by_b = CpuSDR::new();
+        let mut predicted_after_b = CpuSDR::new();
+        let mut activated_by_c = CpuSDR::new();
+        let mut predicted_after_c = CpuSDR::new();
+        let mut activated_by_d = CpuSDR::new();
+        let mut predicted_after_d = CpuSDR::new();
+        let mut activated_by_a = CpuSDR::new();
+
+        for _ in 0..4{
+            sdr.clear();
+            cat_enc.encode(&mut sdr, NOTE_A);
+            activated_by_a = htm.infer2(&mut sdr,true);
+            predicted_after_a = hom.infer(&mut activated_by_a,true);
+
+            sdr.clear();
+            cat_enc.encode(&mut sdr, NOTE_B);
+            activated_by_b = htm.infer2(&mut sdr,true);
+            predicted_after_b = hom.infer(&mut activated_by_b,true);
+
+
+            sdr.clear();
+            cat_enc.encode(&mut sdr, NOTE_C_SHARP);
+            activated_by_c = htm.infer2(&mut sdr,true);
+            predicted_after_c = hom.infer(&mut activated_by_c,true);
+
+
+            sdr.clear();
+            cat_enc.encode(&mut sdr, NOTE_D);
+            activated_by_d = htm.infer2(&mut sdr,true);
+            predicted_after_d = hom.infer(&mut activated_by_d,true);
+        }
+
+        assert_eq!(predicted_after_a, activated_by_b);
+        assert_eq!(predicted_after_b, activated_by_c);
+        assert_eq!(predicted_after_c, activated_by_d);
+        assert_eq!(predicted_after_d, activated_by_a);
         Ok(())
     }
 }

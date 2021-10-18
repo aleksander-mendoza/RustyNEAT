@@ -7,7 +7,7 @@ use rusty_neat_core::activations::{STR_TO_IDX, ALL_ACT_FN};
 use pyo3::exceptions::PyValueError;
 use rusty_neat_core::cppn::CPPN;
 use std::iter::FromIterator;
-use pyo3::types::{PyString, PyDateTime, PyDateAccess, PyTimeAccess};
+use pyo3::types::{PyString, PyDateTime, PyDateAccess, PyTimeAccess, PyList};
 use rusty_neat_core::num::Num;
 use rusty_neat_core::gpu::{FeedForwardNetOpenCL, FeedForwardNetPicbreeder, FeedForwardNetSubstrate};
 use pyo3::basic::CompareOp;
@@ -17,8 +17,9 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::Encoder;
+use htm::{Encoder, HomSegment};
 use std::time::SystemTime;
+use std::ops::Deref;
 
 #[pyclass]
 pub struct CpuSDR {
@@ -30,9 +31,21 @@ pub struct CpuHTM {
     htm: htm::CpuHTM,
 }
 
+
+#[pyclass]
+pub struct CpuHOM {
+    hom: htm::CpuHOM,
+}
+
+
 #[pyclass]
 pub struct CpuHTM2 {
     htm: htm::CpuHTM2,
+}
+
+#[pyclass]
+pub struct CpuHTM4 {
+    htm: htm::CpuHTM4,
 }
 
 #[pyclass]
@@ -53,6 +66,11 @@ pub struct OclHTM2 {
 #[pyclass]
 pub struct EncoderBuilder {
     enc: htm::EncoderBuilder,
+}
+
+#[pyclass]
+pub struct CategoricalEncoder {
+    enc: htm::CategoricalEncoder,
 }
 
 #[pyclass]
@@ -100,11 +118,6 @@ pub struct BoolEncoder {
     enc: htm::BoolEncoder,
 }
 
-const DEFAULT_PERMANENCE_THRESHOLD: f32 = 0.7;
-const DEFAULT_PERMANENCE_DECREMENT: f32 = -0.01;
-const DEFAULT_PERMANENCE_INCREMENT: f32 = 0.02;
-
-
 #[pymethods]
 impl EncoderBuilder {
     #[new]
@@ -118,6 +131,10 @@ impl EncoderBuilder {
     #[text_signature = "(from_inclusive,to_exclusive,size,cardinality)"]
     pub fn add_circularinteger(&mut self, from: u32, to: u32, size: u32, cardinality: u32) -> CircularIntegerEncoder {
         CircularIntegerEncoder { enc: self.enc.add_circular_integer(from..to, size, cardinality) }
+    }
+    #[text_signature = "(number_of_categories, cardinality)"]
+    pub fn add_categorical(&mut self, number_of_categories: u32, cardinality: u32) -> CategoricalEncoder {
+        CategoricalEncoder { enc: self.enc.add_categorical( number_of_categories,cardinality) }
     }
     #[text_signature = "(from_inclusive,to_exclusive,size,cardinality)"]
     pub fn add_integer(&mut self, from: u32, to: u32, size: u32, cardinality: u32) -> IntegerEncoder {
@@ -160,6 +177,12 @@ impl IntegerEncoder {
     }
 }
 
+#[pymethods]
+impl CategoricalEncoder {
+    pub fn encode(&self, sdr: &mut CpuSDR, scalar: u32) {
+        self.enc.encode(&mut sdr.sdr, scalar)
+    }
+}
 #[pymethods]
 impl CircularIntegerEncoder {
     pub fn encode(&self, sdr: &mut CpuSDR, scalar: u32) {
@@ -227,12 +250,118 @@ impl BoolEncoder {
     }
 }
 
+
+#[pymethods]
+impl CpuHOM {
+    #[new]
+    pub fn new(cells_per_minicolumn:u32, minicolumn_count:u32) -> Self {
+        CpuHOM { hom: htm::CpuHOM::new(cells_per_minicolumn,minicolumn_count) }
+    }
+
+    
+    #[getter]
+    fn get_max_synapses_per_segment(&self) -> usize{
+        self.hom.hyp.max_synapses_per_segment
+    }
+    #[setter]
+    fn set_max_synapses_per_segment(&mut self, param: usize){
+        self.hom.hyp.max_synapses_per_segment = param
+    }
+    #[getter]
+    fn get_max_segments_per_cell(&self) ->  usize{
+        self.hom.hyp.max_segments_per_cell
+    }
+    #[setter]
+    fn set_max_segments_per_cell(&mut self, param:  usize){
+        self.hom.hyp.max_segments_per_cell = param
+    }
+    #[getter]
+    fn get_max_new_synapse_count(&self) -> usize{
+        self.hom.hyp.max_new_synapse_count
+    }
+    #[setter]
+    fn set_max_new_synapse_count(&mut self, param: usize){
+        self.hom.hyp.max_new_synapse_count = param
+    }
+    #[getter]
+    fn get_initial_permanence(&self) ->  f32{
+        self.hom.hyp.initial_permanence
+    }
+    #[setter]
+    fn set_initial_permanence(&mut self, param:  f32){
+        self.hom.hyp.initial_permanence = param
+    }
+    #[getter]
+    fn get_min_permanence_to_keep(&self) ->  f32{
+        self.hom.hyp.min_permanence_to_keep
+    }
+    #[setter]
+    fn set_min_permanence_to_keep(&mut self, param:  f32){
+        self.hom.hyp.min_permanence_to_keep = param
+    }
+    #[getter]
+    fn get_activation_threshold(&self) ->  u32{
+        self.hom.hyp.activation_threshold
+    }
+    #[setter]
+    fn set_activation_threshold(&mut self, param:  u32){
+        self.hom.hyp.activation_threshold = param
+    }
+    #[getter]
+    fn get_learning_threshold(&self) ->  u32{
+        self.hom.hyp.learning_threshold
+    }
+    #[setter]
+    fn set_learning_threshold(&mut self, param:  u32){
+        self.hom.hyp.learning_threshold = param
+    }
+    #[getter]
+    fn get_permanence_threshold(&self) ->  f32{
+        self.hom.hyp.permanence_threshold
+    }
+    #[setter]
+    fn set_permanence_threshold(&mut self, param:  f32){
+        self.hom.hyp.permanence_threshold = param
+    }
+    #[getter]
+    fn get_predicted_decrement(&self) -> f32{
+        self.hom.hyp.predicted_decrement
+    }
+    #[setter]
+    fn set_predicted_decrement(&mut self, param: f32){
+        self.hom.hyp.predicted_decrement = param
+    }
+    #[getter]
+    fn get_permanence_decrement_increment(&self) ->  [f32; 2]{
+        self.hom.hyp.permanence_decrement_increment
+    }
+    #[setter]
+    fn set_permanence_decrement_increment(&mut self, param:  [f32; 2]){
+        self.hom.hyp.permanence_decrement_increment = param
+    }
+
+    #[call]
+    fn __call__(&mut self, active_minicolumns: &CpuSDR, learn: Option<bool>)->CpuSDR{
+        CpuSDR{sdr:self.hom.infer(&active_minicolumns.sdr,learn.unwrap_or(false))}
+    }
+
+    #[text_signature = "( /)"]
+    fn clone(&self) -> CpuHOM {
+        CpuHOM { hom: self.hom.clone() }
+    }
+
+}
+
 #[pymethods]
 impl CpuHTM {
     #[new]
-    pub fn new(input_size: u32, minicolumns: u32, inputs_per_minicolumn: u32, n: u32) -> Self {
-        CpuHTM { htm: htm::CpuHTM::new_globally_uniform_prob(input_size, minicolumns, n, DEFAULT_PERMANENCE_THRESHOLD, DEFAULT_PERMANENCE_DECREMENT, DEFAULT_PERMANENCE_INCREMENT, inputs_per_minicolumn) }
+    pub fn new(input_size: u32, minicolumns: u32, inputs_per_minicolumn: u32, n: u32) -> PyResult<Self> {
+        if inputs_per_minicolumn > minicolumns{
+            return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} minicolumns",inputs_per_minicolumn, minicolumns)))
+        }
+        Ok(CpuHTM { htm: htm::CpuHTM::new_globally_uniform_prob(input_size, minicolumns, n, DEFAULT_PERMANENCE_THRESHOLD, DEFAULT_PERMANENCE_DECREMENT, DEFAULT_PERMANENCE_INCREMENT, inputs_per_minicolumn) })
     }
+
 
     #[getter]
     fn get_n(&self) -> u32 {
@@ -293,16 +422,27 @@ impl CpuHTM {
     fn to_htm2(&self) -> CpuHTM2 {
         CpuHTM2 { htm: htm::CpuHTM2::from(&self.htm) }
     }
+
+    #[text_signature = "( /)"]
+    fn clone(&self) -> CpuHTM {
+        CpuHTM { htm: self.htm.clone() }
+    }
 }
 
 
 #[pymethods]
 impl CpuHTM2 {
     #[new]
-    pub fn new(input_size: u32, minicolumns: u32, inputs_per_minicolumn: u32, n: u32) -> Self {
-        CpuHTM2 { htm: htm::CpuHTM2::new_globally_uniform_prob(input_size, minicolumns, n, DEFAULT_PERMANENCE_THRESHOLD, DEFAULT_PERMANENCE_DECREMENT, DEFAULT_PERMANENCE_INCREMENT, inputs_per_minicolumn) }
+    pub fn new(input_size: u32, minicolumns: u32, inputs_per_minicolumn: u32, n: u32) -> PyResult<Self> {
+        if inputs_per_minicolumn > minicolumns{
+            return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} minicolumns",inputs_per_minicolumn, minicolumns)))
+        }
+        Ok(CpuHTM2 { htm: htm::CpuHTM2::new_globally_uniform_prob(input_size, minicolumns, n, DEFAULT_PERMANENCE_THRESHOLD, DEFAULT_PERMANENCE_DECREMENT, DEFAULT_PERMANENCE_INCREMENT, inputs_per_minicolumn) })
     }
-
+    #[text_signature = "( /)"]
+    fn clone(&self) -> CpuHTM2 {
+        CpuHTM2 { htm: self.htm.clone() }
+    }
     #[getter]
     fn get_n(&self) -> u32 {
         self.htm.n
@@ -359,6 +499,76 @@ impl CpuHTM2 {
     }
 }
 
+#[pymethods]
+impl CpuHTM4 {
+    #[text_signature = "( /)"]
+    fn clone(&self) -> CpuHTM4 {
+        CpuHTM4 { htm: self.htm.clone() }
+    }
+    #[new]
+    pub fn new(input_size: u32, minicolumns: u32, inputs_per_minicolumn: u32, n: u32, inhibitory_connection_probability:f32) -> PyResult<Self> {
+        if inputs_per_minicolumn > minicolumns{
+            return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} minicolumns",inputs_per_minicolumn, minicolumns)))
+        }
+        Ok(CpuHTM4 { htm: htm::CpuHTM4::new_globally_uniform_prob(input_size, minicolumns, n, DEFAULT_PERMANENCE_THRESHOLD, DEFAULT_PERMANENCE_DECREMENT, DEFAULT_PERMANENCE_INCREMENT, inputs_per_minicolumn,inhibitory_connection_probability) })
+    }
+
+    #[getter]
+    fn get_n(&self) -> u32 {
+        self.htm.n
+    }
+
+    #[setter]
+    fn set_n(&mut self, n: u32) {
+        self.htm.n = n
+    }
+
+    #[getter]
+    fn get_permanence_decrement(&self) -> f32 {
+        self.htm.permanence_decrement_increment[0]
+    }
+
+    #[setter]
+    fn set_permanence_decrement(&mut self, permanence_decrement: f32) {
+        self.htm.permanence_decrement_increment[0] = permanence_decrement
+    }
+
+    #[getter]
+    fn get_permanence_increment(&self) -> f32 {
+        self.htm.permanence_decrement_increment[1]
+    }
+
+    #[setter]
+    fn set_permanence_increment(&mut self, permanence_increment: f32) {
+        self.htm.permanence_decrement_increment[1] = permanence_increment
+    }
+
+    #[getter]
+    fn get_permanence_threshold(&self) -> f32 {
+        self.htm.permanence_threshold
+    }
+
+    #[setter]
+    fn set_permanence_threshold(&mut self, permanence_threshold: f32) {
+        self.htm.permanence_threshold = permanence_threshold
+    }
+
+    #[getter]
+    fn get_max_overlap(&self) -> u32 {
+        self.htm.max_overlap
+    }
+
+    #[setter]
+    fn set_max_overlap(&mut self, max_overlap: u32) {
+        self.htm.max_overlap = max_overlap
+    }
+
+    #[call]
+    fn __call__(&mut self, sdr: &CpuSDR, learn: Option<bool>) -> CpuSDR {
+        CpuSDR{sdr:self.htm.infer4(&sdr.sdr, learn.unwrap_or(false))}
+    }
+}
+
 
 #[pymethods]
 impl OclSDR {
@@ -386,9 +596,14 @@ impl OclSDR {
 
 #[pymethods]
 impl CpuSDR {
+
     #[new]
     pub fn new(sdr: Option<Vec<u32>>) -> Self {
         CpuSDR { sdr: sdr.map(|sdr| htm::CpuSDR::from(sdr)).unwrap_or_else(|| htm::CpuSDR::new()) }
+    }
+    #[text_signature = "()"]
+    fn clear(&mut self) {
+        self.sdr.clear()
     }
     #[text_signature = "(neuron_index)"]
     fn push_active_neuron(&mut self, neuron_index: u32) {
@@ -570,16 +785,32 @@ impl PyObjectProtocol for CpuSDR {
     fn __repr__(&self) -> PyResult<String> {
         self.__str__()
     }
+    fn __richcmp__(&self, other: &PyAny, op: CompareOp) -> PyResult<bool> {
+        let equal = if let Ok(sdr) = other.cast_as::<PyCell<CpuSDR>>(){
+            let sdr_ref = sdr.try_borrow()?;
+            &self.sdr == &sdr_ref.sdr
+        } else if let Ok(vec) = other.extract::<Vec<u32>>(){
+            &self.sdr == &vec
+        } else {
+            return Err(ocl_err_to_py_ex("CpuSDR can only be compared with [int] or another CpuSDR"));
+        };
+
+        match op{
+            CompareOp::Eq => Ok(equal),
+            CompareOp::Ne => Ok(!equal),
+            op => Err(ocl_err_to_py_ex("Cannot compare platforms"))
+        }
+    }
 }
 
 #[pyclass]
-pub struct CpuIter {
+pub struct CpuSDRIter {
     inner: Py<CpuSDR>,
     idx: usize,
 }
 
 #[pyproto]
-impl PyIterProtocol for CpuIter {
+impl PyIterProtocol for CpuSDRIter {
     fn __iter__(slf: PyRef<Self>) -> PyRef<Self> {
         slf
     }
@@ -595,14 +826,117 @@ impl PyIterProtocol for CpuIter {
         })
     }
 }
-
 #[pyproto]
 impl PyIterProtocol for CpuSDR {
-    fn __iter__(slf: Py<Self>) -> CpuIter {
-        CpuIter {
+    fn __iter__(slf: Py<Self>) -> CpuSDRIter {
+        CpuSDRIter {
             inner: slf,
             idx: 0,
         }
+    }
+}
+
+#[pyclass]
+pub struct CpuHOMIter {
+    inner: Py<CpuHOM>,
+    idx: usize,
+    minicolumn_count:usize,
+}
+
+#[pyproto]
+impl PyIterProtocol for CpuHOMIter {
+    fn __iter__(slf: PyRef<Self>) -> PyRef<Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<Self>) -> PyResult<Option<CpuHOMMinicolumn>> {
+        let i = slf.idx;
+        slf.idx += 1;
+        Ok(if i >= slf.minicolumn_count {
+            None
+        } else {
+            let inner : Py<CpuHOM> = slf.inner.clone();
+            Some(CpuHOMMinicolumn{ inner, minicolumn_idx: i })
+        })
+    }
+}
+
+#[pyclass]
+pub struct CpuHOMMinicolumn {
+    inner: Py<CpuHOM>,
+    minicolumn_idx: usize,
+}
+
+#[pyclass]
+pub struct CpuHOMMinicolumnIter {
+    inner: Py<CpuHOM>,
+    minicolumn_idx: usize,
+    segment_idx: usize,
+}
+
+#[pyproto]
+impl PyIterProtocol for CpuHOMMinicolumn {
+    fn __iter__(slf: PyRef<Self>) -> CpuHOMMinicolumnIter {
+        let minicolumn_idx = slf.minicolumn_idx;
+        CpuHOMMinicolumnIter {
+            inner: slf.inner.clone(),
+            minicolumn_idx,
+            segment_idx: 0
+        }
+    }
+}
+
+
+
+#[pyproto]
+impl PyIterProtocol for CpuHOM {
+    fn __iter__(slf: Py<Self>) -> PyResult<CpuHOMIter> {
+        let minicolumn_count = {
+            let gil = Python::acquire_gil();
+            let py = gil.python();
+            let r:PyRef<CpuHOM> = Py::try_borrow(&slf, py)?;
+            r.hom.minicolumns.len()
+        };
+        Ok(CpuHOMIter {
+            inner: slf,
+            idx: 0,
+            minicolumn_count
+        })
+    }
+}
+
+#[pyclass]
+pub struct CpuHOMSegment {
+    inner: Py<CpuHOM>,
+    minicolumn_idx: usize,
+    segment_idx: usize,
+}
+impl CpuHOMSegment {
+    fn segment<X>(&self, f:impl FnOnce(&HomSegment)->X)->PyResult<X>{
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let r:PyRef<CpuHOM> = Py::try_borrow(&self.inner, py)?;
+        if self.minicolumn_idx < r.hom.minicolumns.len(){
+            let minicolumn = &r.hom.minicolumns[self.minicolumn_idx];
+            if self.segment_idx < minicolumn.segments.len(){
+                Ok(f(&minicolumn.segments[self.segment_idx]))
+            }else{
+                Err(PyValueError::new_err("Segment has been removed!"))
+            }
+        }else{
+            Err(PyValueError::new_err("Minicolumn has been removed!"))
+        }
+    }
+}
+#[pymethods]
+impl CpuHOMSegment {
+    #[getter]
+    fn get_synapses(&self)->PyResult<Vec<(u32,f32)>>{
+        self.segment(|segment|segment.synapses.iter().map(|s|(s.cell_id,s.permanence)).collect())
+    }
+    #[getter]
+    fn get_postsynaptic_cell_idx(&self)->PyResult<u8>{
+        self.segment(|s|s.cell_idx)
     }
 }
 

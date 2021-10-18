@@ -46,12 +46,12 @@ impl CpuHTM {
     pub fn minicolumns_as_slice(&self)->&[HtmMinicolumn]{
         self.minicolumns.as_slice()
     }
-    pub fn new_globally_uniform_prob(input_size: u32, minicolumns: u32, n: u32, permanence_threshold: f32, permanence_decrement: f32, permanence_increment: f32, inputs_per_minicolumn: u32) -> Self {
+    pub fn new_globally_uniform_prob(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32) -> Self {
         assert!(inputs_per_minicolumn < minicolumns);
-        Self::new(input_size, minicolumns, n, permanence_threshold, permanence_decrement, permanence_increment, |minicolumn_id| rand::random::<u32>() % minicolumns, |minicolumn_id| inputs_per_minicolumn)
+        Self::new(input_size, minicolumns, n, |minicolumn_id| rand::random::<u32>() % input_size, |minicolumn_id| inputs_per_minicolumn)
     }
     /**n = how many minicolumns to activate. We will always take the top n minicolumns with the greatest overlap value.*/
-    pub fn new(input_size: u32, minicolumns_count: u32, n: u32, permanence_threshold: f32, permanence_decrement: f32, permanence_increment: f32, mut random_input_close_to_minicolumn: impl FnMut(u32) -> u32, mut input_count_incoming_to_minicolumn: impl FnMut(u32) -> u32) -> Self {
+    pub fn new(input_size: u32, minicolumns_count: u32, n: u32, mut random_input_close_to_minicolumn: impl FnMut(u32) -> u32, mut input_count_incoming_to_minicolumn: impl FnMut(u32) -> u32) -> Self {
         let mut feedforward_connections: Vec<HtmFeedforwardConnection> = vec![];
         let mut connection_indices = vec![];
         let mut inputs = Vec::with_capacity(input_size as usize);
@@ -61,11 +61,12 @@ impl CpuHTM {
         let mut connected_inputs = vec![false; input_size as usize];
         for minicolumn_id in 0..minicolumns_count as u32 {
             let input_count = input_count_incoming_to_minicolumn(minicolumn_id);
+            assert!(input_count<=input_size,"Minicolumn {} has {} input connections but there are only {} inputs",minicolumn_id,input_count,input_size);
             let mut inputs_to_this_minicolumns: Vec<u32> = vec![];
             for _ in 0..input_count {
                 let mut input_id = random_input_close_to_minicolumn(minicolumn_id);
                 while connected_inputs[input_id as usize] { // find some input that has not been connected to this minicolumn yet
-                    input_id = random_input_close_to_minicolumn(minicolumn_id)
+                    input_id=(input_id+1)%input_size
                 }
                 connected_inputs[input_id as usize] = true;
                 minicolumns_per_input[input_id as usize].push(minicolumn_id);
@@ -111,10 +112,10 @@ impl CpuHTM {
             connection_indices,
             inputs,
             minicolumns,
-            permanence_threshold,
             n,
-            permanence_decrement_increment: [permanence_decrement, permanence_increment],
             max_overlap,
+            permanence_threshold:0.7,
+            permanence_decrement_increment: [-0.01, 0.02],
         }
     }
 

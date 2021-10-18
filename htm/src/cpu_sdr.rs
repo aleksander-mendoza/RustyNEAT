@@ -6,14 +6,20 @@ use ocl::core::{MemInfo, MemInfoResult, BufferRegion, Mem, ArgVal};
 use ndalgebra::buffer::Buffer;
 use crate::htm_program::HtmProgram;
 
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct CpuSDR(Vec<u32>);
 
+impl PartialEq<Vec<u32>> for CpuSDR{
+    fn eq(&self, other: &Vec<u32>) -> bool {
+        self.0.eq(other)
+    }
+}
 impl From<Vec<u32>> for CpuSDR{
     fn from(v: Vec<u32>) -> Self {
         Self(v)
     }
 }
+
 impl Deref for CpuSDR{
     type Target = [u32];
 
@@ -33,12 +39,21 @@ impl Debug for CpuSDR{
     }
 }
 impl CpuSDR {
+    pub fn as_slice(&self)->&[u32]{
+        self.0.as_slice()
+    }
+    pub fn as_mut_slice(&mut self)->&mut [u32]{
+        self.0.as_mut_slice()
+    }
     pub fn push(&mut self, neuron_index:u32){
         self.0.push(neuron_index)
     }
     pub fn to_vec(self)->Vec<u32>{
         let Self(v) = self;
         v
+    }
+    pub fn clear(&mut self){
+        self.0.clear()
     }
     pub fn set(&mut self, active_neurons:&[u32]){
         unsafe{self.0.set_len(0)}
@@ -91,8 +106,36 @@ impl CpuSDR {
             }
         }
     }
+    pub fn binary_search(&self, neuron_index:u32)->bool{
+        self.0.binary_search(&neuron_index).is_ok()
+    }
+    pub fn is_normalized(&self)->bool{
+        if self.0.is_empty(){return true}
+        let mut prev = self.0[0];
+        for &i in &self.0[1..]{
+            if i <= prev{return false}
+            prev = i;
+        }
+        true
+    }
     pub fn extend(&mut self, other:&CpuSDR){
         self.0.extend_from_slice(other)
+    }
+    /**Requires that both SDRs are normalized. The resulting SDR is already in normalized form*/
+    pub fn intersection(&self, other:&CpuSDR)->CpuSDR{
+        let mut intersection = CpuSDR::with_capacity(self.len()+other.len());
+        let mut i=0;
+        if other.is_empty(){return intersection}
+        for &neuron_index in &self.0{
+            while other[i] < neuron_index{
+                i+=1;
+                if i >= other.len() {return intersection}
+            }
+            if other[i] == neuron_index{
+                intersection.push(neuron_index);
+            }
+        }
+        intersection
     }
     pub fn union(&self, other:&CpuSDR)->CpuSDR{
         let mut union = CpuSDR::with_capacity(self.len()+other.len());

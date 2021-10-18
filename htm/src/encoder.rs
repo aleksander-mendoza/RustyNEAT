@@ -29,6 +29,38 @@ impl Encoder<f32> for FloatEncoder{
     }
 }
 
+pub struct CategoricalEncoder{
+    neuron_range_begin:u32,//inclusive
+    num_of_categories:u32,
+    sdr_cardinality: u32,
+}
+impl Encoder<u32> for CategoricalEncoder{
+    fn encode(&self, sdr:&mut CpuSDR, scalar:u32) {
+        let scalar = scalar%self.num_of_categories;
+        let begin = self.neuron_range_begin + scalar * self.sdr_cardinality;
+        let end = begin+self.sdr_cardinality;
+        for neuron_idx in begin..end{
+            sdr.push(neuron_idx)
+        }
+    }
+}
+
+
+pub struct BitsetEncoder{
+    neuron_range_begin:u32,//inclusive
+    num_of_categories:u32,
+    sdr_cardinality: u32,
+}
+impl Encoder<&[bool]> for BitsetEncoder{
+    fn encode(&self, sdr:&mut CpuSDR, scalar:u32) {
+        let scalar = scalar%self.num_of_categories;
+        let begin = self.neuron_range_begin + scalar * self.sdr_cardinality;
+        let end = begin+self.sdr_cardinality;
+        for neuron_idx in begin..end{
+            sdr.push(neuron_idx)
+        }
+    }
+}
 
 pub struct IntegerEncoder{
     neuron_range_begin:u32,//inclusive
@@ -188,6 +220,15 @@ impl EncoderBuilder{
             scalar_range_begin: input_range.start,
             scalar_range_end: input_range.end,
             buckets_per_value,
+            sdr_cardinality
+        }
+    }
+    pub fn add_categorical(&mut self, number_of_categories:u32, sdr_cardinality:u32)->CategoricalEncoder{
+        let neuron_range_begin = self.len;
+        self.len += sdr_cardinality * number_of_categories;
+        CategoricalEncoder{
+            neuron_range_begin,
+            num_of_categories: number_of_categories,
             sdr_cardinality
         }
     }

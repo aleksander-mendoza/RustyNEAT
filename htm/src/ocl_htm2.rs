@@ -46,7 +46,6 @@ impl OclHTM2{
 
     fn htm_calculate_overlap2_active_inputs(&mut self, sdr_input: &OclSDR) -> Result<(), Error> {
         self.prog.kernel_builder("htm_calculate_overlap2_active_inputs")?.
-            add_num(self.permanence_threshold)?. // float permanence_threshold,
             add_buff(sdr_input.buffer())?.// __global uint * sdr_input,
             add_buff(&self.inputs)?.// __global uint * inputs,
             enq(self.prog.queue(),&[sdr_input.number_of_active_neurons(),1,1]).
