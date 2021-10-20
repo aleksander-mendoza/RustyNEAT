@@ -7,7 +7,6 @@ use std::io::Write;
 use std::ops::Deref;
 use ndalgebra::context::Context;
 use ndalgebra::kernel_builder::KernelBuilder;
-use crate::htm_program2::HtmProgram2;
 
 #[derive(Clone)]
 pub struct HtmProgram {
@@ -23,14 +22,13 @@ impl Deref for HtmProgram{
 }
 impl HtmProgram {
 
-    pub fn from(t: &HtmProgram2) -> Result<Self, Error> {
-        Self::new(t.ctx.clone())
-    }
-
     pub fn new(ctx:Context)->Result<Self,Error>{
         let src = include_str!("kernel.cl");
         let prog = Program::builder().source(src).build(ctx.context())?;
         Ok(Self{ctx:ctx.clone(),prog})
+    }
+    pub fn default()->Result<Self,Error>{
+        Context::default().and_then(Self::new)
     }
 
     pub fn gpu()->Result<Self,Error>{

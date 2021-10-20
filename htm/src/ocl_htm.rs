@@ -7,7 +7,7 @@ use crate::ocl_sdr::OclSDR;
 use crate::htm_program::HtmProgram;
 use ndalgebra::buffer::Buffer;
 use crate::htm::*;
-use crate::CpuHTM;
+use crate::{CpuHTM, OclInput, OclBitset};
 
 #[derive(Clone)]
 pub struct OclHTM {
@@ -65,7 +65,7 @@ impl OclHTM{
             add_buff(&self.minicolumns)?.// __global HtmMinicolumn * minicolumns,
             add_buff(&self.inputs)?.// __global HtmInput * inputs,
             add_buff(&self.feedforward_connections)?.// __global HtmFeedforwardConnection * feedforward_connections;
-            enq(self.prog.queue(),&[sdr_input.number_of_active_neurons(),1,1]).
+            enq(self.prog.queue(),&[sdr_input.cardinality() as usize,1,1]).
             map_err(Error::from)
     }
 
@@ -77,7 +77,7 @@ impl OclHTM{
             add_buff(&self.inputs)?.// __global HtmInput * inputs,
             add_buff(number_of_minicolumns_per_overlap)?.// __global int * number_of_minicolumns_per_overlap
             add_buff(&self.feedforward_connections)?. // __global HtmFeedforwardConnection * feedforward_connections
-            enq(self.prog.queue(),&[sdr_input.number_of_active_neurons(),1,1]).
+            enq(self.prog.queue(),&[sdr_input.cardinality() as usize,1,1]).
             map_err(Error::from)
     }
 
@@ -107,17 +107,17 @@ impl OclHTM{
             add_buff(top_n_minicolumns)?.    // __global uint * top_n_minicolumns,
             add_buff(current_top_n_minicolumn_idx)?.    // __global uint * current_top_n_minicolumn_idx, // precodntion: equals 0 ; postcondition: less than or equal n
             add_buff(&self.feedforward_connections)?. // __global HtmFeedforwardConnection * feedforward_connections
-            enq(self.prog.queue(),&[sdr_input.number_of_active_neurons(),1,1]).
+            enq(self.prog.queue(),&[sdr_input.cardinality() as usize,1,1]).
             map_err(Error::from)
     }
 
-    fn htm_update_permanence(&mut self, top_n_minicolumns: &Buffer<u32>, current_top_n_minicolumn_idx: u32) -> Result<(), Error> {
+    fn htm_update_permanence(&mut self, top_n_minicolumns: &Buffer<u32>,bitset_input:&OclBitset, current_top_n_minicolumn_idx: u32) -> Result<(), Error> {
         self.prog.kernel_builder("htm_update_permanence")?.
             add_num(self.permanence_decrement_increment[1])?. // float permanence_increment,
             add_num(self.permanence_decrement_increment[0])?. // float permanence_decrement,
             add_buff(&self.connection_indices)?. // __global uint * connection_indices,
             add_buff(&self.minicolumns)?.// __global HtmMinicolumn * minicolumns,
-            add_buff(&self.inputs)?.// __global HtmInput * inputs,
+            add_buff(bitset_input.buffer())?.// __global uint * bitset_input,
             add_buff(top_n_minicolumns)?.    // __global uint * top_n_minicolumns,
             add_buff(&self.feedforward_connections)?. // __global HtmFeedforwardConnection * feedforward_connections
             enq(self.prog.queue(),&[current_top_n_minicolumn_idx as usize,1,1]).
@@ -128,7 +128,7 @@ impl OclHTM{
         self.prog.kernel_builder("htm_clean_up_active_inputs")?.
             add_buff(sdr_input.buffer())?. // __global uint * sdr_input,
             add_buff(&self.inputs)?. // __global HtmInput * inputs
-            enq(self.prog.queue(),&[sdr_input.number_of_active_neurons(),1,1]).
+            enq(self.prog.queue(),&[sdr_input.cardinality() as usize,1,1]).
             map_err(Error::from)
     }
 
@@ -138,12 +138,14 @@ impl OclHTM{
             add_buff(&self.minicolumns)?.// __global HtmMinicolumn * minicolumns,
             add_buff(&self.inputs)?.// __global HtmInput * inputs,
             add_buff(&self.feedforward_connections)?. // __global HtmFeedforwardConnection * feedforward_connections
-            enq(self.prog.queue(),&[sdr_input.number_of_active_neurons(),1,1]).
+            enq(self.prog.queue(),&[sdr_input.cardinality() as usize,1,1]).
             map_err(Error::from)
     }
 
 
-    pub fn infer(&mut self, sdr_input: &OclSDR, learn: bool) -> Result<OclSDR, Error> {
+    pub fn infer(&mut self, input: &OclInput, learn: bool) -> Result<OclSDR, Error> {
+        let sdr_input = input.get_sparse();
+        let bitset_input = input.get_dense();
         self.htm_calculate_overlap(sdr_input)?;
         let number_of_minicolumns_per_overlap = self.prog.buffer_filled(MemFlags::READ_WRITE,self.max_overlap as usize,0)?;
         self.htm_calculate_number_of_minicolumns_per_overlap(sdr_input, &number_of_minicolumns_per_overlap)?;
@@ -155,11 +157,10 @@ impl OclHTM{
         let mut top_minicolumn_count = 0;
         current_top_n_minicolumn_idx.read(self.prog.queue(),0,&mut [top_minicolumn_count])?;
         if learn {
-            self.htm_update_permanence(&top_n_minicolumns, top_minicolumn_count)?
+            self.htm_update_permanence(&top_n_minicolumns, bitset_input,top_minicolumn_count)?
         }
-        self.htm_clean_up_active_inputs(sdr_input)?;
         self.htm_clean_up_overlap(sdr_input)?;
-        Ok(OclSDR::from_buff(self.prog.ctx.clone(),top_n_minicolumns, top_minicolumn_count as usize))
+        Ok(OclSDR::from_buff(self.prog.clone(),top_n_minicolumns, top_minicolumn_count))
     }
 
 }

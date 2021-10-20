@@ -15,8 +15,8 @@ unsafe impl OclPrm for HtmFeedforwardConnection{}
 pub struct HtmInput {
     pub connection_offset: u32,
     pub connection_len: u32,
-    pub is_active: bool,
 }
+
 unsafe impl OclPrm for HtmInput{}
 
 #[derive(Copy, Clone, Debug, Default, PartialEq)]

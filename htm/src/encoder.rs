@@ -2,9 +2,14 @@ use crate::CpuSDR;
 use std::ops::{RangeBounds, Range};
 use chrono::{DateTime, Utc, TimeZone, Datelike, Timelike, NaiveTime};
 
-pub trait Encoder<T>{
-    fn encode(&self, sdr:&mut CpuSDR, scalar:T);
+pub trait EncoderTarget{
+    fn push(&mut self, neuron_index:u32);
 }
+
+pub trait Encoder<T>{
+    fn encode(&self, sdr:&mut impl EncoderTarget, scalar:T);
+}
+
 
 pub struct FloatEncoder{
     neuron_range_begin:u32,//inclusive
@@ -15,7 +20,7 @@ pub struct FloatEncoder{
     sdr_cardinality: u32,
 }
 impl Encoder<f32> for FloatEncoder{
-    fn encode(&self, sdr:&mut CpuSDR, scalar:f32) {
+    fn encode(&self, sdr:&mut impl EncoderTarget, scalar:f32) {
         let scalar = scalar.clamp(self.scalar_range_begin,self.scalar_range_end);
         let diff = scalar - self.scalar_range_begin;
         let offset =  diff*self.buckets_per_value;
@@ -35,7 +40,7 @@ pub struct CategoricalEncoder{
     sdr_cardinality: u32,
 }
 impl Encoder<u32> for CategoricalEncoder{
-    fn encode(&self, sdr:&mut CpuSDR, scalar:u32) {
+    fn encode(&self, sdr:&mut impl EncoderTarget, scalar:u32) {
         let scalar = scalar%self.num_of_categories;
         let begin = self.neuron_range_begin + scalar * self.sdr_cardinality;
         let end = begin+self.sdr_cardinality;
@@ -45,22 +50,6 @@ impl Encoder<u32> for CategoricalEncoder{
     }
 }
 
-
-pub struct BitsetEncoder{
-    neuron_range_begin:u32,//inclusive
-    num_of_categories:u32,
-    sdr_cardinality: u32,
-}
-impl Encoder<&[bool]> for BitsetEncoder{
-    fn encode(&self, sdr:&mut CpuSDR, scalar:u32) {
-        let scalar = scalar%self.num_of_categories;
-        let begin = self.neuron_range_begin + scalar * self.sdr_cardinality;
-        let end = begin+self.sdr_cardinality;
-        for neuron_idx in begin..end{
-            sdr.push(neuron_idx)
-        }
-    }
-}
 
 pub struct IntegerEncoder{
     neuron_range_begin:u32,//inclusive
@@ -71,7 +60,7 @@ pub struct IntegerEncoder{
     sdr_cardinality: u32,
 }
 impl Encoder<u32> for IntegerEncoder{
-    fn encode(&self, sdr:&mut CpuSDR, scalar:u32) {
+    fn encode(&self, sdr:&mut impl EncoderTarget, scalar:u32) {
         let scalar = scalar.clamp(self.scalar_range_begin,self.scalar_range_end-1);
         let diff = scalar - self.scalar_range_begin;
         let offset =  diff as f32*self.buckets_per_value;
@@ -95,7 +84,7 @@ pub struct CircularIntegerEncoder{
     sdr_cardinality: u32,
 }
 impl Encoder<u32> for CircularIntegerEncoder{
-    fn encode(&self, sdr:&mut CpuSDR, scalar:u32) {
+    fn encode(&self, sdr:&mut impl EncoderTarget, scalar:u32) {
         let possible_values = self.scalar_range_end - self.scalar_range_begin;
         let diff = (scalar - self.scalar_range_begin) % possible_values;
         let offset =  diff as f32*self.buckets_per_value;
@@ -113,12 +102,12 @@ pub struct DayOfWeekEncoder{
     enc:CircularIntegerEncoder
 }
 impl DayOfWeekEncoder{
-    pub fn encode_day_of_week(&self, sdr:&mut CpuSDR, day_of_week:u32){
+    pub fn encode_day_of_week(&self, sdr:&mut impl EncoderTarget, day_of_week:u32){
         self.enc.encode(sdr,day_of_week);
     }
 }
 impl <T:TimeZone> Encoder<&DateTime<T>> for DayOfWeekEncoder{
-    fn encode(&self, sdr:&mut CpuSDR, scalar:&DateTime<T>) {
+    fn encode(&self, sdr:&mut impl EncoderTarget, scalar:&DateTime<T>) {
         self.encode_day_of_week(sdr,scalar.weekday().num_days_from_monday());
     }
 }
@@ -127,12 +116,12 @@ pub struct DayOfMonthEncoder{
     enc:CircularIntegerEncoder
 }
 impl DayOfMonthEncoder{
-    pub fn encode_day_of_month(&self, sdr:&mut CpuSDR, day_of_month:u32){
+    pub fn encode_day_of_month(&self, sdr:&mut impl EncoderTarget, day_of_month:u32){
         self.enc.encode(sdr,day_of_month);
     }
 }
 impl <T:TimeZone> Encoder<&DateTime<T>> for DayOfMonthEncoder{
-    fn encode(&self, sdr:&mut CpuSDR, scalar:&DateTime<T>) {
+    fn encode(&self, sdr:&mut impl EncoderTarget, scalar:&DateTime<T>) {
         self.encode_day_of_month(sdr,scalar.day0());
     }
 }
@@ -142,7 +131,7 @@ pub struct BoolEncoder{
 }
 
 impl Encoder<bool> for BoolEncoder{
-    fn encode(&self, sdr:&mut CpuSDR, scalar:bool) {
+    fn encode(&self, sdr:&mut impl EncoderTarget, scalar:bool) {
         self.enc.encode(sdr,scalar as u32);
     }
 }
@@ -152,12 +141,12 @@ pub struct IsWeekendEncoder{
 }
 
 impl IsWeekendEncoder{
-    pub fn encode_is_weekend(&self, sdr:&mut CpuSDR, is_weekend:bool){
+    pub fn encode_is_weekend(&self, sdr:&mut impl EncoderTarget, is_weekend:bool){
         self.enc.encode(sdr,is_weekend);
     }
 }
 impl <T:TimeZone> Encoder<&DateTime<T>> for IsWeekendEncoder{
-    fn encode(&self, sdr:&mut CpuSDR, scalar:&DateTime<T>) {
+    fn encode(&self, sdr:&mut impl EncoderTarget, scalar:&DateTime<T>) {
         self.encode_is_weekend(sdr,scalar.weekday().number_from_monday()>=6);
     }
 }
@@ -166,12 +155,12 @@ pub struct TimeOfDayEncoder{
     enc:CircularIntegerEncoder
 }
 impl TimeOfDayEncoder{
-    pub fn encode_time_of_day(&self, sdr:&mut CpuSDR, num_seconds_from_midnight:u32){
+    pub fn encode_time_of_day(&self, sdr:&mut impl EncoderTarget, num_seconds_from_midnight:u32){
         self.enc.encode(sdr,num_seconds_from_midnight);
     }
 }
 impl <T:TimeZone> Encoder<&DateTime<T>> for TimeOfDayEncoder{
-    fn encode(&self, sdr:&mut CpuSDR, scalar:&DateTime<T>) {
+    fn encode(&self, sdr:&mut impl EncoderTarget, scalar:&DateTime<T>) {
         self.encode_time_of_day(sdr,scalar.time().num_seconds_from_midnight());
     }
 }
@@ -180,12 +169,12 @@ pub struct DayOfYearEncoder{
     enc:CircularIntegerEncoder
 }
 impl DayOfYearEncoder{
-    pub fn encode_day_of_year(&self, sdr:&mut CpuSDR, day_of_year:u32){
+    pub fn encode_day_of_year(&self, sdr:&mut impl EncoderTarget, day_of_year:u32){
         self.enc.encode(sdr,day_of_year);
     }
 }
 impl <T:TimeZone> Encoder<&DateTime<T>> for DayOfYearEncoder{
-    fn encode(&self, sdr:&mut CpuSDR, scalar:&DateTime<T>) {
+    fn encode(&self, sdr:&mut impl EncoderTarget, scalar:&DateTime<T>) {
         self.encode_day_of_year(sdr,scalar.date().ordinal0());
     }
 }

@@ -8,6 +8,7 @@ use crate::htm_program::HtmProgram;
 use ndalgebra::buffer::Buffer;
 use std::cmp::Ordering;
 use itertools::Itertools;
+use crate::EncoderTarget;
 
 #[derive(Clone)]
 pub struct HomHyperparams{

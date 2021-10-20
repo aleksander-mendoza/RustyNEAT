@@ -5,35 +5,36 @@ mod cpu_htm2;
 mod htm2;
 mod cpu_hom;
 mod hom;
-mod cpu_htm3;
-mod htm3;
 mod encoder;
 mod ocl_sdr;
 mod ocl_htm;
 mod htm_program;
 mod ocl_htm2;
-mod htm_program2;
 mod ocl_hom;
 mod cpu_htm4;
 mod htm4;
-mod hom_program;
-mod cpu_hom2;
-
+mod ocl_bitset;
+mod cpu_bitset;
+mod cpu_input;
+mod ocl_input;
+pub use ocl_htm2::OclHTM2;
+pub use ocl_bitset::OclBitset;
+pub use ocl_input::OclInput;
 pub use ocl_sdr::OclSDR;
 pub use ocl_htm::OclHTM;
 pub use htm_program::HtmProgram;
-pub use cpu_htm::CpuHTM;
-pub use cpu_hom::*;
 pub use htm::*;
 pub use htm4::*;
-pub use ocl_htm2::OclHTM2;
+pub use htm2::*;
+pub use encoder::*;
+pub use cpu_htm::CpuHTM;
+pub use cpu_hom::*;
+pub use cpu_bitset::CpuBitset;
+pub use cpu_input::CpuInput;
 pub use cpu_htm4::CpuHTM4;
 pub use cpu_sdr::CpuSDR;
 pub use cpu_htm2::CpuHTM2;
-pub use htm2::*;
-pub use htm3::*;
-pub use htm_program2::HtmProgram2;
-pub use encoder::*;
+
 // pub use cpu_higher_order_memory::CpuHOM;
 
 #[cfg(test)]
@@ -48,7 +49,6 @@ mod tests {
     use crate::cpu_htm::CpuHTM;
     use crate::cpu_htm2::CpuHTM2;
     use crate::ocl_htm2::OclHTM2;
-    use crate::htm_program2::HtmProgram2;
     use ndalgebra::context::Context;
     use crate::encoder::{EncoderBuilder, Encoder};
 
@@ -56,18 +56,16 @@ mod tests {
     fn test1() -> Result<(), String> {
         let c = Context::gpu()?;
         let p = HtmProgram::new(c.clone())?;
-        let p2 = HtmProgram2::new(c)?;
-        let mut sdr = CpuSDR::with_capacity(16);
-        sdr.set(&[4, 6, 14, 3]);
+        let mut sdr = CpuInput::from_sparse_slice(&[4, 6, 14, 3], 16);
         let mut htm = CpuHTM::new_globally_uniform_prob(16, 16, 4, 12);
         let output_sdr = htm.infer(&sdr, false);
         let mut htm2 = CpuHTM2::from(&htm);
-        let output_sdr2 = htm2.infer2(&sdr, false);
+        let output_sdr2 = htm2.infer2(sdr.get_dense(), false);
 
-        let mut ocl_sdr = OclSDR::new(p.ctx.clone(), 16)?;
-        ocl_sdr.set(&[4, 6, 14, 3]);
-        let mut ocl_htm2 = OclHTM2::new(&htm2, p2.clone())?;
-        let output_sdr4 = ocl_htm2.infer2(&ocl_sdr, false)?;
+        let mut ocl_sdr = OclInput::new(p.clone(), 16,16)?;
+        ocl_sdr.set_sparse_from_slice(&[4, 6, 14, 3]);
+        let mut ocl_htm2 = OclHTM2::new(&htm2, p.clone())?;
+        let output_sdr4 = ocl_htm2.infer2(ocl_sdr.get_dense(), false)?;
         let mut ocl_htm = OclHTM::new(&htm, p.clone())?;
         let output_sdr3 = ocl_htm.infer(&ocl_sdr, false)?;
 
@@ -253,7 +251,7 @@ mod tests {
         );
         let mut hom = CpuHOM::new(8, number_of_minicolumns);
         hom.hyp.predicted_decrement = -0.05;
-        let mut sdr = CpuSDR::new();
+        let mut sdr = CpuInput::new(encoder.input_size());
         const NOTE_A:u32 = 0;
         const NOTE_B:u32 = 1;
         const NOTE_C_SHARP:u32 = 2;
@@ -270,31 +268,66 @@ mod tests {
         for _ in 0..4{
             sdr.clear();
             cat_enc.encode(&mut sdr, NOTE_A);
-            activated_by_a = htm.infer2(&mut sdr,true);
-            predicted_after_a = hom.infer(&mut activated_by_a,true);
+            activated_by_a = htm.infer2(sdr.get_dense(),true);
+            predicted_after_a = hom.infer(&activated_by_a,true);
 
             sdr.clear();
             cat_enc.encode(&mut sdr, NOTE_B);
-            activated_by_b = htm.infer2(&mut sdr,true);
-            predicted_after_b = hom.infer(&mut activated_by_b,true);
+            activated_by_b = htm.infer2( sdr.get_dense(),true);
+            predicted_after_b = hom.infer(& activated_by_b,true);
 
 
             sdr.clear();
             cat_enc.encode(&mut sdr, NOTE_C_SHARP);
-            activated_by_c = htm.infer2(&mut sdr,true);
-            predicted_after_c = hom.infer(&mut activated_by_c,true);
+            activated_by_c = htm.infer2( sdr.get_dense(),true);
+            predicted_after_c = hom.infer(& activated_by_c,true);
 
 
             sdr.clear();
             cat_enc.encode(&mut sdr, NOTE_D);
-            activated_by_d = htm.infer2(&mut sdr,true);
-            predicted_after_d = hom.infer(&mut activated_by_d,true);
+            activated_by_d = htm.infer2( sdr.get_dense(),true);
+            predicted_after_d = hom.infer(& activated_by_d,true);
         }
 
         assert_eq!(predicted_after_a, activated_by_b);
         assert_eq!(predicted_after_b, activated_by_c);
         assert_eq!(predicted_after_c, activated_by_d);
         assert_eq!(predicted_after_d, activated_by_a);
+        Ok(())
+    }
+
+    #[test]
+    fn test9() -> Result<(), String> {
+        let p = HtmProgram::default()?;
+        let input = CpuInput::from_sparse_slice(&[1,2,4,7,15], 16);
+        let ocl_input = OclInput::from_cpu(&input,p.clone(),16)?;
+        let input2 = ocl_input.to_cpu()?;
+        assert_eq!(input.get_sparse(),input2.get_sparse(),"sparse");
+        assert_eq!(input.get_dense(),input2.get_dense(),"dense");
+        Ok(())
+    }
+
+    #[test]
+    fn test10() -> Result<(), String> {
+        let p = HtmProgram::default()?;
+        let input = CpuInput::from_dense_bools(&[true,false,false,true,true,false,false,true]);
+        let ocl_input = OclInput::from_cpu(&input,p.clone(),16)?;
+        let input2 = ocl_input.to_cpu()?;
+        assert_eq!(input.get_sparse(),input2.get_sparse(),"sparse");
+        assert_eq!(input.get_dense(),input2.get_dense(),"dense");
+        Ok(())
+    }
+
+    #[test]
+    fn test11() -> Result<(), String> {
+        let p = HtmProgram::default()?;
+        let input = CpuInput::from_sparse_slice(&[1,2,4,7,15], 16);
+        let mut ocl_input = OclInput::from_cpu(&input,p.clone(),16)?;
+        ocl_input.set_sparse_from_slice(&[1,5,13])?;
+        let input = CpuInput::from_sparse_slice(&[1,5,13], 16);
+        let input2 = ocl_input.to_cpu()?;
+        assert_eq!(input.get_sparse(),input2.get_sparse(),"sparse");
+        assert_eq!(input.get_dense(),input2.get_dense(),"dense");
         Ok(())
     }
 }

@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter, Debug};
 use ocl::core::{MemInfo, MemInfoResult, BufferRegion, Mem, ArgVal};
 use ndalgebra::buffer::Buffer;
 use crate::htm_program::HtmProgram;
+use crate::{CpuBitset, EncoderTarget};
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct CpuSDR(Vec<u32>);
@@ -12,6 +13,12 @@ pub struct CpuSDR(Vec<u32>);
 impl PartialEq<Vec<u32>> for CpuSDR{
     fn eq(&self, other: &Vec<u32>) -> bool {
         self.0.eq(other)
+    }
+}
+
+impl From<&[u32]> for CpuSDR{
+    fn from(v: &[u32]) -> Self {
+        Self(Vec::from(v))
     }
 }
 impl From<Vec<u32>> for CpuSDR{
@@ -33,9 +40,15 @@ impl DerefMut for CpuSDR{
         self.0.as_mut_slice()
     }
 }
+
 impl Debug for CpuSDR{
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
+    }
+}
+impl EncoderTarget for CpuSDR{
+    fn push(&mut self, neuron_index: u32) {
+        self.0.push(neuron_index)
     }
 }
 impl CpuSDR {
@@ -45,10 +58,7 @@ impl CpuSDR {
     pub fn as_mut_slice(&mut self)->&mut [u32]{
         self.0.as_mut_slice()
     }
-    pub fn push(&mut self, neuron_index:u32){
-        self.0.push(neuron_index)
-    }
-    pub fn to_vec(self)->Vec<u32>{
+    pub fn into_vec(self) ->Vec<u32>{
         let Self(v) = self;
         v
     }
@@ -59,8 +69,8 @@ impl CpuSDR {
         unsafe{self.0.set_len(0)}
         self.0.extend_from_slice(active_neurons)
     }
-    pub fn number_of_active_neurons(&self)->usize{
-        self.0.len()
+    pub fn cardinality(&self) ->u32{
+        self.0.len() as u32
     }
     /**SDR ust be sparse. Hence we might as well put a cap on the maximum number of active neurons.
     If your system is designed correctly, then you should never have to worry about exceeding this limit.*/
@@ -119,6 +129,9 @@ impl CpuSDR {
         true
     }
     pub fn extend(&mut self, other:&CpuSDR){
+        self.0.extend_from_slice(other)
+    }
+    pub fn extend_from_slice(&mut self, other:&[u32]){
         self.0.extend_from_slice(other)
     }
     /**Requires that both SDRs are normalized. The resulting SDR is already in normalized form*/
