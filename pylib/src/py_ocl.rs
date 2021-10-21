@@ -8,14 +8,12 @@ use std::any::Any;
 use ndalgebra::{Platform, Device};
 use ndalgebra::context::Context as C;
 use htm::HtmProgram;
-use htm::HtmProgram2;
 use ndalgebra::lin_alg_program::LinAlgProgram;
 
 #[pyclass]
 pub struct Context {
     pub(crate) c: C,
     pub(crate) htm: Option<htm::HtmProgram>,
-    pub(crate) htm2: Option<htm::HtmProgram2>,
     pub(crate) lin_alg: Option<ndalgebra::lin_alg_program::LinAlgProgram>,
 }
 
@@ -24,7 +22,6 @@ impl Context{
         Self{
             c,
             htm: None,
-            htm2: None,
             lin_alg: None
         }
     }
@@ -34,13 +31,6 @@ impl Context{
             self.htm.insert(htm);
         }
         Ok(self.htm.as_ref().unwrap())
-    }
-    pub fn compile_htm_program2(&mut self) -> PyResult<&HtmProgram2> {
-        if self.htm2.is_none(){
-            let htm2 = htm::HtmProgram2::new(self.c.clone()).map_err(ocl_err_to_py_ex)?;
-            self.htm2.insert(htm2);
-        }
-        Ok(self.htm2.as_ref().unwrap())
     }
     pub fn compile_lin_alg_program(&mut self) -> PyResult<&LinAlgProgram> {
         if self.lin_alg.is_none(){

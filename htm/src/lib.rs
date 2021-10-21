@@ -20,6 +20,7 @@ mod cpu_input;
 mod ocl_input;
 mod rand;
 
+pub use crate::rand::auto_gen_seed;
 pub use ocl_htm2::OclHTM2;
 pub use ocl_bitset::OclBitset;
 pub use ocl_input::OclInput;
@@ -251,7 +252,7 @@ mod tests {
             number_of_minicolumns,
             16,
             25,
-            5447658,
+            544768,
         );
         let mut hom = CpuHOM::new(1, number_of_minicolumns);
         hom.hyp.activation_threshold = 8;

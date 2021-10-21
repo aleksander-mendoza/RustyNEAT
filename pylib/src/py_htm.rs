@@ -17,13 +17,23 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{Encoder, HomSegment};
+use htm::{Encoder, HomSegment, auto_gen_seed, EncoderTarget};
 use std::time::SystemTime;
 use std::ops::Deref;
 
 #[pyclass]
 pub struct CpuSDR {
     sdr: htm::CpuSDR,
+}
+
+#[pyclass]
+pub struct CpuBitset{
+    bits: htm::CpuBitset
+}
+
+#[pyclass]
+pub struct CpuInput{
+    inp: htm::CpuInput
 }
 
 #[pyclass]
@@ -51,6 +61,16 @@ pub struct CpuHTM4 {
 #[pyclass]
 pub struct OclSDR {
     sdr: htm::OclSDR,
+}
+
+#[pyclass]
+pub struct OclBitset{
+    bits: htm::OclBitset
+}
+
+#[pyclass]
+pub struct OclInput{
+    inp: htm::OclInput
 }
 
 #[pyclass]
@@ -355,11 +375,11 @@ impl CpuHOM {
 #[pymethods]
 impl CpuHTM {
     #[new]
-    pub fn new(input_size: u32, minicolumns: u32, inputs_per_minicolumn: u32, n: u32) -> PyResult<Self> {
+    pub fn new(input_size: u32, minicolumns: u32, inputs_per_minicolumn: u32, n: u32, rand_seed:Option<u32>) -> PyResult<Self> {
         if inputs_per_minicolumn > minicolumns{
             return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} minicolumns",inputs_per_minicolumn, minicolumns)))
         }
-        Ok(CpuHTM { htm: htm::CpuHTM::new_globally_uniform_prob(input_size, minicolumns, n, DEFAULT_PERMANENCE_THRESHOLD, DEFAULT_PERMANENCE_DECREMENT, DEFAULT_PERMANENCE_INCREMENT, inputs_per_minicolumn) })
+        Ok(CpuHTM { htm: htm::CpuHTM::new_globally_uniform_prob(input_size, minicolumns, n, inputs_per_minicolumn,rand_seed.unwrap_or_else(auto_gen_seed)) })
     }
 
 
@@ -414,8 +434,8 @@ impl CpuHTM {
     }
 
     #[call]
-    fn __call__(&mut self, sdr: &CpuSDR, learn: Option<bool>) -> CpuSDR {
-        CpuSDR{sdr:self.htm.infer(&sdr.sdr, learn.unwrap_or(false))}
+    fn __call__(&mut self, input: &CpuInput, learn: Option<bool>) -> CpuSDR {
+        CpuSDR{sdr:self.htm.infer(&input.inp, learn.unwrap_or(false))}
     }
 
     #[text_signature = "( /)"]
@@ -432,12 +452,18 @@ impl CpuHTM {
 
 #[pymethods]
 impl CpuHTM2 {
+    /// new(input_size, minicolumns, inputs_per_minicolumn, n, rand_seed)
+    /// --
+    ///
+    /// Randomly generate a new Spacial Pooler. You can provide a random seed manually.
+    /// Otherwise the millisecond part of system time is used as a seed. Seed is a 32-bit number.
+    ///
     #[new]
-    pub fn new(input_size: u32, minicolumns: u32, inputs_per_minicolumn: u32, n: u32) -> PyResult<Self> {
+    pub fn new(input_size: u32, minicolumns: u32, inputs_per_minicolumn: u32, n: u32,rand_seed:Option<u32>) -> PyResult<Self> {
         if inputs_per_minicolumn > minicolumns{
             return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} minicolumns",inputs_per_minicolumn, minicolumns)))
         }
-        Ok(CpuHTM2 { htm: htm::CpuHTM2::new_globally_uniform_prob(input_size, minicolumns, n, DEFAULT_PERMANENCE_THRESHOLD, DEFAULT_PERMANENCE_DECREMENT, DEFAULT_PERMANENCE_INCREMENT, inputs_per_minicolumn) })
+        Ok(CpuHTM2 { htm: htm::CpuHTM2::new_globally_uniform_prob(input_size, minicolumns, n, inputs_per_minicolumn, rand_seed.unwrap_or_else(auto_gen_seed)) })
     }
     #[text_signature = "( /)"]
     fn clone(&self) -> CpuHTM2 {
@@ -494,8 +520,8 @@ impl CpuHTM2 {
     }
 
     #[call]
-    fn __call__(&mut self, sdr: &CpuSDR, learn: Option<bool>) -> CpuSDR {
-        CpuSDR{sdr:self.htm.infer2(&sdr.sdr, learn.unwrap_or(false))}
+    fn __call__(&mut self, bitset_input: &CpuBitset, learn: Option<bool>) -> CpuSDR {
+        CpuSDR{sdr:self.htm.infer2(&bitset_input.bits, learn.unwrap_or(false))}
     }
 }
 
@@ -506,11 +532,11 @@ impl CpuHTM4 {
         CpuHTM4 { htm: self.htm.clone() }
     }
     #[new]
-    pub fn new(input_size: u32, minicolumns: u32, inputs_per_minicolumn: u32, n: u32, inhibitory_connection_probability:f32) -> PyResult<Self> {
+    pub fn new(input_size: u32, minicolumns: u32, inputs_per_minicolumn: u32, n: u32, inhibitory_connection_probability:f32, rand_seed:Option<u32>) -> PyResult<Self> {
         if inputs_per_minicolumn > minicolumns{
             return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} minicolumns",inputs_per_minicolumn, minicolumns)))
         }
-        Ok(CpuHTM4 { htm: htm::CpuHTM4::new_globally_uniform_prob(input_size, minicolumns, n, DEFAULT_PERMANENCE_THRESHOLD, DEFAULT_PERMANENCE_DECREMENT, DEFAULT_PERMANENCE_INCREMENT, inputs_per_minicolumn,inhibitory_connection_probability) })
+        Ok(CpuHTM4 { htm: htm::CpuHTM4::new_globally_uniform_prob(input_size, minicolumns, n, inputs_per_minicolumn,inhibitory_connection_probability,rand_seed.unwrap_or_else(auto_gen_seed)) })
     }
 
     #[getter]
@@ -564,8 +590,8 @@ impl CpuHTM4 {
     }
 
     #[call]
-    fn __call__(&mut self, sdr: &CpuSDR, learn: Option<bool>) -> CpuSDR {
-        CpuSDR{sdr:self.htm.infer4(&sdr.sdr, learn.unwrap_or(false))}
+    fn __call__(&mut self, bitset_input: &CpuBitset, learn: Option<bool>) -> CpuSDR {
+        CpuSDR{sdr:self.htm.infer4(&bitset_input.bits, learn.unwrap_or(false))}
     }
 }
 
@@ -573,8 +599,8 @@ impl CpuHTM4 {
 #[pymethods]
 impl OclSDR {
     #[new]
-    pub fn new(context: &Context, max_active_neurons: usize) -> PyResult<Self> {
-        htm::OclSDR::new(context.c.clone(), max_active_neurons).map(|sdr| OclSDR { sdr }).map_err(ocl_err_to_py_ex)
+    pub fn new(context: &mut Context, max_active_neurons: u32) -> PyResult<Self> {
+        context.compile_htm_program().and_then(|prog|htm::OclSDR::new(prog.clone(), max_active_neurons).map_err(ocl_err_to_py_ex)).map(|sdr| OclSDR { sdr })
     }
 
     #[getter]
@@ -645,6 +671,83 @@ impl CpuSDR {
 }
 
 #[pymethods]
+impl CpuBitset{
+    #[new]
+    pub fn new(bit_count:u32)->Self{
+        CpuBitset{bits:htm::CpuBitset::new(bit_count)}
+    }
+    #[getter]
+    pub fn size(&self)->u32{
+        self.bits.size()
+    }
+    #[text_signature = "(bit_index)"]
+    pub fn is_bit_on(&self, bit_index:u32)->bool{
+        self.bits.is_bit_on(bit_index)
+    }
+    #[text_signature = "(sdr)"]
+    pub fn append_to_sdr(&self, sdr:&mut CpuSDR){
+        self.bits.append_to_sdr(&mut sdr.sdr)
+    }
+    #[getter]
+    pub fn cardinality(&self)->u32{
+        self.bits.cardinality()
+    }
+    #[text_signature = "(sdr)"]
+    pub fn clear(&mut self, sdr:&CpuSDR){
+        self.bits.clear(&sdr.sdr)
+    }
+    #[text_signature = "(min_size)"]
+    pub fn ensure_size(&mut self, min_size:u32){
+        self.bits.ensure_size(min_size)
+    }
+    #[text_signature = "(size)"]
+    pub fn set_size(&mut self, size:u32){
+        self.bits.set_size(size)
+    }
+    #[text_signature = "(bit_idx)"]
+    pub fn set_bit_on(&mut self, bit_idx:u32){
+        self.bits.set_bit_on(bit_idx)
+    }
+    #[text_signature = "(sdr)"]
+    pub fn set_bit_off(&mut self, bit_idx:u32){
+        self.bits.set_bit_off(bit_idx)
+    }
+    #[text_signature = "(sdr)"]
+    pub fn set_bits_on(&mut self, sdr:&CpuSDR){
+        self.bits.set_bits_on(&sdr.sdr)
+    }
+    #[text_signature = "(sdr)"]
+    pub fn set_bits_off(&mut self, sdr:&CpuSDR){
+        self.bits.set_bits_off(&sdr.sdr)
+    }
+    #[text_signature = "(sdr)"]
+    pub fn to_sdr(&self)->CpuSDR{
+        CpuSDR{sdr:htm::CpuSDR::from(&self.bits)}
+    }
+}
+
+#[pymethods]
+impl CpuInput{
+    #[new]
+    pub fn new(size:u32)->Self{
+        CpuInput{inp:htm::CpuInput::new(size)}
+    }
+    #[getter]
+    pub fn size(&self)->u32{
+        self.inp.size()
+    }
+    #[getter]
+    pub fn cardinality(&self)->u32{
+        self.inp.cardinality()
+    }
+    #[text_signature = "(size)"]
+    pub fn set_size(&mut self, size:u32){
+        self.inp.set_size(size)
+    }
+}
+
+
+#[pymethods]
 impl OclHTM {
     #[new]
     pub fn new(context: &mut Context, htm: &CpuHTM) -> PyResult<Self> {
@@ -702,8 +805,8 @@ impl OclHTM {
     }
 
     #[call]
-    fn __call__(&mut self, sdr: &OclSDR, learn: Option<bool>) -> PyResult<OclSDR> {
-        self.htm.infer(&sdr.sdr, learn.unwrap_or(false)).map(|sdr| OclSDR { sdr }).map_err(ocl_err_to_py_ex)
+    fn __call__(&mut self, input: &OclInput, learn: Option<bool>) -> PyResult<OclSDR> {
+        self.htm.infer(&input.inp, learn.unwrap_or(false)).map(|sdr| OclSDR { sdr }).map_err(ocl_err_to_py_ex)
     }
 }
 
@@ -711,7 +814,7 @@ impl OclHTM {
 impl OclHTM2 {
     #[new]
     pub fn new(context: &mut Context, htm: &CpuHTM2) -> PyResult<Self> {
-        htm::OclHTM2::new(&htm.htm, context.compile_htm_program2()?.clone()).map(|htm| OclHTM2 { htm }).map_err(ocl_err_to_py_ex)
+        htm::OclHTM2::new(&htm.htm, context.compile_htm_program()?.clone()).map(|htm| OclHTM2 { htm }).map_err(ocl_err_to_py_ex)
     }
 
     #[getter]
@@ -765,8 +868,8 @@ impl OclHTM2 {
     }
 
     #[call]
-    fn __call__(&mut self, sdr: &OclSDR, learn: Option<bool>) -> PyResult<OclSDR> {
-        self.htm.infer2(&sdr.sdr, learn.unwrap_or(false)).map(|sdr| OclSDR { sdr }).map_err(ocl_err_to_py_ex)
+    fn __call__(&mut self, bitset_input: &OclBitset, learn: Option<bool>) -> PyResult<OclSDR> {
+        self.htm.infer2(&bitset_input.bits, learn.unwrap_or(false)).map(|sdr| OclSDR { sdr }).map_err(ocl_err_to_py_ex)
     }
 }
 

@@ -94,7 +94,7 @@ impl CpuBitset {
         // index%32 == index&31
         // we might either do  1<<(index&31) or 2147483648>>(index&31) . Both are equivalent. It only changes the order in which we store bits within each u32
         let i = (index >> 5) as usize;
-        assert!(i<self.bits.len(),"Index {} out of bounds for bitset of {} bits", index, self.input_size());
+        assert!(i<self.bits.len(),"Index {} out of bounds for bitset of {} bits", index, self.size());
         self.bits[i] |= 1 << (index & 31);
     }
 
@@ -109,9 +109,7 @@ impl CpuBitset {
     pub fn is_bit_on(&self, index: u32) -> bool {
         (self.bits[(index >> 5) as usize] & (1 << (index & 31))) != 0
     }
-    pub fn input_size(&self)->u32{
-        self.bits.len() as u32 * 32
-    }
+
 
     pub fn cardinality(&self) -> u32 {
         self.bits.iter().map(|&s| s.count_ones()).sum()

@@ -81,7 +81,7 @@ impl CpuInput{
         self.sdr.cardinality()
     }
     pub fn size(&self)->u32{
-        self.bitset.input_size()
+        self.bitset.size()
     }
     pub fn clear(&mut self){
         let Self{ sdr, bitset } = self;

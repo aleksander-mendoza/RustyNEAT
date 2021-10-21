@@ -80,6 +80,10 @@ pub fn ndalgebra(py: Python, m: &PyModule) -> PyResult<()> {
 #[pymodule]
 pub fn htm(py: Python, m: &PyModule) -> PyResult<()> {
     use py_htm::*;
+    m.add_class::<CpuBitset>()?;
+    m.add_class::<CpuInput>()?;
+    m.add_class::<OclBitset>()?;
+    m.add_class::<OclInput>()?;
     m.add_class::<CpuHTM>()?;
     m.add_class::<CpuHOM>()?;
     m.add_class::<CpuHTM2>()?;
