@@ -9,6 +9,7 @@ use ndalgebra::buffer::Buffer;
 use crate::htm2::*;
 use crate::cpu_htm::CpuHTM;
 use crate::cpu_bitset::CpuBitset;
+use crate::rand::{xorshift32, rand_u32_to_random_f32};
 
 /***This implementation assumes that most of the time  vast majority of minicolumns are connected to at least one active
 input. Hence instead of iterating the input and then visiting only connected minicolumns, it's better to just iterate all
@@ -72,12 +73,18 @@ impl CpuHTM2 {
     pub fn minicolumns_as_slice(&self)->&[HtmMinicolumn2]{
         self.minicolumns.as_slice()
     }
-    pub fn new_globally_uniform_prob(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32) -> Self {
+    pub fn new_globally_uniform_prob(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, mut rand_seed:u32) -> Self {
         assert!(inputs_per_minicolumn < minicolumns);
-        Self::new(input_size, minicolumns, n, |minicolumn_id| rand::random::<u32>() % input_size, |minicolumn_id| inputs_per_minicolumn)
+        Self::new(input_size, minicolumns, n, |minicolumn_id|{
+            rand_seed = xorshift32(rand_seed);
+            let input_idx = rand_seed % input_size;
+            rand_seed = xorshift32(rand_seed);
+            let permanence = rand_u32_to_random_f32(rand_seed);
+            (input_idx,permanence)
+        }, |minicolumn_id| inputs_per_minicolumn)
     }
     /**n = how many minicolumns to activate. We will always take the top n minicolumns with the greatest overlap value.*/
-    pub fn new(input_size: u32, minicolumns_count: u32, n: u32, mut random_input_close_to_minicolumn: impl FnMut(u32) -> u32, mut input_count_incoming_to_minicolumn: impl FnMut(u32) -> u32) -> Self {
+    pub fn new(input_size: u32, minicolumns_count: u32, n: u32, mut random_input_close_to_minicolumn: impl FnMut(u32) -> (u32,f32), mut input_count_incoming_to_minicolumn: impl FnMut(u32) -> u32) -> Self {
         let mut feedforward_connections: Vec<HtmFeedforwardConnection2> = vec![];
         let mut minicolumns: Vec<HtmMinicolumn2> = Vec::with_capacity(minicolumns_count as usize);
 
@@ -88,16 +95,16 @@ impl CpuHTM2 {
             let mut inputs_to_this_minicolumns: Vec<u32> = vec![];
             let connection_begin = feedforward_connections.len() as u32;
             for _ in 0..input_count {
-                let mut input_id = random_input_close_to_minicolumn(minicolumn_id);
-                while connected_inputs[input_id as usize] { // find some input that has not been connected to this minicolumn yet
-                    input_id=(input_id+1)%input_size
+                let mut inp_perm = random_input_close_to_minicolumn(minicolumn_id);
+                while connected_inputs[inp_perm.0 as usize] { // find some input that has not been connected to this minicolumn yet
+                    inp_perm.0=(inp_perm.0+1)%input_size
                 }
-                connected_inputs[input_id as usize] = true;
+                connected_inputs[inp_perm.0 as usize] = true;
                 feedforward_connections.push(HtmFeedforwardConnection2 {
-                    permanence: rand::random::<f32>(),
-                    input_id: input_id as u32,
+                    permanence: inp_perm.1,
+                    input_id: inp_perm.0,
                 });
-                inputs_to_this_minicolumns.push(input_id);
+                inputs_to_this_minicolumns.push(inp_perm.0);
             }
             minicolumns.push(HtmMinicolumn2 {
                 connection_offset: connection_begin,
@@ -201,7 +208,7 @@ impl CpuHTM2 {
     }
 
     pub fn infer2(&mut self, bitset_input: &CpuBitset, learn: bool) -> CpuSDR{
-        assert_eq!(self.input_size(),bitset_input.size());
+        assert!(self.input_size()<=bitset_input.size(),"HTM expects input of size {} but got {}",self.input_size(),bitset_input.size());
         let mut number_of_minicolumns_per_overlap = vec![0; self.max_overlap as usize];
         self.htm_calculate_overlap2(bitset_input,&mut number_of_minicolumns_per_overlap);
         let smallest_overlap_that_made_it_to_top_n = self.htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n2(&mut number_of_minicolumns_per_overlap);

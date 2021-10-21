@@ -1,3 +1,4 @@
+
 mod cpu_htm;
 mod htm;
 mod cpu_sdr;
@@ -17,6 +18,8 @@ mod ocl_bitset;
 mod cpu_bitset;
 mod cpu_input;
 mod ocl_input;
+mod rand;
+
 pub use ocl_htm2::OclHTM2;
 pub use ocl_bitset::OclBitset;
 pub use ocl_input::OclInput;
@@ -54,10 +57,10 @@ mod tests {
 
     #[test]
     fn test1() -> Result<(), String> {
-        let c = Context::gpu()?;
+        let c = Context::default()?;
         let p = HtmProgram::new(c.clone())?;
         let mut sdr = CpuInput::from_sparse_slice(&[4, 6, 14, 3], 16);
-        let mut htm = CpuHTM::new_globally_uniform_prob(16, 16, 4, 12);
+        let mut htm = CpuHTM::new_globally_uniform_prob(16, 16, 4, 12, 4);
         let output_sdr = htm.infer(&sdr, false);
         let mut htm2 = CpuHTM2::from(&htm);
         let output_sdr2 = htm2.infer2(sdr.get_dense(), false);
@@ -241,58 +244,45 @@ mod tests {
     #[test]
     fn test8() -> Result<(), String> {
         let mut encoder = EncoderBuilder::new();
-        let cat_enc = encoder.add_categorical(4, 8);
-        let number_of_minicolumns = 100;
+        let cat_enc = encoder.add_categorical(5, 10);
+        let number_of_minicolumns = 50;
         let mut htm = CpuHTM2::new_globally_uniform_prob(
             encoder.input_size(),
             number_of_minicolumns,
             16,
-            (encoder.input_size() as f32 *0.8) as u32
+            25,
+            5447658,
         );
-        let mut hom = CpuHOM::new(8, number_of_minicolumns);
-        hom.hyp.predicted_decrement = -0.05;
-        let mut sdr = CpuInput::new(encoder.input_size());
+        let mut hom = CpuHOM::new(1, number_of_minicolumns);
+        hom.hyp.activation_threshold = 8;
+        hom.hyp.learning_threshold = 8;
+        hom.hyp.predicted_decrement = -0.0;
+        hom.hyp.permanence_decrement_increment = [0.,0.1];
+
+
         const NOTE_A:u32 = 0;
         const NOTE_B:u32 = 1;
         const NOTE_C_SHARP:u32 = 2;
         const NOTE_D:u32 = 3;
-        let mut predicted_after_a = CpuSDR::new();
-        let mut activated_by_b = CpuSDR::new();
-        let mut predicted_after_b = CpuSDR::new();
-        let mut activated_by_c = CpuSDR::new();
-        let mut predicted_after_c = CpuSDR::new();
-        let mut activated_by_d = CpuSDR::new();
-        let mut predicted_after_d = CpuSDR::new();
-        let mut activated_by_a = CpuSDR::new();
-
-        for _ in 0..4{
-            sdr.clear();
-            cat_enc.encode(&mut sdr, NOTE_A);
-            activated_by_a = htm.infer2(sdr.get_dense(),true);
-            predicted_after_a = hom.infer(&activated_by_a,true);
-
-            sdr.clear();
-            cat_enc.encode(&mut sdr, NOTE_B);
-            activated_by_b = htm.infer2( sdr.get_dense(),true);
-            predicted_after_b = hom.infer(& activated_by_b,true);
-
-
-            sdr.clear();
-            cat_enc.encode(&mut sdr, NOTE_C_SHARP);
-            activated_by_c = htm.infer2( sdr.get_dense(),true);
-            predicted_after_c = hom.infer(& activated_by_c,true);
-
-
-            sdr.clear();
-            cat_enc.encode(&mut sdr, NOTE_D);
-            activated_by_d = htm.infer2( sdr.get_dense(),true);
-            predicted_after_d = hom.infer(& activated_by_d,true);
+        const NOTE_E:u32 = 4;
+        let sdrs:Vec<CpuInput> = (0..5).map(|i|{
+            let mut sdr = CpuInput::new(encoder.input_size());
+            cat_enc.encode(&mut sdr, i);
+            sdr
+        }).collect();
+        for sdr in &sdrs{
+            let activated = htm.infer2(sdr.get_dense(),true);
+            hom.infer(&activated,true);
+        }
+        hom.reset();
+        let activated = htm.infer2(sdrs[0].get_dense(),false);
+        let mut predicted = hom.infer(&activated,false);
+        for sdr in &sdrs[1..]{
+            let activated = htm.infer2(sdr.get_dense(),true);
+            assert_eq!(predicted, activated);
+            predicted = hom.infer(&activated,true);
         }
 
-        assert_eq!(predicted_after_a, activated_by_b);
-        assert_eq!(predicted_after_b, activated_by_c);
-        assert_eq!(predicted_after_c, activated_by_d);
-        assert_eq!(predicted_after_d, activated_by_a);
         Ok(())
     }
 
@@ -328,6 +318,114 @@ mod tests {
         let input2 = ocl_input.to_cpu()?;
         assert_eq!(input.get_sparse(),input2.get_sparse(),"sparse");
         assert_eq!(input.get_dense(),input2.get_dense(),"dense");
+        Ok(())
+    }
+
+
+    #[test]
+    fn test12() -> Result<(), String> {
+        let mut sdr = CpuInput::from_sparse_slice(&[4, 6, 14, 3], 16);
+        let mut htm = CpuHTM::new_globally_uniform_prob(16, 16, 4, 12,36564);
+        let output_sdr = htm.infer(&sdr, false);
+        let mut htm2 = CpuHTM2::from(&htm);
+        let output_sdr2 = htm2.infer2(sdr.get_dense(), false);
+
+        let output_sdr = output_sdr.to_vec();
+        let output_sdr2 = output_sdr2.to_vec();
+        assert_eq!(output_sdr, output_sdr2, "{:?}=={:?}", output_sdr, output_sdr2);
+        Ok(())
+    }
+
+    #[test]
+    fn test13() -> Result<(), String> {
+        let mut encoder = EncoderBuilder::new();
+        let cat_enc = encoder.add_categorical(5, 10);
+        let number_of_minicolumns = encoder.input_size();
+        let mut hom = CpuHOM::new(1, number_of_minicolumns);
+        hom.hyp.activation_threshold = 8;
+        hom.hyp.learning_threshold = 8;
+        hom.hyp.predicted_decrement = -0.0;
+        hom.hyp.permanence_decrement_increment = [0.,0.1];
+
+        const NOTE_A:u32 = 0;
+        const NOTE_B:u32 = 1;
+        const NOTE_C_SHARP:u32 = 2;
+        const NOTE_D:u32 = 3;
+        const NOTE_E:u32 = 4;
+        let sdrs:Vec<CpuInput> = (0..5).map(|i|{
+            let mut sdr = CpuInput::new(encoder.input_size());
+            cat_enc.encode(&mut sdr, i);
+            sdr
+        }).collect();
+        for sdr in &sdrs{
+            hom.infer(sdr.get_sparse(),true);
+        }
+        hom.reset();
+        let mut predicted = hom.infer(sdrs[0].get_sparse(),false);
+        for sdr in &sdrs[1..]{
+            assert_eq!(&predicted, sdr.get_sparse());
+            predicted = hom.infer(sdr.get_sparse(),true);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test14() -> Result<(), String> {
+        const CELLS_PER_COL:u32=1;
+        const CELLS_PER_IN:u32=4;
+        const IN:u32=CELLS_PER_IN*5;
+        const COLUMNS:u32=IN;
+        const N:u32 = 4;
+        const ACTIVATION_THRESHOLD:u32=4;
+        let mut encoder = EncoderBuilder::new();
+        let cat_enc = encoder.add_categorical(5, CELLS_PER_IN);
+        let mut htm = CpuHTM2::new_globally_uniform_prob(
+            encoder.input_size(),
+            COLUMNS,
+            N,
+            COLUMNS/2,
+            967786374
+        );
+        let mut hom = CpuHOM::new(1, COLUMNS);
+        hom.hyp.activation_threshold = ACTIVATION_THRESHOLD;
+        hom.hyp.learning_threshold = ACTIVATION_THRESHOLD;
+        hom.hyp.predicted_decrement = -0.0;
+        hom.hyp.permanence_decrement_increment = [0.,0.1];
+
+
+        const NOTE_A:u32 = 0;
+        const NOTE_B:u32 = 1;
+        const NOTE_C_SHARP:u32 = 2;
+        const NOTE_D:u32 = 3;
+        const NOTE_E:u32 = 4;
+        let sdrs:Vec<CpuInput> = (0..5).map(|i|{
+            let mut sdr = CpuInput::new(encoder.input_size());
+            cat_enc.encode(&mut sdr, i);
+            sdr
+        }).collect();
+        for sdr in &sdrs{
+            let activated = htm.infer2(sdr.get_dense(),true);
+            hom.infer(&activated,true);
+        }
+        hom.reset();
+        println!();
+        let activated = htm.infer2(sdrs[0].get_dense(),false);
+        let mut predicted = hom.infer(&activated,false);
+        println!("Activated={:?}", activated);
+        println!("Active_cells={:?}", hom.active_cells);
+        println!("Winner_cells={:?}", hom.winner_cells);
+        println!("Predicted={:?}", predicted);
+        for sdr in &sdrs[1..]{
+            let activated = htm.infer2(sdr.get_dense(),true);
+            println!("activated={:?}", activated);
+            assert_eq!(predicted, activated);
+            predicted = hom.infer(&activated,true);
+            println!("active_cells={:?}", hom.active_cells);
+            println!("winner_cells={:?}", hom.winner_cells);
+            println!("predicted={:?}", predicted);
+        }
+
         Ok(())
     }
 }

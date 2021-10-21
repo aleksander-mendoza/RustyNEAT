@@ -5,6 +5,7 @@ use crate::cpu_sdr::CpuSDR;
 use crate::htm::*;
 use crate::cpu_input::CpuInput;
 use crate::cpu_bitset::CpuBitset;
+use crate::rand::{xorshift32, rand_u32_to_random_f32};
 
 /***This implementation assumes that most of the time very few minicolumns are connected to at least one active
 input. Hence instead of iterating all minicolumns, it's better to iterate the input and then visit only the connected minicolumns.
@@ -51,17 +52,25 @@ impl CpuHTM {
     pub fn minicolumns_as_slice(&self)->&[HtmMinicolumn]{
         self.minicolumns.as_slice()
     }
-    pub fn new_globally_uniform_prob(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32) -> Self {
+    pub fn new_globally_uniform_prob(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, mut rand_seed:u32) -> Self {
         assert!(inputs_per_minicolumn < minicolumns);
-        Self::new(input_size, minicolumns, n, |minicolumn_id| rand::random::<u32>() % input_size, |minicolumn_id| inputs_per_minicolumn)
+        Self::new(input_size, minicolumns, n, |minicolumn_id| {
+            rand_seed = xorshift32(rand_seed);
+            let input_idx = rand_seed % input_size;
+            rand_seed = xorshift32(rand_seed);
+            let permannence = rand_u32_to_random_f32(rand_seed);
+            (input_idx,permannence)
+        }, |minicolumn_id| inputs_per_minicolumn)
     }
     /**n = how many minicolumns to activate. We will always take the top n minicolumns with the greatest overlap value.*/
-    pub fn new(input_size: u32, minicolumns_count: u32, n: u32, mut random_input_close_to_minicolumn: impl FnMut(u32) -> u32, mut input_count_incoming_to_minicolumn: impl FnMut(u32) -> u32) -> Self {
+    pub fn new(input_size: u32, minicolumns_count: u32, n: u32,
+               mut random_input_close_to_minicolumn: impl FnMut(u32) -> (u32,f32),
+               mut input_count_incoming_to_minicolumn: impl FnMut(u32) -> u32) -> Self {
         let mut feedforward_connections: Vec<HtmFeedforwardConnection> = vec![];
         let mut connection_indices = vec![];
         let mut inputs = Vec::with_capacity(input_size as usize);
         let mut minicolumns: Vec<HtmMinicolumn> = Vec::with_capacity(minicolumns_count as usize);
-        let mut minicolumns_per_input: Vec<Vec<u32>> = (0..input_size).map(|_| vec![]).collect();
+        let mut minicolumns_per_input: Vec<Vec<(u32,f32)>> = (0..input_size).map(|_| vec![]).collect();
 
         let mut connected_inputs = vec![false; input_size as usize];
         for minicolumn_id in 0..minicolumns_count as u32 {
@@ -69,13 +78,13 @@ impl CpuHTM {
             assert!(input_count<=input_size,"Minicolumn {} has {} input connections but there are only {} inputs",minicolumn_id,input_count,input_size);
             let mut inputs_to_this_minicolumns: Vec<u32> = vec![];
             for _ in 0..input_count {
-                let mut input_id = random_input_close_to_minicolumn(minicolumn_id);
-                while connected_inputs[input_id as usize] { // find some input that has not been connected to this minicolumn yet
-                    input_id=(input_id+1)%input_size
+                let mut inp_perm = random_input_close_to_minicolumn(minicolumn_id);
+                while connected_inputs[inp_perm.0 as usize] { // find some input that has not been connected to this minicolumn yet
+                    inp_perm.0=(inp_perm.0+1)%input_size
                 }
-                connected_inputs[input_id as usize] = true;
-                minicolumns_per_input[input_id as usize].push(minicolumn_id);
-                inputs_to_this_minicolumns.push(input_id);
+                connected_inputs[inp_perm.0 as usize] = true;
+                minicolumns_per_input[inp_perm.0 as usize].push((minicolumn_id,inp_perm.1));
+                inputs_to_this_minicolumns.push(inp_perm.0);
             }
             for input_id in inputs_to_this_minicolumns {
                 connected_inputs[input_id as usize] = false;
@@ -83,13 +92,14 @@ impl CpuHTM {
         }
         let mut connections_per_minicolumn: Vec<Vec<u32>> = (0..minicolumns_count).map(|_| vec![]).collect();
         for (input_id, minicolumn_ids) in minicolumns_per_input.into_iter().enumerate() {
+            let input_id = input_id as u32;
             let connections_begin = feedforward_connections.len() as u32;
-            for minicolumn_id in minicolumn_ids {
+            for (minicolumn_id,permanence) in minicolumn_ids {
                 let connection_id = feedforward_connections.len() as u32;
                 feedforward_connections.push(HtmFeedforwardConnection {
                     minicolumn_id,
-                    permanence: rand::random::<f32>(),
-                    input_id: input_id as u32,
+                    permanence,
+                    input_id,
                 });
                 connections_per_minicolumn[minicolumn_id as usize].push(connection_id);
             }
@@ -235,7 +245,7 @@ impl CpuHTM {
     }
 
     pub fn infer(&mut self, input: &CpuInput, learn: bool) -> CpuSDR {
-        assert_eq!(self.input_size(),input.size());
+        assert!(self.input_size()<=input.size(),"HTM expects input of size {} but got {}",self.input_size(),input.size());
         let sdr_input = input.get_sparse();
         let bitset_input = input.get_dense();
         self.htm_calculate_overlap(sdr_input);

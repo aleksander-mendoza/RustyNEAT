@@ -8,6 +8,7 @@ use crate::htm_program::HtmProgram;
 use ndalgebra::buffer::Buffer;
 use crate::htm4::*;
 use crate::cpu_bitset::CpuBitset;
+use crate::rand::{xorshift32, rand_u32_to_random_f32};
 
 /***This implementation assumes that most of the time  vast majority of minicolumns are connected to at least one active
 input. Hence instead of iterating the input and then visiting only connected minicolumns, it's better to just iterate all
@@ -49,12 +50,20 @@ impl CpuHTM4 {
     pub fn minicolumns_as_slice(&self)->&[HtmMinicolumn4]{
         self.minicolumns.as_slice()
     }
-    pub fn new_globally_uniform_prob(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, inhibitory_connection_probability:f32) -> Self {
+    pub fn new_globally_uniform_prob(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, inhibitory_connection_probability:f32, mut rand_seed:u32) -> Self {
         assert!(inputs_per_minicolumn < minicolumns);
-        Self::new(input_size, minicolumns, n, |minicolumn_id| (rand::random::<u32>() % input_size, rand::random::<f32>() > inhibitory_connection_probability), |minicolumn_id| inputs_per_minicolumn)
+        Self::new(input_size, minicolumns, n, |minicolumn_id| {
+            rand_seed = xorshift32(rand_seed);
+            let input_idx = rand_seed % input_size;
+            rand_seed = xorshift32(rand_seed);
+            let permanence = rand_u32_to_random_f32(rand_seed);
+            rand_seed = xorshift32(rand_seed);
+            let is_inhibitory = rand_u32_to_random_f32(rand_seed) > inhibitory_connection_probability;
+            (input_idx, is_inhibitory, permanence)
+        }, |minicolumn_id| inputs_per_minicolumn)
     }
     /**n = how many minicolumns to activate. We will always take the top n minicolumns with the greatest overlap value.*/
-    pub fn new(input_size: u32, minicolumns_count: u32, n: u32, mut random_input_close_to_minicolumn: impl FnMut(u32) -> (u32,bool), mut input_count_incoming_to_minicolumn: impl FnMut(u32) -> u32) -> Self {
+    pub fn new(input_size: u32, minicolumns_count: u32, n: u32, mut random_input_close_to_minicolumn: impl FnMut(u32) -> (u32,bool,f32), mut input_count_incoming_to_minicolumn: impl FnMut(u32) -> u32) -> Self {
         let mut feedforward_connections: Vec<HtmFeedforwardConnection4> = vec![];
         let mut minicolumns: Vec<HtmMinicolumn4> = Vec::with_capacity(minicolumns_count as usize);
 
@@ -69,11 +78,11 @@ impl CpuHTM4 {
                 while connected_inputs[input.0 as usize] { // find some input that has not been connected to this minicolumn yet
                     input.0=(input.0+1)%input_size
                 }
-                let (input_id, is_excitatory) = input;
+                let (input_id, is_excitatory, permanence) = input;
                 connected_inputs[input_id as usize] = true;
                 feedforward_connections.push(HtmFeedforwardConnection4 {
-                    permanence: rand::random::<f32>(),
-                    input_id: input_id as u32,
+                    permanence,
+                    input_id,
                     overlap_gain: if is_excitatory {1}else{-1}
                 });
                 inputs_to_this_minicolumns.push(input_id);

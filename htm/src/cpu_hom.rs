@@ -9,12 +9,14 @@ use ndalgebra::buffer::Buffer;
 use std::cmp::Ordering;
 use itertools::Itertools;
 use crate::EncoderTarget;
+use crate::rand::xorshift32;
 
 #[derive(Clone)]
 pub struct HomHyperparams{
     cells_per_minicolumn:u32,
     minicolumn_count:u32,
     current_iteration:u32,
+    pub rand_seed:u32,
     pub max_synapses_per_segment:usize,
     pub max_segments_per_cell: usize,
     pub max_new_synapse_count:usize,
@@ -27,21 +29,26 @@ pub struct HomHyperparams{
     pub permanence_decrement_increment: [f32; 2],
 }
 
-impl HomHyperparams{
+impl  HomHyperparams{
+    fn rand(&mut self)->u32{
+        self.rand_seed = xorshift32(self.rand_seed);
+        self.rand_seed
+    }
     fn new(cells_per_minicolumn:u32,
            minicolumn_count:u32)->Self{
         Self{
+            rand_seed:1,
             cells_per_minicolumn,
             max_synapses_per_segment: 255,
             minicolumn_count,
             current_iteration: 0,
             max_segments_per_cell: 255,
             max_new_synapse_count: 20,
-            initial_permanence: 0.21,
+            initial_permanence: 0.5,
             min_permanence_to_keep: 0.00001,
             activation_threshold: 13,
             learning_threshold: 10,
-            permanence_threshold: 0.0,
+            permanence_threshold: 0.5,
             predicted_decrement: -0.05,
             permanence_decrement_increment: [-0.05, 0.10]
         }
@@ -114,7 +121,7 @@ impl HomSegment{
             }
         }
     }
-    fn grow_synapses(&mut self, hyp:&HomHyperparams, added_synapse_count:usize, prev_winner_cells:&Vec<u32>){
+    fn grow_synapses(&mut self, hyp:&mut HomHyperparams, added_synapse_count:usize, prev_winner_cells:&Vec<u32>){
         let mut candidates = prev_winner_cells.clone();
         debug_assert!(prev_winner_cells.windows(2).all(|a|a[0]<a[1]));
         for synapse in &self.synapses{
@@ -125,7 +132,8 @@ impl HomSegment{
         let added_synapse_count = added_synapse_count.min(candidates.len());
         self.destroy_min_permanence_synapses(hyp.max_synapses_per_segment-added_synapse_count,prev_winner_cells);
         for _ in 0..added_synapse_count{
-            let winner_cell = candidates.swap_remove(rand::random::<usize>() % candidates.len());
+
+            let winner_cell = candidates.swap_remove(hyp.rand() as usize % candidates.len());
             self.synapses.push(HomDistalSynapse{ cell_id: winner_cell, permanence: hyp.initial_permanence })
         }
     }
@@ -143,7 +151,7 @@ impl HomMinicolumn{
             self.segments.swap_remove(segment_idx);
         }
     }
-    fn adapt_segment(&mut self, hyp:&HomHyperparams, segment_idx:usize, prev_active_cells:&Vec<u32>, prev_winner_cells:&Vec<u32>){
+    fn adapt_segment(&mut self, hyp:&mut HomHyperparams, segment_idx:usize, prev_active_cells:&Vec<u32>, prev_winner_cells:&Vec<u32>){
         self.segments[segment_idx].update_segment(hyp,hyp.permanence_decrement_increment, prev_active_cells);
         let num_active_potential = self.segments[segment_idx].num_active_potential as usize;
         if hyp.max_new_synapse_count > num_active_potential{
@@ -154,7 +162,7 @@ impl HomMinicolumn{
             self.segments.swap_remove(segment_idx);
         }
     }
-    fn activate_predicted_column(&mut self, learn:bool, hyp:&HomHyperparams,
+    fn activate_predicted_column(&mut self, learn:bool, hyp:&mut HomHyperparams,
                                  this_minicolumn_idx:u32,
                                  active_cells:&mut Vec<u32>,
                                  prev_active_cells:&Vec<u32>,
@@ -190,16 +198,16 @@ impl HomMinicolumn{
         }
         segment_idx as u32
     }
-    fn least_used_cells(&self,hyp:&HomHyperparams)->u32{
+    fn least_used_cells(&self,hyp:&mut HomHyperparams)->u32{
         let mut segments_per_cell = vec![0;hyp.cells_per_minicolumn as usize];
         for segment in &self.segments{
             segments_per_cell[segment.cell_idx as usize]+=1;
         }
         let fewest_segments = segments_per_cell.iter().cloned().min().unwrap_or(0);
         let least_used_cells = segments_per_cell.iter().enumerate().filter(|(_,&segment_num)|segment_num==fewest_segments).map(|(i,_)|i as u32).collect::<Vec<u32>>();
-        least_used_cells[rand::random::<usize>() % least_used_cells.len()]
+        least_used_cells[hyp.rand() as usize % least_used_cells.len()]
     }
-    fn create_segment(&mut self, hyp:&HomHyperparams,
+    fn create_segment(&mut self, hyp:&mut HomHyperparams,
                       winner_cell:u32,
                       prev_winner_cells:&Vec<u32>){
         while self.segments.len() >= hyp.max_segments_per_cell{
@@ -220,7 +228,7 @@ impl HomMinicolumn{
         }
     }
     fn burst_column(&mut self, learn: bool,
-                    hyp:&HomHyperparams,
+                    hyp:&mut HomHyperparams,
                     this_minicolumn_idx:u32,
                     active_cells:&mut Vec<u32>,
                     prev_active_cells:&Vec<u32>,
@@ -265,7 +273,7 @@ pub struct CpuHOM {
     pub winner_cells: Vec<u32>,
 }
 
-impl CpuHOM {
+impl  CpuHOM {
 
     pub fn reset(&mut self){
         self.active_cells.clear();
@@ -293,18 +301,18 @@ impl CpuHOM {
         let Self{ hyp, minicolumns,active_cells,.. } = self;
         let mut predicted_minicolumns = CpuSDR::new();
         for (minicolumn_idx, column) in minicolumns.iter_mut().enumerate() {
-            let mut num_active_connected = 0;
-            let mut num_active_potential = 0;
             let mut had_active_segment = false;
             for segment in &mut column.segments {
+                let mut num_active_connected = 0;
+                let mut num_active_potential = 0;
                 for synapse in &segment.synapses {
                     let is_active = active_cells.binary_search(&synapse.cell_id).is_ok();
                     if is_active {
-                        if synapse.permanence > hyp.permanence_threshold {
+                        if synapse.permanence >= hyp.permanence_threshold {
                             num_active_connected += 1
                         }
                         if synapse.permanence >= 0. {
-                            num_active_connected += 1
+                            num_active_potential += 1
                         }
                     }
                 }
