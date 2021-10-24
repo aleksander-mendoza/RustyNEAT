@@ -209,7 +209,7 @@ impl CpuHTM2 {
 
     pub fn infer2(&mut self, bitset_input: &CpuBitset, learn: bool) -> CpuSDR{
         assert!(self.input_size()<=bitset_input.size(),"HTM expects input of size {} but got {}",self.input_size(),bitset_input.size());
-        let mut number_of_minicolumns_per_overlap = vec![0; self.max_overlap as usize];
+        let mut number_of_minicolumns_per_overlap = vec![0; self.max_overlap as usize+1];
         self.htm_calculate_overlap2(bitset_input,&mut number_of_minicolumns_per_overlap);
         let smallest_overlap_that_made_it_to_top_n = self.htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n2(&mut number_of_minicolumns_per_overlap);
         let mut top_n_minicolumns = Vec::with_capacity(self.n as usize);

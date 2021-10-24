@@ -50,7 +50,7 @@ impl CpuHTM4 {
     pub fn minicolumns_as_slice(&self)->&[HtmMinicolumn4]{
         self.minicolumns.as_slice()
     }
-    pub fn new_globally_uniform_prob(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, inhibitory_connection_probability:f32, mut rand_seed:u32) -> Self {
+    pub fn new_globally_uniform_prob(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, excitatory_connection_probability:f32, mut rand_seed:u32) -> Self {
         assert!(inputs_per_minicolumn < minicolumns);
         Self::new(input_size, minicolumns, n, |minicolumn_id| {
             rand_seed = xorshift32(rand_seed);
@@ -58,8 +58,8 @@ impl CpuHTM4 {
             rand_seed = xorshift32(rand_seed);
             let permanence = rand_u32_to_random_f32(rand_seed);
             rand_seed = xorshift32(rand_seed);
-            let is_inhibitory = rand_u32_to_random_f32(rand_seed) > inhibitory_connection_probability;
-            (input_idx, is_inhibitory, permanence)
+            let is_excitatory = rand_u32_to_random_f32(rand_seed) <= excitatory_connection_probability;
+            (input_idx, is_excitatory, if is_excitatory{permanence}else{0.})
         }, |minicolumn_id| inputs_per_minicolumn)
     }
     /**n = how many minicolumns to activate. We will always take the top n minicolumns with the greatest overlap value.*/
@@ -136,10 +136,10 @@ impl CpuHTM4 {
     fn htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n4(&self, number_of_minicolumns_per_overlap: &mut [i32]) -> u32 {
         let mut total_minicolumns = 0;
         for overlap in (0..number_of_minicolumns_per_overlap.len()).rev() {
-            let number_of_minicolumns = number_of_minicolumns_per_overlap[overlap as usize];
+            let number_of_minicolumns = number_of_minicolumns_per_overlap[overlap];
             total_minicolumns += number_of_minicolumns;
             if total_minicolumns > self.n as i32 {
-                number_of_minicolumns_per_overlap[overlap as usize] = self.n as i32 - (total_minicolumns - number_of_minicolumns);
+                number_of_minicolumns_per_overlap[overlap] = self.n as i32 - (total_minicolumns - number_of_minicolumns);
                 return overlap as u32;
             }
         }
@@ -147,9 +147,9 @@ impl CpuHTM4 {
     }
 
     fn htm_update_permanence4(&mut self,
-                             top_n_minicolumns: &mut [u32],
+                              top_n_minicolumns: &mut [u32],
                               bitset_input:&CpuBitset,
-                             current_top_n_minicolumn_idx: u32) {
+                              current_top_n_minicolumn_idx: u32) {
         for top_minicolumn_idx in 0..current_top_n_minicolumn_idx as usize {
             let minicolumn_idx: u32 = top_n_minicolumns[top_minicolumn_idx];
             let connection_offset = self.minicolumns[minicolumn_idx as usize].connection_offset;
@@ -191,8 +191,8 @@ impl CpuHTM4 {
     }
 
     pub fn infer4(&mut self, bitset_input: &CpuBitset, learn: bool) -> CpuSDR{
-        assert_eq!(self.input_size(),bitset_input.size());
-        let mut number_of_minicolumns_per_overlap = vec![0; self.max_overlap as usize];
+        assert!(self.input_size()<=bitset_input.size());
+        let mut number_of_minicolumns_per_overlap = vec![0; self.max_overlap as usize+1];
         self.htm_calculate_overlap4(bitset_input,&mut number_of_minicolumns_per_overlap);
         let smallest_overlap_that_made_it_to_top_n = self.htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n4(&mut number_of_minicolumns_per_overlap);
         let mut top_n_minicolumns = Vec::with_capacity(self.n as usize);

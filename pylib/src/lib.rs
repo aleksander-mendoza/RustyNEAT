@@ -80,6 +80,9 @@ pub fn ndalgebra(py: Python, m: &PyModule) -> PyResult<()> {
 #[pymodule]
 pub fn htm(py: Python, m: &PyModule) -> PyResult<()> {
     use py_htm::*;
+    m.add_function(wrap_pyfunction!(bitset_from_bools, m)?)?;
+    m.add_function(wrap_pyfunction!(bitset_from_indices, m)?)?;
+    m.add_class::<BitsEncoder>()?;
     m.add_class::<CpuBitset>()?;
     m.add_class::<CpuInput>()?;
     m.add_class::<OclBitset>()?;

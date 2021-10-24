@@ -8,7 +8,7 @@
 bool is_input_active(__global uint * inputs, uint input_id);
 
 bool is_input_active(__global uint * inputs, uint input_id){
-    return ( inputs[input_id>>5] & (1 << (input_id & 31)) ) != 0;
+    return ( inputs[input_id>>5] & (2147483648 >> (input_id & 31)) ) != 0;
 }
 
 __kernel void bitset_to_sdr(
@@ -26,7 +26,7 @@ __kernel void bitset_set_active_inputs(
                   __global uint * bitset_input){
     const size_t input_idx = get_global_id(0);
     const uint input_neuron_idx = sdr_input[input_idx];
-    atomic_or(&bitset_input[input_neuron_idx>>5],1<<(input_neuron_idx&31));
+    atomic_or(&bitset_input[input_neuron_idx>>5],2147483648>>(input_neuron_idx&31));
 }
 
 __kernel void bitset_clean_up_active_inputs(__global uint * sdr_input,__global uint * bitset_input){

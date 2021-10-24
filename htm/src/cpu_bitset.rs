@@ -10,9 +10,9 @@ impl Debug for CpuBitset{
         write!(f,"[")?;
         let mut i = self.bits.iter();
         if let Some(&first) = i.next() {
-            write!(f,"{:#032b}", first)?;
+            write!(f,"{:032b}", first)?;
             for &u in i {
-                write!(f," {:#032b}", u)?;
+                write!(f," {:032b}", u)?;
             }
         }
         write!(f,"]")
@@ -30,6 +30,22 @@ impl EncoderTarget for CpuBitset{
     fn push(&mut self, neuron_index: u32) {
         self.set_bit_on(neuron_index)
     }
+
+    fn clear_range(&mut self, from: u32, to: u32) {
+        let from_u32 = (from/32) as usize;
+        let to_u32 = (to/32) as usize;
+        let all_ones = u32::MAX;
+        if from_u32==to_u32{
+            self.bits[from_u32] &= !(all_ones >> (from&31)) | (all_ones >> (to&31));
+        }else{
+            self.bits[from_u32+1..to_u32].fill(0);
+            self.bits[from_u32] &= !(all_ones >> (from&31));
+            if to_u32<self.bits.len(){
+                self.bits[to_u32] &= (all_ones >> (to&31));
+            }
+        }
+
+    }
 }
 impl CpuBitset {
     pub fn from_bools(bools:&[bool])->Self{
@@ -37,7 +53,7 @@ impl CpuBitset {
         bools.iter().cloned().enumerate().filter(|(i,b)|*b).map(|(i,_)|i as u32).for_each(|i|bitset.set_bit_on(i));
         bitset
     }
-    pub fn from_sdr(sdr: &CpuSDR, input_size:u32) -> Self {
+    pub fn from_sdr(sdr: &[u32], input_size:u32) -> Self {
         let mut bitset = Self::new(input_size);
         bitset.set_bits_on(sdr);
         bitset
@@ -77,13 +93,14 @@ impl CpuBitset {
             self.set_bit_off(index);
         }
     }
-
+    pub fn clear_all(&mut self) {
+        self.bits.fill(0)
+    }
     pub fn clear(&mut self, sdr: &CpuSDR) {
         for &index in sdr.iter() {
             self.clear_u32_containing_bit(index);
         }
     }
-
 
     pub fn set_bit_on(&mut self, index: u32) {
         // u32 has 32 bits
@@ -95,7 +112,7 @@ impl CpuBitset {
         // we might either do  1<<(index&31) or 2147483648>>(index&31) . Both are equivalent. It only changes the order in which we store bits within each u32
         let i = (index >> 5) as usize;
         assert!(i<self.bits.len(),"Index {} out of bounds for bitset of {} bits", index, self.size());
-        self.bits[i] |= 1 << (index & 31);
+        self.bits[i] |= 2147483648>>(index&31);
     }
 
     pub fn clear_u32_containing_bit(&mut self, index: u32) {
@@ -103,11 +120,11 @@ impl CpuBitset {
     }
 
     pub fn set_bit_off(&mut self, index: u32) {
-        self.bits[(index >> 5) as usize] &= !(1 << (index & 31));
+        self.bits[(index >> 5) as usize] &= !(2147483648>>(index&31));
     }
 
     pub fn is_bit_on(&self, index: u32) -> bool {
-        (self.bits[(index >> 5) as usize] & (1 << (index & 31))) != 0
+        (self.bits[(index >> 5) as usize] & (2147483648>>(index&31))) != 0
     }
 
 

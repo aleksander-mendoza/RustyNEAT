@@ -33,10 +33,9 @@ A Python library written in Rust. Provides various tools for biologically-inspir
 - Spacial Poolers
 - Pattern separation with negative spacial poolers
 - GPU acceleration with OpenCL 
+- Higher order memory with the temporal memory algorithm
 
 #### Planned:
-
-- Higher order memory with the temporal memory algorithm
 
 ## Building
 

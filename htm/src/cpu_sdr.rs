@@ -50,6 +50,10 @@ impl EncoderTarget for CpuSDR{
     fn push(&mut self, neuron_index: u32) {
         self.0.push(neuron_index)
     }
+
+    fn clear_range(&mut self, from: u32, to: u32) {
+        self.0.retain(|&i|i>=to||i<from)
+    }
 }
 impl CpuSDR {
     pub fn as_slice(&self)->&[u32]{

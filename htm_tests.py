@@ -22,16 +22,20 @@ assert [x for x in sdr] == [1, 2, 365747]
 assert len(sdr) == 3  # cardinality of SDR is 3, size is unbounded but we can tell that it's at least 365748
 
 encoder_builder = rusty_neat.htm.EncoderBuilder()
-integer_encoder = encoder_builder.add_integer(50,  # min integer (inclusive). Any lower value will be rounded to 50
-                                              100,
-                                              # max integer (exclusive). Any higher or equal value will be rounded to 99
-                                              20,  # number of neurons to use for encoding (size of SDR)
-                                              5)  # number of active neurons (cardinality of SDR)
+integer_encoder = encoder_builder.add_integer(
+    50,  # min integer (inclusive). Any lower value will be rounded to 50
+    100,
+    5,  # number of active neurons (cardinality of SDR)
+    # max integer (exclusive). Any higher or equal value will be rounded to 99
+    20  # number of neurons to use for encoding (size of SDR)
+)
 assert encoder_builder.input_size == 20  # This is the expected size of SDR
-float_encoder = encoder_builder.add_float(50.,  # min float. Any lower value will be rounded to 50
-                                          100.,  # max float. Any higher value will be rounded to 100
-                                          30,  # number of neurons to use for encoding (size of SDR)
-                                          5)  # number of active neurons (cardinality of SDR)
+float_encoder = encoder_builder.add_float(
+    50.,  # min float. Any lower value will be rounded to 50
+    100.,  # max float. Any higher value will be rounded to 100
+    30,  # number of neurons to use for encoding (size of SDR)
+    5  # number of active neurons (cardinality of SDR)
+)
 assert encoder_builder.input_size == 50  # 20 for integer + 30 for float
 
 sdr.active_neurons = []  # clear SDR
@@ -78,7 +82,6 @@ def evaluate_hot_gym(learning_enabled, htm, hotgym, show_plots):
                 most_similar_timestamps = list(map(lambda x: x[1][0], overlaps))
                 most_similar_energy = list(map(lambda x: x[1][1], overlaps))
 
-
                 plt.clf()
                 data_subset = hotgym['kw_energy_consumption'][:record_idx]
                 data_subset.plot()
@@ -95,8 +98,8 @@ def evaluate_hot_gym(learning_enabled, htm, hotgym, show_plots):
 learning_htm = rusty_neat.htm.CpuHTM2(
     encoder_builder.input_size,  # number of input neurons (input SDR size)
     100,  # number of minicolumns
-    60,  # the size of potential pool of each minicolumn (how many inputs should each minicolumn be connected to)
-    16  # how many minicolumns to activate. Here we take top 16 minicolumns with maximum overlap
+    16,  # how many minicolumns to activate. Here we take top 16 minicolumns with maximum overlap
+    60  # the size of potential pool of each minicolumn (how many inputs should each minicolumn be connected to)
 )
 # Let's create another HTM, but this one will not learn at all. We could then compare and see the effects of learning
 non_learning_htm = learning_htm.clone()  # By cloning we sure the randomly-initialized connections are exactly the same
@@ -106,12 +109,13 @@ trained_htm = evaluate_hot_gym(True,  # Enable learning
                                learning_htm,  # Provide the HTM, whose connections will be learned
                                hotgym_subset,
                                SHOW_PLOTS)  # Observe how HTM works with learning enabled
+
+
 # We don't need to learn the other HTM, but you can uncomment the below line to see how such HTM runs anyway
 # evaluate_hot_gym(False, non_learning_htm, hotgym_subset, True)  # Observe how HTM works without learning
 
 
 def compare_two_htms(hotgym, htm1, htm2):
-
     produced_sdrs1 = []
     produced_sdrs2 = []
     for record_idx, (date, energy) in enumerate(zip(hotgym.index, hotgym['kw_energy_consumption'])):
@@ -142,9 +146,9 @@ def compare_two_htms(hotgym, htm1, htm2):
     def press(e):
         nonlocal current_idx
         if e.key == 'right':
-            current_idx = min(len(hotgym)-1, current_idx+1)
+            current_idx = min(len(hotgym) - 1, current_idx + 1)
         elif e.key == 'left':
-            current_idx = max(0, current_idx-1)
+            current_idx = max(0, current_idx - 1)
         repaint()
 
     plt.gcf().canvas.mpl_connect('key_press_event', press)
@@ -159,10 +163,10 @@ def compare_two_htms(hotgym, htm1, htm2):
         plt.scatter(similar2[0], similar2[1], c='red', marker='o')
         plt.scatter(similar1[0], similar1[1], c='green', marker='x')
         plt.pause(0.01)
+
     repaint()
     plt.show()
 
 
 if SHOW_PLOTS:  # You will be able to use arrow keys to traverse the dataset
     compare_two_htms(hotgym_subset, learning_htm, non_learning_htm)
-

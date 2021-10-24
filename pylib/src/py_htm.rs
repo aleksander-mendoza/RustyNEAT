@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::{wrap_pyfunction, wrap_pymodule, PyObjectProtocol, PyIterProtocol, PySequenceProtocol};
+use pyo3::{wrap_pyfunction, wrap_pymodule, PyObjectProtocol, PyIterProtocol, PySequenceProtocol, PyTypeInfo};
 use pyo3::PyResult;
 use rusty_neat_core::{cppn, neat, gpu};
 use std::collections::HashSet;
@@ -7,7 +7,7 @@ use rusty_neat_core::activations::{STR_TO_IDX, ALL_ACT_FN};
 use pyo3::exceptions::PyValueError;
 use rusty_neat_core::cppn::CPPN;
 use std::iter::FromIterator;
-use pyo3::types::{PyString, PyDateTime, PyDateAccess, PyTimeAccess, PyList};
+use pyo3::types::{PyString, PyDateTime, PyDateAccess, PyTimeAccess, PyList, PyInt};
 use rusty_neat_core::num::Num;
 use rusty_neat_core::gpu::{FeedForwardNetOpenCL, FeedForwardNetPicbreeder, FeedForwardNetSubstrate};
 use pyo3::basic::CompareOp;
@@ -17,9 +17,10 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{Encoder, HomSegment, auto_gen_seed, EncoderTarget};
+use htm::{Encoder, HomSegment, auto_gen_seed, EncoderTarget, EncoderRange};
 use std::time::SystemTime;
 use std::ops::Deref;
+use chrono::Utc;
 
 #[pyclass]
 pub struct CpuSDR {
@@ -94,6 +95,11 @@ pub struct CategoricalEncoder {
 }
 
 #[pyclass]
+pub struct BitsEncoder {
+    enc: htm::BitsEncoder,
+}
+
+#[pyclass]
 pub struct IntegerEncoder {
     enc: htm::IntegerEncoder,
 }
@@ -156,6 +162,10 @@ impl EncoderBuilder {
     pub fn add_categorical(&mut self, number_of_categories: u32, cardinality: u32) -> CategoricalEncoder {
         CategoricalEncoder { enc: self.enc.add_categorical( number_of_categories,cardinality) }
     }
+    #[text_signature = "(size)"]
+    pub fn add_bits(&mut self, size: u32) -> BitsEncoder {
+        BitsEncoder { enc: self.enc.add_bits( size) }
+    }
     #[text_signature = "(from_inclusive,to_exclusive,size,cardinality)"]
     pub fn add_integer(&mut self, from: u32, to: u32, size: u32, cardinality: u32) -> IntegerEncoder {
         IntegerEncoder { enc: self.enc.add_integer(from..to, size, cardinality) }
@@ -190,50 +200,154 @@ impl EncoderBuilder {
     }
 }
 
+fn encode<T>(sdr:PyObject,scalar:T,f1:impl FnOnce(&mut htm::CpuSDR, T),f2:impl FnOnce(&mut htm::CpuBitset, T),f3:impl FnOnce(&mut htm::CpuInput, T))->PyResult<()>{
+    let gil = Python::acquire_gil();
+    let py = gil.python();
+    if let Ok(mut sdr) = sdr.extract::<PyRefMut<CpuBitset>>(py) {
+        f2(&mut sdr.bits, scalar)
+    }else if let Ok(mut sdr) = sdr.extract::<PyRefMut<CpuInput>>(py) {
+        f3(&mut sdr.inp, scalar)
+    }else{
+        let mut sdr = sdr.extract::<PyRefMut<CpuSDR>>(py)?;
+        f1(&mut sdr.sdr, scalar)
+    }
+    Ok(())
+}
+#[pymethods]
+impl BitsEncoder {
+    pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
+        encode(sdr,(),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x))
+    }
+    pub fn encode(&self, sdr: PyObject, val: &PyAny) -> PyResult<()>{
+        if let Ok(bools) = val.extract::<Vec<bool>>(){
+            self.encode_from_bools(sdr, bools)
+        }else{
+            let indices = val.extract::<Vec<u32>>()?;
+            self.encode_from_indices(sdr, indices)
+        }
+    }
+    pub fn encode_from_indices(&self, sdr: PyObject, indices: Vec<u32>) -> PyResult<()>{
+        encode(sdr,indices.as_slice(),
+               |x,y|self.enc.encode(x,y),
+               |x,y|self.enc.encode(x,y),
+               |x,y|self.enc.encode(x,y))
+    }
+    pub fn encode_from_bools(&self, sdr: PyObject, bools: Vec<bool>) -> PyResult<()> {
+        encode(sdr,bools.as_slice(),
+               |x,y|self.enc.encode(x,y),
+               |x,y|self.enc.encode(x,y),
+               |x,y|self.enc.encode(x,y))
+    }
+}
 #[pymethods]
 impl IntegerEncoder {
-    pub fn encode(&self, sdr: &mut CpuSDR, scalar: u32) {
-        self.enc.encode(&mut sdr.sdr, scalar)
+    pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
+        encode(sdr,(),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x))
+    }
+    pub fn encode(&self, sdr: PyObject, scalar: u32) -> PyResult<()> {
+        encode(sdr,scalar,
+               |x,y|self.enc.encode(x,y),
+               |x,y|self.enc.encode(x,y),
+               |x,y|self.enc.encode(x,y))
     }
 }
 
 #[pymethods]
 impl CategoricalEncoder {
-    pub fn encode(&self, sdr: &mut CpuSDR, scalar: u32) {
-        self.enc.encode(&mut sdr.sdr, scalar)
+    pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
+        encode(sdr,(),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x))
+    }
+    pub fn encode(&self, sdr: PyObject, scalar: u32) -> PyResult<()> {
+        encode(sdr,scalar,
+               |x,y|self.enc.encode(x,y),
+               |x,y|self.enc.encode(x,y),
+               |x,y|self.enc.encode(x,y))
     }
 }
 #[pymethods]
 impl CircularIntegerEncoder {
-    pub fn encode(&self, sdr: &mut CpuSDR, scalar: u32) {
-        self.enc.encode(&mut sdr.sdr, scalar)
+    pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
+        encode(sdr,(),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x))
+    }
+    pub fn encode(&self, sdr: PyObject, scalar: u32) -> PyResult<()> {
+        encode(sdr,scalar,
+               |x,y|self.enc.encode(x,y),
+               |x,y|self.enc.encode(x,y),
+               |x,y|self.enc.encode(x,y))
     }
 }
 
 #[pymethods]
 impl FloatEncoder {
-    pub fn encode(&self, sdr: &mut CpuSDR, scalar: f32) {
-        self.enc.encode(&mut sdr.sdr, scalar)
+    pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
+        encode(sdr,(),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x))
+    }
+    pub fn encode(&self, sdr: PyObject, scalar: f32) -> PyResult<()>{
+        encode(sdr,scalar,
+               |x,y|self.enc.encode(x,y),
+               |x,y|self.enc.encode(x,y),
+               |x,y|self.enc.encode(x,y))
     }
 }
 
 #[pymethods]
 impl DayOfWeekEncoder {
-    pub fn encode(&self, sdr: &mut CpuSDR, scalar: &PyDateTime) {
-        self.enc.encode_day_of_week(&mut sdr.sdr, scalar.call_method("weekday", (), None).unwrap().extract().unwrap())
+    pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
+        encode(sdr,(),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x))
+    }
+    pub fn encode(&self, sdr: PyObject, scalar: &PyDateTime) -> PyResult<()>{
+        let weekday = scalar.call_method("weekday", (), None).unwrap().extract().unwrap();
+        encode(sdr,weekday,
+               |x,y|self.enc.encode_day_of_week(x,y),
+               |x,y|self.enc.encode_day_of_week(x,y),
+               |x,y|self.enc.encode_day_of_week(x,y))
     }
 }
 
 #[pymethods]
 impl DayOfMonthEncoder {
-    pub fn encode(&self, sdr: &mut CpuSDR, scalar: &PyDateTime) {
-        self.enc.encode_day_of_month(&mut sdr.sdr, scalar.get_day() as u32 - 1)
+    pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
+        encode(sdr,(),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x))
+    }
+    pub fn encode(&self, sdr: PyObject, scalar: &PyDateTime) -> PyResult<()>{
+        let day = scalar.get_day() as u32 - 1;
+        encode(sdr,day,
+               |x,y|self.enc.encode_day_of_month(x,y),
+               |x,y|self.enc.encode_day_of_month(x,y),
+               |x,y|self.enc.encode_day_of_month(x,y))
     }
 }
 
 #[pymethods]
 impl DayOfYearEncoder {
-    pub fn encode(&self, sdr: &mut CpuSDR, scalar: &PyDateTime) {
+    pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
+        encode(sdr,(),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x))
+    }
+    pub fn encode(&self, sdr: PyObject, scalar: &PyDateTime) -> PyResult<()>{
         let days_up_to_month = [0, 31, 31 + 28, 31 + 28 + 31, 31 + 28 + 31 + 30, 31 + 28 + 31 + 30 + 31, 31 + 28 + 31 + 30 + 31 + 30, 31 + 28 + 31 + 30 + 31 + 30 + 31, 31 + 28 + 31 + 30 + 31 + 30 + 31 + 31, 31 + 28 + 31 + 30 + 31 + 30 + 31 + 31 + 30, 31 + 28 + 31 + 30 + 31 + 30 + 31 + 31 + 30 + 31, 31 + 28 + 31 + 30 + 31 + 30 + 31 + 31 + 30 + 31 + 30];
         let mut day = scalar.get_day() as u32 - 1;
         let month = scalar.get_month() as usize;
@@ -244,29 +358,62 @@ impl DayOfYearEncoder {
             }
         }
         day += days_up_to_month[month - 1];
-        self.enc.encode_day_of_year(&mut sdr.sdr, day)
+        encode(sdr,day,
+               |x,y|self.enc.encode_day_of_year(x,y),
+               |x,y|self.enc.encode_day_of_year(x,y),
+               |x,y|self.enc.encode_day_of_year(x,y))
     }
 }
 
 #[pymethods]
 impl IsWeekendEncoder {
-    pub fn encode(&self, sdr: &mut CpuSDR, scalar: &PyDateTime) {
+    pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
+        encode(sdr,(),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x))
+    }
+    pub fn encode(&self, sdr: PyObject, scalar: &PyDateTime) -> PyResult<()>{
         let day = scalar.call_method("weekday", (), None).unwrap().extract::<u32>().unwrap();
-        self.enc.encode_is_weekend(&mut sdr.sdr, day >= 5)
+        let is_weekend = day >= 5;
+
+        encode(sdr,is_weekend,
+               |x,y|self.enc.encode_is_weekend(x,y),
+               |x,y|self.enc.encode_is_weekend(x,y),
+               |x,y|self.enc.encode_is_weekend(x,y))
     }
 }
 
 #[pymethods]
 impl TimeOfDayEncoder {
-    pub fn encode(&self, sdr: &mut CpuSDR, scalar: &PyDateTime) {
-        self.enc.encode_time_of_day(&mut sdr.sdr, (60 * scalar.get_hour() as u32 + scalar.get_minute() as u32) * 60 + scalar.get_second() as u32)
+    pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
+        encode(sdr,(),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x))
+    }
+    pub fn encode(&self, sdr: PyObject, scalar: &PyDateTime) -> PyResult<()>{
+        let sec = (60 * scalar.get_hour() as u32 + scalar.get_minute() as u32) * 60 + scalar.get_second() as u32;
+        encode(sdr,sec,
+               |x,y|self.enc.encode_time_of_day(x,y),
+               |x,y|self.enc.encode_time_of_day(x,y),
+               |x,y|self.enc.encode_time_of_day(x,y))
     }
 }
 
 #[pymethods]
 impl BoolEncoder {
-    pub fn encode(&self, sdr: &mut CpuSDR, scalar: bool) {
-        self.enc.encode(&mut sdr.sdr, scalar)
+    pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
+        encode(sdr,(),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x),
+               |x,_|self.enc.clear(x))
+    }
+    pub fn encode(&self, sdr: PyObject, scalar: bool) -> PyResult<()>{
+        encode(sdr,scalar,
+               |x,y|self.enc.encode(x,y),
+               |x,y|self.enc.encode(x,y),
+               |x,y|self.enc.encode(x,y))
     }
 }
 
@@ -375,7 +522,7 @@ impl CpuHOM {
 #[pymethods]
 impl CpuHTM {
     #[new]
-    pub fn new(input_size: u32, minicolumns: u32, inputs_per_minicolumn: u32, n: u32, rand_seed:Option<u32>) -> PyResult<Self> {
+    pub fn new(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, rand_seed:Option<u32>) -> PyResult<Self> {
         if inputs_per_minicolumn > minicolumns{
             return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} minicolumns",inputs_per_minicolumn, minicolumns)))
         }
@@ -459,7 +606,7 @@ impl CpuHTM2 {
     /// Otherwise the millisecond part of system time is used as a seed. Seed is a 32-bit number.
     ///
     #[new]
-    pub fn new(input_size: u32, minicolumns: u32, inputs_per_minicolumn: u32, n: u32,rand_seed:Option<u32>) -> PyResult<Self> {
+    pub fn new(input_size: u32, minicolumns: u32,n: u32, inputs_per_minicolumn: u32, rand_seed:Option<u32>) -> PyResult<Self> {
         if inputs_per_minicolumn > minicolumns{
             return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} minicolumns",inputs_per_minicolumn, minicolumns)))
         }
@@ -532,11 +679,11 @@ impl CpuHTM4 {
         CpuHTM4 { htm: self.htm.clone() }
     }
     #[new]
-    pub fn new(input_size: u32, minicolumns: u32, inputs_per_minicolumn: u32, n: u32, inhibitory_connection_probability:f32, rand_seed:Option<u32>) -> PyResult<Self> {
+    pub fn new(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32,  excitatory_connection_probability:f32, rand_seed:Option<u32>) -> PyResult<Self> {
         if inputs_per_minicolumn > minicolumns{
             return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} minicolumns",inputs_per_minicolumn, minicolumns)))
         }
-        Ok(CpuHTM4 { htm: htm::CpuHTM4::new_globally_uniform_prob(input_size, minicolumns, n, inputs_per_minicolumn,inhibitory_connection_probability,rand_seed.unwrap_or_else(auto_gen_seed)) })
+        Ok(CpuHTM4 { htm: htm::CpuHTM4::new_globally_uniform_prob(input_size, minicolumns, n, inputs_per_minicolumn,excitatory_connection_probability,rand_seed.unwrap_or_else(auto_gen_seed)) })
     }
 
     #[getter]
@@ -668,8 +815,21 @@ impl CpuSDR {
     fn get_active_neurons(&self) -> Vec<u32> {
         self.sdr.clone().to_vec()
     }
+    #[text_signature = "(sdr)"]
+    pub fn to_bitset(&self, input_size:u32)->CpuBitset{
+        CpuBitset{bits:htm::CpuBitset::from_sdr(&self.sdr, input_size)}
+    }
 }
-
+#[pyfunction]
+#[text_signature = "(bits)"]
+pub fn bitset_from_bools(bits: Vec<bool>) -> CpuBitset{
+    CpuBitset{bits:htm::CpuBitset::from_bools(&bits)}
+}
+#[pyfunction]
+#[text_signature = "(bit_indices)"]
+pub fn bitset_from_indices(bit_indices: Vec<u32>, input_size:u32) -> CpuBitset{
+    CpuBitset{bits:htm::CpuBitset::from_sdr(&bit_indices,input_size)}
+}
 #[pymethods]
 impl CpuBitset{
     #[new]
@@ -693,8 +853,12 @@ impl CpuBitset{
         self.bits.cardinality()
     }
     #[text_signature = "(sdr)"]
-    pub fn clear(&mut self, sdr:&CpuSDR){
-        self.bits.clear(&sdr.sdr)
+    pub fn clear(&mut self, sdr:Option<&CpuSDR>){
+        if let Some(sdr) = sdr{
+            self.bits.clear(&sdr.sdr)
+        }else{
+            self.bits.clear_all()
+        }
     }
     #[text_signature = "(min_size)"]
     pub fn ensure_size(&mut self, min_size:u32){
@@ -744,6 +908,7 @@ impl CpuInput{
     pub fn set_size(&mut self, size:u32){
         self.inp.set_size(size)
     }
+
 }
 
 
@@ -1047,6 +1212,16 @@ impl CpuHOMSegment {
 impl PyObjectProtocol for OclSDR {
     fn __str__(&self) -> PyResult<String> {
         Ok(format!("{:?}", self.sdr.get().map_err(ocl_err_to_py_ex)?))
+    }
+    fn __repr__(&self) -> PyResult<String> {
+        self.__str__()
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for CpuBitset {
+    fn __str__(&self) -> PyResult<String> {
+        Ok(format!("{:?}", self.bits))
     }
     fn __repr__(&self) -> PyResult<String> {
         self.__str__()

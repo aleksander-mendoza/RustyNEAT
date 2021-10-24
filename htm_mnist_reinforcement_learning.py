@@ -73,19 +73,3 @@ def random_trials(samples, repetitions, trials):
 
 
 print("Ensemble accuracy:", random_trials(100, 2, 20))
-
-# Configuration:
-# lbl_enc = enc.add_categorical(10, 28 * 8)
-# bitset = rusty_neat.htm.CpuBitset(enc.input_size)
-# htm = rusty_neat.htm.CpuHTM2(enc.input_size, 28 * (28 + 10 * 4), 30, 28 * 4)
-# Evaluation: 35/100 = 0.35, 39/100 = 0.39, 40/100 = 0.4, 48/100 = 0.48, 302 / 600 = 0.5, 663 / 1600 = 0.414375
-# Ensemble accuracy: 0.422
-
-# Configuration:
-# lbl_enc = enc.add_categorical(10, 28 * 8)
-# bitset = rusty_neat.htm.CpuBitset(enc.input_size)
-# htm = rusty_neat.htm.CpuHTM4(enc.input_size, 28 * (28 + 10 * 4), 30, 28 * 4, 0.5)
-# Evaluation: 25/100 = 0.25, 28/100 = 0.28, 35/100 = 0.35, 43/100 = 0.43, 306 / 600 = 0.51, 645 / 1600 = 0.403125
-# Ensemble accuracy: 0.352
-
-

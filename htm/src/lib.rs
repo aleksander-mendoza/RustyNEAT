@@ -410,23 +410,54 @@ mod tests {
             hom.infer(&activated,true);
         }
         hom.reset();
-        println!();
         let activated = htm.infer2(sdrs[0].get_dense(),false);
         let mut predicted = hom.infer(&activated,false);
-        println!("Activated={:?}", activated);
-        println!("Active_cells={:?}", hom.active_cells);
-        println!("Winner_cells={:?}", hom.winner_cells);
-        println!("Predicted={:?}", predicted);
         for sdr in &sdrs[1..]{
             let activated = htm.infer2(sdr.get_dense(),true);
-            println!("activated={:?}", activated);
             assert_eq!(predicted, activated);
             predicted = hom.infer(&activated,true);
-            println!("active_cells={:?}", hom.active_cells);
-            println!("winner_cells={:?}", hom.winner_cells);
-            println!("predicted={:?}", predicted);
         }
 
         Ok(())
+    }
+
+    #[test]
+    fn test15() -> Result<(), String> {
+        let mut htm = CpuHTM4::new_globally_uniform_prob(8,64,8,4,0.8,464567);
+        let in1 = CpuBitset::from_bools(&[false,false,false,true,false,false,true,false]);
+        let in2 = CpuBitset::from_bools(&[false,false,false,true,false,true,true,false]);
+        for _ in 0..128{
+            let out1 = htm.infer4(&in1,true);
+            let out2 = htm.infer4(&in2,true);
+            println!("1{:?}",out1);
+            println!("2{:?}",out2);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test16() {
+        fn test(from:u32,to:u32) {
+            let mut bits = CpuBitset::from_bools(&[true; 64]);
+            bits.clear_range(from,to);
+            for i in from..to {
+                assert!(!bits.is_bit_on(i), "{},{}->{}", from,to,i);
+            }
+            for i in 0..from {
+                assert!(bits.is_bit_on(i), "{},{}->{}", from,to,i);
+            }
+            for i in to..64 {
+                assert!(bits.is_bit_on(i), "{},{}->{}", from,to,i);
+            }
+        }
+        test(0,3);
+        test(1,3);
+        test(0,32);
+        test(0,33);
+        test(32,33);
+        test(0,64);
+        test(32,64);
+        test(50,64);
+        test(50,55);
     }
 }

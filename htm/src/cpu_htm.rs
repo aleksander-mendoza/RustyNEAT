@@ -249,7 +249,7 @@ impl CpuHTM {
         let sdr_input = input.get_sparse();
         let bitset_input = input.get_dense();
         self.htm_calculate_overlap(sdr_input);
-        let mut number_of_minicolumns_per_overlap = vec![0; self.max_overlap as usize];
+        let mut number_of_minicolumns_per_overlap = vec![0; self.max_overlap as usize+1];
         self.htm_calculate_number_of_minicolumns_per_overlap(sdr_input, &mut number_of_minicolumns_per_overlap);
         let smallest_overlap_that_made_it_to_top_n = self.htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n(&mut number_of_minicolumns_per_overlap);
         let mut top_n_minicolumns = Vec::with_capacity(self.n as usize);

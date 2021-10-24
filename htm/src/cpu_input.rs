@@ -15,6 +15,11 @@ impl EncoderTarget for CpuInput{
         self.sdr.push(neuron_index);
         self.bitset.push(neuron_index);
     }
+
+    fn clear_range(&mut self, from: u32, to: u32) {
+        self.sdr.clear_range(from,to);
+        self.bitset.clear_range(from,to);
+    }
 }
 impl CpuInput{
 

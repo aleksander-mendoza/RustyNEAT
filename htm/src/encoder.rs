@@ -4,9 +4,16 @@ use chrono::{DateTime, Utc, TimeZone, Datelike, Timelike, NaiveTime};
 
 pub trait EncoderTarget{
     fn push(&mut self, neuron_index:u32);
+    fn clear_range(&mut self, from:u32,to:u32);
 }
-
-pub trait Encoder<T>{
+pub trait EncoderRange{
+    fn neuron_range_begin(&self)->u32;
+    fn neuron_range_end(&self)->u32;
+    fn clear(&self, sdr:&mut impl EncoderTarget){
+        sdr.clear_range(self.neuron_range_begin(),self.neuron_range_end())
+    }
+}
+pub trait Encoder<T> : EncoderRange{
     fn encode(&self, sdr:&mut impl EncoderTarget, scalar:T);
 }
 
@@ -33,24 +40,71 @@ impl Encoder<f32> for FloatEncoder{
         }
     }
 }
+impl EncoderRange for FloatEncoder{
+    fn neuron_range_begin(&self) -> u32 {
+        self.neuron_range_begin
+    }
 
+    fn neuron_range_end(&self) -> u32 {
+        self.neuron_range_end
+    }
+}
 pub struct CategoricalEncoder{
     neuron_range_begin:u32,//inclusive
     num_of_categories:u32,
     sdr_cardinality: u32,
 }
-impl Encoder<u32> for CategoricalEncoder{
-    fn encode(&self, sdr:&mut impl EncoderTarget, scalar:u32) {
-        let scalar = scalar%self.num_of_categories;
+impl Encoder<u32> for CategoricalEncoder {
+    fn encode(&self, sdr: &mut impl EncoderTarget, scalar: u32) {
+        let scalar = scalar % self.num_of_categories;
         let begin = self.neuron_range_begin + scalar * self.sdr_cardinality;
-        let end = begin+self.sdr_cardinality;
-        for neuron_idx in begin..end{
+        let end = begin + self.sdr_cardinality;
+        for neuron_idx in begin..end {
             sdr.push(neuron_idx)
         }
     }
 }
+impl EncoderRange for CategoricalEncoder{
+    fn neuron_range_begin(&self) -> u32 {
+        self.neuron_range_begin
+    }
 
+    fn neuron_range_end(&self) -> u32 {
+        self.neuron_range_begin+self.sdr_cardinality*self.num_of_categories
+    }
+}
 
+pub struct BitsEncoder{
+    neuron_range_begin:u32,//inclusive
+    neuron_range_length:u32,
+}
+impl Encoder<&[u32]> for BitsEncoder{
+    fn encode(&self, sdr:&mut impl EncoderTarget, neuron_indices:&[u32]) {
+        for &neuron_idx in neuron_indices{
+            assert!(neuron_idx<self.neuron_range_length,"This encoder writes to a range of {} bits, but input array contains bit index {}",self.neuron_range_length, neuron_idx);
+            sdr.push(self.neuron_range_begin + neuron_idx)
+        }
+    }
+}
+impl EncoderRange for BitsEncoder{
+    fn neuron_range_begin(&self) -> u32 {
+        self.neuron_range_begin
+    }
+
+    fn neuron_range_end(&self) -> u32 {
+        self.neuron_range_begin+self.neuron_range_length
+    }
+}
+impl Encoder<&[bool]> for BitsEncoder{
+    fn encode(&self, sdr:&mut impl EncoderTarget, neuron_bits:&[bool]) {
+        assert!(neuron_bits.len() <= self.neuron_range_length as usize,"This encoder writes to a range of {} bits, but input array contains {} bits",self.neuron_range_length, neuron_bits.len());
+        for (neuron_idx, &is_on) in neuron_bits.iter().enumerate(){
+            if is_on {
+                sdr.push(neuron_idx as u32)
+            }
+        }
+    }
+}
 pub struct IntegerEncoder{
     neuron_range_begin:u32,//inclusive
     neuron_range_end:u32,//exclusive
@@ -73,7 +127,15 @@ impl Encoder<u32> for IntegerEncoder{
         }
     }
 }
+impl EncoderRange for IntegerEncoder{
+    fn neuron_range_begin(&self) -> u32 {
+        self.neuron_range_begin
+    }
 
+    fn neuron_range_end(&self) -> u32 {
+        self.neuron_range_end
+    }
+}
 
 pub struct CircularIntegerEncoder{
     neuron_range_begin:u32,//inclusive
@@ -97,7 +159,15 @@ impl Encoder<u32> for CircularIntegerEncoder{
         }
     }
 }
+impl EncoderRange for CircularIntegerEncoder{
+    fn neuron_range_begin(&self) -> u32 {
+        self.neuron_range_begin
+    }
 
+    fn neuron_range_end(&self) -> u32 {
+        self.neuron_range_end
+    }
+}
 pub struct DayOfWeekEncoder{
     enc:CircularIntegerEncoder
 }
@@ -109,6 +179,15 @@ impl DayOfWeekEncoder{
 impl <T:TimeZone> Encoder<&DateTime<T>> for DayOfWeekEncoder{
     fn encode(&self, sdr:&mut impl EncoderTarget, scalar:&DateTime<T>) {
         self.encode_day_of_week(sdr,scalar.weekday().num_days_from_monday());
+    }
+}
+impl EncoderRange for DayOfWeekEncoder{
+    fn neuron_range_begin(&self) -> u32 {
+        self.enc.neuron_range_begin()
+    }
+
+    fn neuron_range_end(&self) -> u32 {
+        self.enc.neuron_range_end()
     }
 }
 
@@ -125,7 +204,15 @@ impl <T:TimeZone> Encoder<&DateTime<T>> for DayOfMonthEncoder{
         self.encode_day_of_month(sdr,scalar.day0());
     }
 }
+impl EncoderRange for DayOfMonthEncoder{
+    fn neuron_range_begin(&self) -> u32 {
+        self.enc.neuron_range_begin()
+    }
 
+    fn neuron_range_end(&self) -> u32 {
+        self.enc.neuron_range_end()
+    }
+}
 pub struct BoolEncoder{
     enc:IntegerEncoder
 }
@@ -133,6 +220,15 @@ pub struct BoolEncoder{
 impl Encoder<bool> for BoolEncoder{
     fn encode(&self, sdr:&mut impl EncoderTarget, scalar:bool) {
         self.enc.encode(sdr,scalar as u32);
+    }
+}
+impl EncoderRange for BoolEncoder{
+    fn neuron_range_begin(&self) -> u32 {
+        self.enc.neuron_range_begin()
+    }
+
+    fn neuron_range_end(&self) -> u32 {
+        self.enc.neuron_range_end()
     }
 }
 
@@ -150,6 +246,15 @@ impl <T:TimeZone> Encoder<&DateTime<T>> for IsWeekendEncoder{
         self.encode_is_weekend(sdr,scalar.weekday().number_from_monday()>=6);
     }
 }
+impl EncoderRange for IsWeekendEncoder{
+    fn neuron_range_begin(&self) -> u32 {
+        self.enc.neuron_range_begin()
+    }
+
+    fn neuron_range_end(&self) -> u32 {
+        self.enc.neuron_range_end()
+    }
+}
 
 pub struct TimeOfDayEncoder{
     enc:CircularIntegerEncoder
@@ -162,6 +267,15 @@ impl TimeOfDayEncoder{
 impl <T:TimeZone> Encoder<&DateTime<T>> for TimeOfDayEncoder{
     fn encode(&self, sdr:&mut impl EncoderTarget, scalar:&DateTime<T>) {
         self.encode_time_of_day(sdr,scalar.time().num_seconds_from_midnight());
+    }
+}
+impl EncoderRange for TimeOfDayEncoder{
+    fn neuron_range_begin(&self) -> u32 {
+        self.enc.neuron_range_begin()
+    }
+
+    fn neuron_range_end(&self) -> u32 {
+        self.enc.neuron_range_end()
     }
 }
 
@@ -178,6 +292,16 @@ impl <T:TimeZone> Encoder<&DateTime<T>> for DayOfYearEncoder{
         self.encode_day_of_year(sdr,scalar.date().ordinal0());
     }
 }
+impl EncoderRange for DayOfYearEncoder{
+    fn neuron_range_begin(&self) -> u32 {
+        self.enc.neuron_range_begin()
+    }
+
+    fn neuron_range_end(&self) -> u32 {
+        self.enc.neuron_range_end()
+    }
+}
+
 
 
 pub struct EncoderBuilder{
@@ -192,6 +316,14 @@ impl EncoderBuilder{
     }
     pub fn input_size(&self)->u32{
         self.len
+    }
+    pub fn add_bits(&mut self, sdr_size:u32)->BitsEncoder{
+        let neuron_range_begin = self.len;
+        self.len += sdr_size;
+        BitsEncoder{
+            neuron_range_begin,
+            neuron_range_length: sdr_size
+        }
     }
     /**size=total number of bits (on and off) in an SDR.
     cardinality=number of on bits*/

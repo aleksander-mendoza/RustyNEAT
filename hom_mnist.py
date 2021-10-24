@@ -17,6 +17,8 @@ MNIST, LABELS = torch.load('htm/data/mnist.pt')
 
 def generate_htm():
     global htm
+    global hom
+    htm = rusty_neat.htm.CpuHTM2(enc.input_size, 28 * (28 + 10 * 4), 30, 28 * 4)
     htm = rusty_neat.htm.CpuHTM2(enc.input_size, 28 * (28 + 10 * 4), 30, 28 * 4)
 
 
