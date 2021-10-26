@@ -50,7 +50,26 @@ impl From<&CpuHTM> for CpuHTM2{
         }
     }
 }
-
+fn mod_clamp(x:f32,min:f32,max:f32)->f32{
+    debug_assert!(min<max);
+    let len = max-min;
+    let y = x - f32::floor((x - min) / len) * len;
+    debug_assert!(min <= y,"{} <= {}",min,y);
+    debug_assert!(y <= max,"{} <= {}",y,max);
+    y
+}
+#[cfg(test)]
+mod tests{
+    use super::*;
+    #[test]
+    fn test1(){
+        assert_eq!(mod_clamp(2.,4.,6.),4.);
+        assert_eq!(mod_clamp(1.,4.,6.),5.);
+        assert_eq!(mod_clamp(1.,4.,6.5),6.);
+        assert_eq!(mod_clamp(7.,4.,6.5),4.5);
+        assert_eq!(mod_clamp(8.,4.,6.5),5.5);
+    }
+}
 impl CpuHTM2 {
     pub fn input_size(&self)->u32{
         self.input_size
@@ -70,11 +89,38 @@ impl CpuHTM2 {
     pub fn feedforward_connections_as_slice(&self)->&[HtmFeedforwardConnection2]{
         self.feedforward_connections.as_slice()
     }
+    pub fn feedforward_connections_as_mut_slice(&mut self)->&mut [HtmFeedforwardConnection2]{
+        self.feedforward_connections.as_mut_slice()
+    }
     pub fn minicolumns_as_slice(&self)->&[HtmMinicolumn2]{
         self.minicolumns.as_slice()
     }
+    pub fn new_local_2d(input_size: (u32,u32), minicolumns: (u32,u32), n: u32, inputs_per_minicolumn: u32, radius:f32, mut rand_seed:u32) -> Self {
+        let stride = (input_size.0 as f32/minicolumns.0 as f32,input_size.1 as f32/minicolumns.1 as f32);
+        let margin = (stride.0/2f32,stride.1/2f32);
+
+        const EPSILON:f32 = 0.0001;
+        Self::new(input_size.0*input_size.1, minicolumns.0*minicolumns.1, n, |minicolumn_id|{
+            let minicolumn_pos = (minicolumn_id%minicolumns.0, minicolumn_id/minicolumns.0);
+            let minicolumn_pos = (margin.0+stride.0*minicolumn_pos.0 as f32,margin.1+stride.1*minicolumn_pos.1 as f32);
+            let min_bounds = ((minicolumn_pos.0-radius).max(0.),(minicolumn_pos.1-radius).max(0.));
+            let max_bounds = ((minicolumn_pos.0+radius).min(input_size.0 as f32 - EPSILON),(minicolumn_pos.1+radius).min(input_size.1 as f32 - EPSILON));
+            rand_seed = xorshift32(rand_seed);
+            let offset_0 = rand_u32_to_random_f32(rand_seed) - 0.5f32;
+            rand_seed = xorshift32(rand_seed);
+            let offset_1 = rand_u32_to_random_f32(rand_seed) - 0.5f32;
+            let offset = (offset_0 * radius , offset_1 * radius);
+            let input_pos = (minicolumn_pos.0 + offset.0 + 0.5f32,minicolumn_pos.1 + offset.1 + 0.5f32);
+            let input_pos = (mod_clamp(input_pos.0,min_bounds.0,max_bounds.0),mod_clamp(input_pos.1,min_bounds.1,max_bounds.1));
+            let input_pos = (input_pos.0 as u32,input_pos.1 as u32);
+            let input_idx = input_pos.0 + input_pos.1 * input_size.0;
+            rand_seed = xorshift32(rand_seed);
+            let permanence = rand_u32_to_random_f32(rand_seed);
+            (input_idx,permanence)
+        }, |minicolumn_id| inputs_per_minicolumn)
+    }
     pub fn new_globally_uniform_prob(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, mut rand_seed:u32) -> Self {
-        assert!(inputs_per_minicolumn < minicolumns);
+        assert!(inputs_per_minicolumn <= input_size);
         Self::new(input_size, minicolumns, n, |minicolumn_id|{
             rand_seed = xorshift32(rand_seed);
             let input_idx = rand_seed % input_size;
@@ -196,7 +242,6 @@ impl CpuHTM2 {
                                  current_top_n_minicolumn_idx: &mut u32) {
         for minicolumn_idx in 0..self.minicolumns.len() {
             let overlap = self.minicolumns[minicolumn_idx].overlap;
-            self.minicolumns[minicolumn_idx].overlap = 0;
             if overlap >= smallest_overlap_that_made_it_to_top_n as i32 { // the array number_of_minicolumns_per_overlap_that_made_it_to_top_n holds rubbish for any overlap lower than smallest_overlap_that_made_it_to_top_n
                 if number_of_minicolumns_per_overlap_that_made_it_to_top_n[overlap as usize] > 0 { // only add those columns that made it to top n
                     number_of_minicolumns_per_overlap_that_made_it_to_top_n[overlap as usize] -= 1;

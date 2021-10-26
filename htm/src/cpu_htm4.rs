@@ -47,6 +47,9 @@ impl CpuHTM4 {
     pub fn feedforward_connections_as_slice(&self)->&[HtmFeedforwardConnection4]{
         self.feedforward_connections.as_slice()
     }
+    pub fn feedforward_connections_as_mut_slice(&mut self)->&mut [HtmFeedforwardConnection4]{
+        self.feedforward_connections.as_mut_slice()
+    }
     pub fn minicolumns_as_slice(&self)->&[HtmMinicolumn4]{
         self.minicolumns.as_slice()
     }
@@ -179,7 +182,6 @@ impl CpuHTM4 {
                                  current_top_n_minicolumn_idx: &mut u32) {
         for minicolumn_idx in 0..self.minicolumns.len() {
             let overlap = self.minicolumns[minicolumn_idx].overlap;
-            self.minicolumns[minicolumn_idx].overlap = 0;
             if overlap >= smallest_overlap_that_made_it_to_top_n as i32 { // the array number_of_minicolumns_per_overlap_that_made_it_to_top_n holds rubbish for any overlap lower than smallest_overlap_that_made_it_to_top_n
                 if number_of_minicolumns_per_overlap_that_made_it_to_top_n[overlap as usize] > 0 { // only add those columns that made it to top n
                     number_of_minicolumns_per_overlap_that_made_it_to_top_n[overlap as usize] -= 1;

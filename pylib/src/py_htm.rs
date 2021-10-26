@@ -154,6 +154,10 @@ impl EncoderBuilder {
     pub fn input_size(&mut self) -> u32 {
         self.enc.input_size()
     }
+    #[text_signature = "(number_of_idle_neurons)"]
+    pub fn pad(&mut self, number_of_idle_neurons: u32) {
+        self.enc.pad(number_of_idle_neurons)
+    }
     #[text_signature = "(from_inclusive,to_exclusive,size,cardinality)"]
     pub fn add_circularinteger(&mut self, from: u32, to: u32, size: u32, cardinality: u32) -> CircularIntegerEncoder {
         CircularIntegerEncoder { enc: self.enc.add_circular_integer(from..to, size, cardinality) }
@@ -516,6 +520,10 @@ impl CpuHOM {
     fn clone(&self) -> CpuHOM {
         CpuHOM { hom: self.hom.clone() }
     }
+    #[text_signature = "( /)"]
+    fn reset(&mut self) {
+        self.hom.reset()
+    }
 
 }
 
@@ -670,6 +678,32 @@ impl CpuHTM2 {
     fn __call__(&mut self, bitset_input: &CpuBitset, learn: Option<bool>) -> CpuSDR {
         CpuSDR{sdr:self.htm.infer2(&bitset_input.bits, learn.unwrap_or(false))}
     }
+
+    #[text_signature = "(minicolumn_id)"]
+    fn get_overlap(&self, minicolumn_id:u32) -> i32 {
+        self.htm.minicolumns_as_slice()[minicolumn_id as usize].overlap
+    }
+
+    #[text_signature = "(minicolumn_id)"]
+    fn get_synapses_range(&self, minicolumn_id:u32) -> (u32,u32) {
+        let range = &self.htm.minicolumns_as_slice()[minicolumn_id as usize];
+        (range.connection_offset,range.connection_len)
+    }
+
+    #[text_signature = "(synapse_id)"]
+    fn get_synapse_input_and_permanence(&self, synapse_id:u32) -> (u32,f32) {
+        let s = &self.htm.feedforward_connections_as_slice()[synapse_id as usize];
+        (s.input_id,s.permanence)
+    }
+
+    #[text_signature = "(synapse_id, input_id)"]
+    fn set_synapse_input(&mut self, synapse_id:u32, input_id:u32) {
+        self.htm.feedforward_connections_as_mut_slice()[synapse_id as usize].input_id = input_id;
+    }
+    #[text_signature = "(synapse_id, permanence)"]
+    fn set_synapse_permanence(&mut self, synapse_id:u32, permanence:f32) {
+        self.htm.feedforward_connections_as_mut_slice()[synapse_id as usize].permanence = permanence;
+    }
 }
 
 #[pymethods]
@@ -740,6 +774,32 @@ impl CpuHTM4 {
     fn __call__(&mut self, bitset_input: &CpuBitset, learn: Option<bool>) -> CpuSDR {
         CpuSDR{sdr:self.htm.infer4(&bitset_input.bits, learn.unwrap_or(false))}
     }
+
+    #[text_signature = "(minicolumn_id)"]
+    fn get_synapses_range(&self, minicolumn_id:u32) -> (u32,u32) {
+        let range = &self.htm.minicolumns_as_slice()[minicolumn_id as usize];
+        (range.connection_offset,range.connection_len)
+    }
+
+    #[text_signature = "(synapse_id)"]
+    fn get_synapse_input_and_permanence(&self, synapse_id:u32) -> (u32,f32) {
+        let s = &self.htm.feedforward_connections_as_slice()[synapse_id as usize];
+        (s.input_id,s.permanence)
+    }
+
+    #[text_signature = "(synapse_id)"]
+    fn is_synapse_inhibitory(&self, synapse_id:u32) -> bool {
+        self.htm.feedforward_connections_as_slice()[synapse_id as usize].overlap_gain < 0
+    }
+
+    #[text_signature = "(synapse_id, input_id)"]
+    fn set_synapse_input(&mut self, synapse_id:u32, input_id:u32) {
+        self.htm.feedforward_connections_as_mut_slice()[synapse_id as usize].input_id = input_id;
+    }
+    #[text_signature = "(synapse_id, permanence)"]
+    fn set_synapse_permanence(&mut self, synapse_id:u32, permanence:f32) {
+        self.htm.feedforward_connections_as_mut_slice()[synapse_id as usize].permanence = permanence;
+    }
 }
 
 
@@ -802,6 +862,10 @@ impl CpuSDR {
     pub fn normalize(&mut self){
         self.sdr.normalize()
     }
+    #[text_signature = "()"]
+    pub fn is_normalized(&self)->bool{
+        self.sdr.is_normalized()
+    }
     #[text_signature = "(other_sdr)"]
     pub fn overlap(&self, other:&CpuSDR) -> u32 {
         self.sdr.overlap(&other.sdr)
@@ -819,6 +883,11 @@ impl CpuSDR {
     pub fn to_bitset(&self, input_size:u32)->CpuBitset{
         CpuBitset{bits:htm::CpuBitset::from_sdr(&self.sdr, input_size)}
     }
+}
+#[pyfunction]
+#[text_signature = "(input_size,minicolumns,n,inputs_per_minicolumn,radius,rand_seed)"]
+pub fn cpu_htm4_new_local_2d(input_size: (u32,u32), minicolumns: (u32,u32), n: u32, inputs_per_minicolumn: u32, radius:f32, rand_seed:Option<u32>) -> CpuHTM2{
+    CpuHTM2{htm:htm::CpuHTM2::new_local_2d(input_size,minicolumns,n,inputs_per_minicolumn,radius,rand_seed.unwrap_or_else(auto_gen_seed))}
 }
 #[pyfunction]
 #[text_signature = "(bits)"]

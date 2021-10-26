@@ -405,4 +405,7 @@ impl EncoderBuilder{
     pub fn add_day_of_year(&mut self, sdr_size:u32, sdr_cardinality:u32)->DayOfYearEncoder{
         DayOfYearEncoder{enc:self.add_circular_integer(0..366, sdr_size,sdr_cardinality)}
     }
+    pub fn pad(&mut self, number_of_idle_neurons:u32){
+        self.len+=number_of_idle_neurons
+    }
 }

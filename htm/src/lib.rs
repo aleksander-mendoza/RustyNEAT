@@ -460,4 +460,10 @@ mod tests {
         test(50,64);
         test(50,55);
     }
+
+    #[test]
+    fn test17() {
+        let h = CpuHTM2::new_local_2d((4,4),(2,2),4,4,2.1, 64747);
+
+    }
 }
