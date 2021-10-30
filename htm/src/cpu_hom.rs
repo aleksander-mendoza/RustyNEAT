@@ -145,13 +145,16 @@ pub struct HomMinicolumn {
 }
 
 impl HomMinicolumn{
-    fn punish_segment(&mut self, hyp:&HomHyperparams, segment_idx:usize, prev_active_cells:&Vec<u32>){
+    fn punish_segment(&mut self, hyp:&HomHyperparams, segment_idx:usize, prev_active_cells:&Vec<u32>) -> bool{
         self.segments[segment_idx].update_segment(hyp,[hyp.predicted_decrement,0.], prev_active_cells);
         if self.segments[segment_idx].synapses.is_empty(){
             self.segments.swap_remove(segment_idx);
+            true
+        }else{
+            false
         }
     }
-    fn adapt_segment(&mut self, hyp:&mut HomHyperparams, segment_idx:usize, prev_active_cells:&Vec<u32>, prev_winner_cells:&Vec<u32>){
+    fn adapt_segment(&mut self, hyp:&mut HomHyperparams, segment_idx:usize, prev_active_cells:&Vec<u32>, prev_winner_cells:&Vec<u32>)->bool{
         self.segments[segment_idx].update_segment(hyp,hyp.permanence_decrement_increment, prev_active_cells);
         let num_active_potential = self.segments[segment_idx].num_active_potential as usize;
         if hyp.max_new_synapse_count > num_active_potential{
@@ -160,6 +163,9 @@ impl HomMinicolumn{
         }
         if self.segments[segment_idx].synapses.is_empty(){
             self.segments.swap_remove(segment_idx);
+            true
+        }else{
+            false
         }
     }
     fn activate_predicted_column(&mut self, learn:bool, hyp:&mut HomHyperparams,
@@ -170,7 +176,8 @@ impl HomMinicolumn{
                                  prev_winner_cells:&Vec<u32>)->bool{
         let mut has_cell_been_added = vec![false;hyp.cells_per_minicolumn as usize];
         let mut has_any_active_cells = false;
-        for segment_idx in 0..self.segments.len(){
+        let mut segment_idx = 0;
+        while segment_idx < self.segments.len(){
             if self.segments[segment_idx].is_active {
                 has_any_active_cells = true;
                 let cell_idx= self.segments[segment_idx].cell_idx ;
@@ -180,9 +187,11 @@ impl HomMinicolumn{
                     active_cells.push(cell_id);
                     winner_cells.push(cell_id);
                 }
-                if learn {
-                    self.adapt_segment(hyp,segment_idx,prev_active_cells,prev_winner_cells)
+                if !(learn && self.adapt_segment(hyp,segment_idx,prev_active_cells,prev_winner_cells)) {
+                    segment_idx+=1
                 }
+            }else{
+                segment_idx+=1
             }
         }
         has_any_active_cells
@@ -249,7 +258,7 @@ impl HomMinicolumn{
         }else{
             let winner_cell = self.segments[learning_segment].cell_idx as u32;
             if learn {
-                self.adapt_segment(hyp,learning_segment,prev_active_cells,prev_winner_cells)
+                self.adapt_segment(hyp,learning_segment,prev_active_cells,prev_winner_cells);
             }
             winner_cell
         };
@@ -258,9 +267,14 @@ impl HomMinicolumn{
     }
     fn punish_predicted_column(&mut self, hyp:&HomHyperparams,
                                prev_active_cells:&Vec<u32>){
-        for segment_idx in 0..self.segments.len(){
+        let mut segment_idx = 0;
+        while segment_idx < self.segments.len(){
             if self.segments[segment_idx].is_matching(hyp){
-                self.punish_segment(hyp,segment_idx,prev_active_cells);
+                if !self.punish_segment(hyp,segment_idx,prev_active_cells){
+                    segment_idx+=1
+                }
+            }else{
+                segment_idx+=1
             }
         }
     }

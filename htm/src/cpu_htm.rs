@@ -214,12 +214,10 @@ impl CpuHTM {
     }
 
 
-    fn htm_update_permanence(&mut self,
+    pub fn update_permanence(&mut self,
                              top_n_minicolumns: &[u32],
-                             bitset_input: &CpuBitset,
-                             current_top_n_minicolumn_idx: u32) {
-        for top_minicolumn_idx in 0..current_top_n_minicolumn_idx as usize {
-            let minicolumn_idx: u32 = top_n_minicolumns[top_minicolumn_idx];
+                             bitset_input: &CpuBitset) {
+        for &minicolumn_idx in top_n_minicolumns{
             let connection_index_offset = self.minicolumns[minicolumn_idx as usize].connection_index_offset;
             let connection_index_len = self.minicolumns[minicolumn_idx as usize].connection_index_len;
             for i in 0..connection_index_len {
@@ -244,7 +242,7 @@ impl CpuHTM {
         }
     }
 
-    pub fn infer(&mut self, input: &CpuInput, learn: bool) -> CpuSDR {
+    pub fn compute(&mut self, input: &CpuInput) -> CpuSDR {
         assert!(self.input_size()<=input.size(),"HTM expects input of size {} but got {}",self.input_size(),input.size());
         let sdr_input = input.get_sparse();
         let bitset_input = input.get_dense();
@@ -257,12 +255,16 @@ impl CpuHTM {
         let mut current_top_n_minicolumn_idx = 0;
         self.htm_find_top_minicolumns(sdr_input, &mut number_of_minicolumns_per_overlap, smallest_overlap_that_made_it_to_top_n, &mut top_n_minicolumns, &mut current_top_n_minicolumn_idx);
         let top_minicolumn_count = current_top_n_minicolumn_idx;
-        if learn {
-            self.htm_update_permanence(&top_n_minicolumns, bitset_input,top_minicolumn_count)
-        }
         self.htm_clean_up_overlap(sdr_input);
         unsafe { top_n_minicolumns.set_len(top_minicolumn_count as usize) }
         CpuSDR::from(top_n_minicolumns)
+    }
+    pub fn infer(&mut self, input: &CpuInput, learn: bool) -> CpuSDR {
+        let top_n_minicolumns = self.compute(input);
+        if learn {
+            self.update_permanence(&top_n_minicolumns, input.get_dense());
+        }
+        top_n_minicolumns
     }
 
 }

@@ -33,7 +33,7 @@ MNIST, LABELS = torch.load('htm/data/mnist.pt')
 def generate_htm():
     global htm1
     global hom
-    htm1 = rusty_neat.htm.CpuHTM2(htm_enc.input_size, out_columns, 28*3, 28 * 4)
+    htm1 = rusty_neat.htm.CpuHTM2(htm_enc.input_size, out_columns, 30, 28 * 4)
     hom = rusty_neat.htm.CpuHOM(1, hom_enc.input_size)
 
 
@@ -110,7 +110,7 @@ def run(repetitions, trials, samples, test_samples=None):
     print(acc)
 
 
-run(8,20,200,200)
+run(10, 20, 500, 500)
 
 # Encoding:
 #   GABOR_FILTERS = [np.array([[0, 0, 0], [0, 1, 0], [0, 0, 0]], dtype=np.float)]
@@ -201,14 +201,3 @@ run(8,20,200,200)
 #  [0.     0.     0.     0.     0.001  0.     0.     0.0146 0.0004 0.0074]
 #  [0.0002 0.     0.0004 0.001  0.0002 0.0006 0.     0.     0.0078 0.0002]
 #  [0.     0.     0.     0.     0.     0.     0.     0.     0.     0.    ]]
-
-
-
-# Encoding:
-#   GABOR_FILTERS = [np.array([[0, 0, 0], [0, 1, 0], [0, 0, 0]], dtype=np.float)]
-# Configuration:
-#   out_columns = 28 * (28 + 10 * 4)
-#   lbl_enc = hom_enc.add_categorical(10, 28 * 8)
-#   htm1 = rusty_neat.htm.CpuHTM2(htm_enc.input_size, out_columns, 28*3, 28 * 4)
-#   hom = rusty_neat.htm.CpuHOM(1, hom_enc.input_size)
-# Ensemble accuracy(1,1,200): 0.8849

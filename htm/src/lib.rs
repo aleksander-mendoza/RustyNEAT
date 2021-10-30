@@ -55,6 +55,7 @@ mod tests {
     use crate::ocl_htm2::OclHTM2;
     use ndalgebra::context::Context;
     use crate::encoder::{EncoderBuilder, Encoder};
+    use crate::rand::xorshift32;
 
     #[test]
     fn test1() -> Result<(), String> {
@@ -464,6 +465,42 @@ mod tests {
     #[test]
     fn test17() {
         let h = CpuHTM2::new_local_2d((4,4),(2,2),4,4,2.1, 64747);
+
+    }
+
+    #[test]
+    fn test18() {
+        let out_columns = 28 * (28 + 10 * 4);
+        let mut htm_enc = EncoderBuilder::new();
+        const S:u32 = 28 * 28;
+        let img_enc = htm_enc.add_bits(S);
+        let mut hom_enc = EncoderBuilder::new();
+        let out_enc = hom_enc.add_bits(out_columns);
+        let lbl_num = 10;
+        let lbl_enc = hom_enc.add_categorical(lbl_num, 28 * 4);
+        let mut sdr = CpuSDR::new();
+        let data = (0..100).map(|i|CpuBitset::rand(htm_enc.input_size(),i*6546)).collect::<Vec<CpuBitset>>();
+        let mut rand_seed = 53676;
+        let labels = (0..data.len()).map(|_|{
+            rand_seed = xorshift32(rand_seed);
+            rand_seed%lbl_num
+        }).collect::<Vec<u32>>();
+        let label_sdrs = (0..lbl_num).map(|lbl|{
+            let mut sdr = CpuSDR::new();
+            lbl_enc.encode(&mut sdr,lbl);
+            sdr
+        }).collect::<Vec<CpuSDR>>();
+        let mut htm1 = CpuHTM2::new_globally_uniform_prob(htm_enc.input_size(), out_columns, 30, 28 * 4,648679);
+        let mut hom = CpuHOM::new(1, hom_enc.input_size());
+
+
+        for (img, &lbl) in data.iter().zip(labels.iter()){
+            let active_columns = htm1.infer2(img,true);
+            let predicted_columns = hom.infer(&active_columns,true);
+            hom.infer(&label_sdrs[lbl as usize],true);
+            hom.reset();
+        }
+
 
     }
 }

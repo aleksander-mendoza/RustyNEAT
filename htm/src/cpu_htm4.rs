@@ -149,12 +149,10 @@ impl CpuHTM4 {
         0
     }
 
-    fn htm_update_permanence4(&mut self,
-                              top_n_minicolumns: &mut [u32],
-                              bitset_input:&CpuBitset,
-                              current_top_n_minicolumn_idx: u32) {
-        for top_minicolumn_idx in 0..current_top_n_minicolumn_idx as usize {
-            let minicolumn_idx: u32 = top_n_minicolumns[top_minicolumn_idx];
+    pub fn update_permanence4(&mut self,
+                              top_n_minicolumns: &[u32],
+                              bitset_input:&CpuBitset) {
+        for &minicolumn_idx in top_n_minicolumns{
             let connection_offset = self.minicolumns[minicolumn_idx as usize].connection_offset;
             let connection_len = self.minicolumns[minicolumn_idx as usize].connection_len;
             for feedforward_connection_idx in connection_offset..(connection_offset+connection_len) {
@@ -192,7 +190,7 @@ impl CpuHTM4 {
         }
     }
 
-    pub fn infer4(&mut self, bitset_input: &CpuBitset, learn: bool) -> CpuSDR{
+    pub fn compute4(&mut self, bitset_input: &CpuBitset) -> CpuSDR{
         assert!(self.input_size()<=bitset_input.size());
         let mut number_of_minicolumns_per_overlap = vec![0; self.max_overlap as usize+1];
         self.htm_calculate_overlap4(bitset_input,&mut number_of_minicolumns_per_overlap);
@@ -202,11 +200,15 @@ impl CpuHTM4 {
         let mut current_top_n_minicolumn_idx = 0;
         self.htm_find_top_minicolumns4(&mut number_of_minicolumns_per_overlap, smallest_overlap_that_made_it_to_top_n, &mut top_n_minicolumns, &mut current_top_n_minicolumn_idx);
         let top_minicolumn_count = current_top_n_minicolumn_idx;
-        if learn {
-            self.htm_update_permanence4(&mut top_n_minicolumns,bitset_input, top_minicolumn_count)
-        }
         unsafe { top_n_minicolumns.set_len(top_minicolumn_count as usize) }
         CpuSDR::from(top_n_minicolumns)
+    }
+    pub fn infer4(&mut self, bitset_input: &CpuBitset, learn: bool) -> CpuSDR{
+        let top_n_minicolumns = self.compute4(bitset_input);
+        if learn {
+            self.update_permanence4(&top_n_minicolumns, bitset_input)
+        }
+        top_n_minicolumns
     }
 }
 

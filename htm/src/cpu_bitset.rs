@@ -1,5 +1,6 @@
 use crate::{CpuSDR, EncoderTarget};
 use std::fmt::{Debug, Formatter};
+use crate::rand::xorshift32;
 
 #[derive( Eq, PartialEq)]
 pub struct CpuBitset {
@@ -79,6 +80,13 @@ impl CpuBitset {
     }
     pub fn new(bit_count: u32) -> Self {
         Self { bits: vec![0; bit_count_to_vec_size(bit_count)]}
+    }
+    pub fn rand(bit_count: u32, mut rand_seed:u32) -> Self {
+        let u32_count = bit_count_to_vec_size(bit_count);
+        Self { bits: (0..u32_count).map(|_|{
+            rand_seed = xorshift32(rand_seed);
+            rand_seed
+        }).collect()}
     }
 
 

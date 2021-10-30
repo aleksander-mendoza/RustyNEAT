@@ -130,6 +130,7 @@ run(100, 2, 20)
 #   htm = rusty_neat.htm.CpuHTM2(enc.input_size, 28 * (28 + 10 * 4), 30, 28 * 4)
 # Ensemble accuracy(100,2,20): 0.205
 
+
 # Encoding:
 #   GABOR_FILTERS = [np.array([[0, 0, 0], [0, 1, 0], [0, 0, 0]], dtype=np.float)]
 # Configuration:
@@ -170,6 +171,7 @@ run(100, 2, 20)
 #   bitset = rusty_neat.htm.CpuBitset(enc.input_size)
 #   htm = rusty_neat.htm.CpuHTM2(enc.input_size, 28 * (28 + 10 * 4), 30, 28 * 8)
 # Ensemble accuracy(100,2,20): 0.239
+
 
 # Encoding:
 #   GABOR_FILTERS = [np.array([[0, 0, 0], [0, 1, 0], [0, 0, 0]], dtype=np.float)]

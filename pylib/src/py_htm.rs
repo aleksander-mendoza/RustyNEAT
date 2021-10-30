@@ -219,12 +219,7 @@ fn encode<T>(sdr:PyObject,scalar:T,f1:impl FnOnce(&mut htm::CpuSDR, T),f2:impl F
 }
 #[pymethods]
 impl BitsEncoder {
-    pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
-        encode(sdr,(),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x))
-    }
+
     pub fn encode(&self, sdr: PyObject, val: &PyAny) -> PyResult<()>{
         if let Ok(bools) = val.extract::<Vec<bool>>(){
             self.encode_from_bools(sdr, bools)
@@ -248,12 +243,7 @@ impl BitsEncoder {
 }
 #[pymethods]
 impl IntegerEncoder {
-    pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
-        encode(sdr,(),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x))
-    }
+
     pub fn encode(&self, sdr: PyObject, scalar: u32) -> PyResult<()> {
         encode(sdr,scalar,
                |x,y|self.enc.encode(x,y),
@@ -261,15 +251,44 @@ impl IntegerEncoder {
                |x,y|self.enc.encode(x,y))
     }
 }
-
+macro_rules! impl_encoder {
+    ($name:ident) => {
 #[pymethods]
-impl CategoricalEncoder {
+impl $name {
     pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
         encode(sdr,(),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x))
+           |x,_|self.enc.clear(x),
+           |x,_|self.enc.clear(x),
+           |x,_|self.enc.clear(x))
     }
+    #[getter]
+    pub fn len(&self)->u32{
+        self.enc.neuron_range_len()
+    }
+    #[getter]
+    pub fn begin(&self)->u32{
+        self.enc.neuron_range_begin()
+    }
+    #[getter]
+    pub fn end(&self)->u32{
+        self.enc.neuron_range_end()
+    }
+}
+    };
+}
+impl_encoder!(CategoricalEncoder);
+impl_encoder!(CircularIntegerEncoder);
+impl_encoder!(FloatEncoder);
+impl_encoder!(IntegerEncoder);
+impl_encoder!(BitsEncoder);
+impl_encoder!(BoolEncoder);
+impl_encoder!(DayOfMonthEncoder);
+impl_encoder!(DayOfYearEncoder);
+impl_encoder!(IsWeekendEncoder);
+impl_encoder!(TimeOfDayEncoder);
+impl_encoder!(DayOfWeekEncoder);
+#[pymethods]
+impl CategoricalEncoder {
     pub fn encode(&self, sdr: PyObject, scalar: u32) -> PyResult<()> {
         encode(sdr,scalar,
                |x,y|self.enc.encode(x,y),
@@ -279,12 +298,6 @@ impl CategoricalEncoder {
 }
 #[pymethods]
 impl CircularIntegerEncoder {
-    pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
-        encode(sdr,(),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x))
-    }
     pub fn encode(&self, sdr: PyObject, scalar: u32) -> PyResult<()> {
         encode(sdr,scalar,
                |x,y|self.enc.encode(x,y),
@@ -295,12 +308,7 @@ impl CircularIntegerEncoder {
 
 #[pymethods]
 impl FloatEncoder {
-    pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
-        encode(sdr,(),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x))
-    }
+
     pub fn encode(&self, sdr: PyObject, scalar: f32) -> PyResult<()>{
         encode(sdr,scalar,
                |x,y|self.enc.encode(x,y),
@@ -311,12 +319,7 @@ impl FloatEncoder {
 
 #[pymethods]
 impl DayOfWeekEncoder {
-    pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
-        encode(sdr,(),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x))
-    }
+
     pub fn encode(&self, sdr: PyObject, scalar: &PyDateTime) -> PyResult<()>{
         let weekday = scalar.call_method("weekday", (), None).unwrap().extract().unwrap();
         encode(sdr,weekday,
@@ -328,12 +331,7 @@ impl DayOfWeekEncoder {
 
 #[pymethods]
 impl DayOfMonthEncoder {
-    pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
-        encode(sdr,(),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x))
-    }
+
     pub fn encode(&self, sdr: PyObject, scalar: &PyDateTime) -> PyResult<()>{
         let day = scalar.get_day() as u32 - 1;
         encode(sdr,day,
@@ -345,12 +343,7 @@ impl DayOfMonthEncoder {
 
 #[pymethods]
 impl DayOfYearEncoder {
-    pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
-        encode(sdr,(),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x))
-    }
+
     pub fn encode(&self, sdr: PyObject, scalar: &PyDateTime) -> PyResult<()>{
         let days_up_to_month = [0, 31, 31 + 28, 31 + 28 + 31, 31 + 28 + 31 + 30, 31 + 28 + 31 + 30 + 31, 31 + 28 + 31 + 30 + 31 + 30, 31 + 28 + 31 + 30 + 31 + 30 + 31, 31 + 28 + 31 + 30 + 31 + 30 + 31 + 31, 31 + 28 + 31 + 30 + 31 + 30 + 31 + 31 + 30, 31 + 28 + 31 + 30 + 31 + 30 + 31 + 31 + 30 + 31, 31 + 28 + 31 + 30 + 31 + 30 + 31 + 31 + 30 + 31 + 30];
         let mut day = scalar.get_day() as u32 - 1;
@@ -371,12 +364,7 @@ impl DayOfYearEncoder {
 
 #[pymethods]
 impl IsWeekendEncoder {
-    pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
-        encode(sdr,(),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x))
-    }
+
     pub fn encode(&self, sdr: PyObject, scalar: &PyDateTime) -> PyResult<()>{
         let day = scalar.call_method("weekday", (), None).unwrap().extract::<u32>().unwrap();
         let is_weekend = day >= 5;
@@ -390,12 +378,7 @@ impl IsWeekendEncoder {
 
 #[pymethods]
 impl TimeOfDayEncoder {
-    pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
-        encode(sdr,(),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x))
-    }
+
     pub fn encode(&self, sdr: PyObject, scalar: &PyDateTime) -> PyResult<()>{
         let sec = (60 * scalar.get_hour() as u32 + scalar.get_minute() as u32) * 60 + scalar.get_second() as u32;
         encode(sdr,sec,
@@ -407,12 +390,7 @@ impl TimeOfDayEncoder {
 
 #[pymethods]
 impl BoolEncoder {
-    pub fn clear(&self, sdr: PyObject) -> PyResult<()>{
-        encode(sdr,(),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x),
-               |x,_|self.enc.clear(x))
-    }
+
     pub fn encode(&self, sdr: PyObject, scalar: bool) -> PyResult<()>{
         encode(sdr,scalar,
                |x,y|self.enc.encode(x,y),
@@ -524,6 +502,14 @@ impl CpuHOM {
     fn reset(&mut self) {
         self.hom.reset()
     }
+    #[getter]
+    fn active_cells(&mut self) -> Vec<u32>{
+        self.hom.active_cells.clone()
+    }
+    #[getter]
+    fn winner_cells(&mut self) -> Vec<u32>{
+        self.hom.winner_cells.clone()
+    }
 
 }
 
@@ -537,7 +523,10 @@ impl CpuHTM {
         Ok(CpuHTM { htm: htm::CpuHTM::new_globally_uniform_prob(input_size, minicolumns, n, inputs_per_minicolumn,rand_seed.unwrap_or_else(auto_gen_seed)) })
     }
 
-
+    #[getter]
+    fn get_input_size(&self) -> u32 {
+        self.htm.input_size()
+    }
     #[getter]
     fn get_n(&self) -> u32 {
         self.htm.n
@@ -589,8 +578,20 @@ impl CpuHTM {
     }
 
     #[call]
-    fn __call__(&mut self, input: &CpuInput, learn: Option<bool>) -> CpuSDR {
-        CpuSDR{sdr:self.htm.infer(&input.inp, learn.unwrap_or(false))}
+    fn __call__(&mut self, bitset_input: &CpuInput, learn: Option<bool>) -> CpuSDR {
+        self.infer(bitset_input,learn)
+    }
+    #[text_signature = "(bitset_input, learn)"]
+    fn infer(&mut self, bitset_input: &CpuInput, learn: Option<bool>) -> CpuSDR {
+        CpuSDR{sdr:self.htm.infer(&bitset_input.inp, learn.unwrap_or(false))}
+    }
+    #[text_signature = "(bitset_input,active_columns)"]
+    fn update_permanence(&mut self, bitset_input: &CpuBitset, active_columns:&CpuSDR) {
+        self.htm.update_permanence(&active_columns.sdr, &bitset_input.bits)
+    }
+    #[text_signature = "(bitset_input)"]
+    fn compute(&mut self, bitset_input: &CpuInput) -> CpuSDR {
+        CpuSDR{sdr:self.htm.compute(&bitset_input.inp)}
     }
 
     #[text_signature = "( /)"]
@@ -623,6 +624,10 @@ impl CpuHTM2 {
     #[text_signature = "( /)"]
     fn clone(&self) -> CpuHTM2 {
         CpuHTM2 { htm: self.htm.clone() }
+    }
+    #[getter]
+    fn get_input_size(&self) -> u32 {
+        self.htm.input_size()
     }
     #[getter]
     fn get_n(&self) -> u32 {
@@ -676,7 +681,19 @@ impl CpuHTM2 {
 
     #[call]
     fn __call__(&mut self, bitset_input: &CpuBitset, learn: Option<bool>) -> CpuSDR {
+        self.infer(bitset_input,learn)
+    }
+    #[text_signature = "(bitset_input, learn)"]
+    fn infer(&mut self, bitset_input: &CpuBitset, learn: Option<bool>) -> CpuSDR {
         CpuSDR{sdr:self.htm.infer2(&bitset_input.bits, learn.unwrap_or(false))}
+    }
+    #[text_signature = "(bitset_input,active_columns)"]
+    fn update_permanence(&mut self, bitset_input: &CpuBitset, active_columns:&CpuSDR) {
+        self.htm.update_permanence2(&active_columns.sdr, &bitset_input.bits)
+    }
+    #[text_signature = "(bitset_input)"]
+    fn compute(&mut self, bitset_input: &CpuBitset) -> CpuSDR {
+        CpuSDR{sdr:self.htm.compute2(&bitset_input.bits)}
     }
 
     #[text_signature = "(minicolumn_id)"]
@@ -719,7 +736,10 @@ impl CpuHTM4 {
         }
         Ok(CpuHTM4 { htm: htm::CpuHTM4::new_globally_uniform_prob(input_size, minicolumns, n, inputs_per_minicolumn,excitatory_connection_probability,rand_seed.unwrap_or_else(auto_gen_seed)) })
     }
-
+    #[getter]
+    fn get_input_size(&self) -> u32 {
+        self.htm.input_size()
+    }
     #[getter]
     fn get_n(&self) -> u32 {
         self.htm.n
@@ -772,7 +792,19 @@ impl CpuHTM4 {
 
     #[call]
     fn __call__(&mut self, bitset_input: &CpuBitset, learn: Option<bool>) -> CpuSDR {
+        self.infer(bitset_input,learn)
+    }
+    #[text_signature = "(bitset_input, learn)"]
+    fn infer(&mut self, bitset_input: &CpuBitset, learn: Option<bool>) -> CpuSDR {
         CpuSDR{sdr:self.htm.infer4(&bitset_input.bits, learn.unwrap_or(false))}
+    }
+    #[text_signature = "(bitset_input,active_columns)"]
+    fn update_permanence(&mut self, bitset_input: &CpuBitset, active_columns:&CpuSDR) {
+        self.htm.update_permanence4(&active_columns.sdr, &bitset_input.bits)
+    }
+    #[text_signature = "(bitset_input)"]
+    fn compute(&mut self, bitset_input: &CpuBitset) -> CpuSDR {
+        CpuSDR{sdr:self.htm.compute4(&bitset_input.bits)}
     }
 
     #[text_signature = "(minicolumn_id)"]
@@ -879,7 +911,7 @@ impl CpuSDR {
     fn get_active_neurons(&self) -> Vec<u32> {
         self.sdr.clone().to_vec()
     }
-    #[text_signature = "(sdr)"]
+    #[text_signature = "(input_size)"]
     pub fn to_bitset(&self, input_size:u32)->CpuBitset{
         CpuBitset{bits:htm::CpuBitset::from_sdr(&self.sdr, input_size)}
     }

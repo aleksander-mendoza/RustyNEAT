@@ -9,6 +9,9 @@ pub trait EncoderTarget{
 pub trait EncoderRange{
     fn neuron_range_begin(&self)->u32;
     fn neuron_range_end(&self)->u32;
+    fn neuron_range_len(&self)->u32{
+        self.neuron_range_end()-self.neuron_range_begin()
+    }
     fn clear(&self, sdr:&mut impl EncoderTarget){
         sdr.clear_range(self.neuron_range_begin(),self.neuron_range_end())
     }
