@@ -63,13 +63,7 @@ def train(repetitions, begin, end):
 
 def test(img):
     predicted = infer(img)
-    overlap = [0] * 10
-    for lbl in range(0, 9):
-        lbl_enc.encode(sdr, lbl)
-        overlap[lbl] = predicted.overlap(sdr)
-        sdr.clear()
-    # print(lbl, overlap[lbl])
-    return np.argmax(overlap)
+    return lbl_enc.find_category_with_highest_overlap(predicted)
 
 
 def eval(begin, end):
@@ -101,7 +95,7 @@ def run(repetitions, trials, samples, test_samples=None):
     print(acc)
 
 
-run(1, 1, 5000, 1000)
+run(10,1,100,100)
 
 # Encoding:
 #   GABOR_FILTERS = [np.array([[0, 0, 0], [0, 1, 0], [0, 0, 0]], dtype=np.float)]
@@ -112,9 +106,9 @@ run(1, 1, 5000, 1000)
 # Ensemble accuracy(2,1 ,100): 0.54
 # Ensemble accuracy(10,1,100): 0.53
 # Ensemble accuracy(10,1,100,100): 0.36
-# Ensemble accuracy(10,1,100,500): 0.378
-# Ensemble accuracy(1,1,100,500): 0.379
-# Ensemble accuracy(10,1,500,500): 0.454
-# Ensemble accuracy(1,1,500,500): 0.4679
-# Ensemble accuracy(1,1,1000,1000): 0.373
-# Ensemble accuracy(1,1,5000,1000): 0.436
+# Ensemble accuracy(10,1,100,500):
+# Ensemble accuracy(1,1,100,500):
+# Ensemble accuracy(10,1,500,500):
+# Ensemble accuracy(1,1,500,500):
+# Ensemble accuracy(1,1,1000,1000):
+# Ensemble accuracy(1,1,5000,1000):

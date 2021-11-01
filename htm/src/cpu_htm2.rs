@@ -228,6 +228,46 @@ impl CpuHTM2 {
         }
     }
 
+    pub fn update_permanence_ltd2(&mut self,
+                                  top_n_minicolumns: &[u32],
+                                  active_minicolumns: &CpuBitset,
+                                  bitset_input: &CpuBitset) {
+        for &minicolumn_idx in top_n_minicolumns {
+            let is_col_inactive = !active_minicolumns.is_bit_on(minicolumn_idx as u32);
+            let connection_offset = self.minicolumns[minicolumn_idx as usize].connection_offset;
+            let connection_len = self.minicolumns[minicolumn_idx as usize].connection_len;
+            for feedforward_connection_idx in connection_offset..(connection_offset+connection_len) {
+                let input_id = self.feedforward_connections[feedforward_connection_idx as usize].input_id;
+                let is_inp_active = bitset_input.is_bit_on(input_id);
+                let reinforce = is_inp_active ^ is_col_inactive;
+                let permanence_change = self.permanence_decrement_increment[reinforce as usize];
+                let old_permanence = self.feedforward_connections[feedforward_connection_idx as usize].permanence;
+                let new_permanence = (old_permanence + permanence_change).clamp(0., 1.);
+                self.feedforward_connections[feedforward_connection_idx as usize].permanence = new_permanence;
+            }
+        }
+    }
+
+    /**penalty_multiplier should be some negative number (more or less close to -1 probably). Numbers between
+    -1 and 0 will make the penalties smaller. Numbers below -1 will make penalties larger. Positive numbers will
+    invert the penalty and lead to greater activity of inactive columns (probably not what you want under normal circumstances)*/
+    pub fn update_permanence_and_penalize2(&mut self,
+                                           active_minicolumns: &CpuBitset,
+                                           bitset_input: &CpuBitset,
+                                           penalty_multiplier:f32) {
+        for (c_idx, c) in self.minicolumns.iter().enumerate() {
+            let is_col_active = active_minicolumns.is_bit_on(c_idx as u32);
+            let multiplier = if is_col_active {1.} else {penalty_multiplier};
+            for feedforward_connection in &mut self.feedforward_connections[c.connection_offset as usize..(c.connection_offset + c.connection_len) as usize] {
+                let is_inp_active = bitset_input.is_bit_on(feedforward_connection.input_id);
+                let permanence_change = self.permanence_decrement_increment[is_inp_active as usize] * multiplier;
+                let old_permanence = feedforward_connection.permanence;
+                let new_permanence = (old_permanence + permanence_change).clamp(0., 1.);
+                feedforward_connection.permanence = new_permanence;
+            }
+        }
+    }
+
     /**This function does the exact same thing as htm_find_top_minicolumns, but that function works
     optimally when the input is so sparse that only a tiny fraction of minicolumns has even a single
     connection to some active input. In cases where vast majority minicolumns is expected to have

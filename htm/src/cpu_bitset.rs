@@ -33,6 +33,7 @@ impl EncoderTarget for CpuBitset{
     }
 
     fn clear_range(&mut self, from: u32, to: u32) {
+        assert!(from<=to,"Range's left bound {} is greater than right bound {}", from,to);
         let from_u32 = (from/32) as usize;
         let to_u32 = (to/32) as usize;
         let all_ones = u32::MAX;
@@ -49,6 +50,23 @@ impl EncoderTarget for CpuBitset{
     }
 }
 impl CpuBitset {
+    pub fn cardinality_in_range(&self, from: u32, to: u32) -> u32 {
+        assert!(from<=to,"Range's left bound {} is greater than right bound {}", from,to);
+        let from_u32 = (from/32) as usize;
+        let to_u32 = (to/32) as usize;
+        let all_ones = u32::MAX;
+
+        if from_u32==to_u32{
+            (self.bits[from_u32] & (all_ones >> (from&31)) & !(all_ones >> (to&31))).count_ones()
+        }else{
+            let mut sum = self.bits[from_u32+1..to_u32].iter().map(|&s| s.count_ones()).sum();
+            sum += (self.bits[from_u32] & (all_ones >> (from&31))).count_ones();
+            if to_u32<self.bits.len(){
+                sum += (self.bits[to_u32] & !(all_ones >> (to&31))).count_ones();
+            }
+            sum
+        }
+    }
     pub fn from_bools(bools:&[bool])->Self{
         let mut bitset = Self::new(bools.len() as u32);
         bools.iter().cloned().enumerate().filter(|(i,b)|*b).map(|(i,_)|i as u32).for_each(|i|bitset.set_bit_on(i));

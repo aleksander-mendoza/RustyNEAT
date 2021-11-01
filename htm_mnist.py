@@ -9,11 +9,11 @@ from scipy import ndimage
 import numpy as np
 
 GABOR_FILTERS = [
-    # np.array([[0,0,0], [0,1,0], [0,0,0]], dtype=np.float),
-    np.array([[-1, -1, -1], [2, 2, 2], [-1, -1, -1]], dtype=np.float),
-    np.array([[-1, 2, -1], [-1, 2, -1], [-1, 2, -1]], dtype=np.float),
-    np.array([[-1, -1, 2], [-1, 2, -1], [2, -1, -1]], dtype=np.float),
-    np.array([[2, -1, -1], [-1, 2, -1], [-1, -1, 2]], dtype=np.float)
+    np.array([[0,0,0], [0,1,0], [0,0,0]], dtype=np.float),
+    # np.array([[-1, -1, -1], [2, 2, 2], [-1, -1, -1]], dtype=np.float),
+    # np.array([[-1, 2, -1], [-1, 2, -1], [-1, 2, -1]], dtype=np.float),
+    # np.array([[-1, -1, 2], [-1, 2, -1], [2, -1, -1]], dtype=np.float),
+    # np.array([[2, -1, -1], [-1, 2, -1], [-1, -1, 2]], dtype=np.float)
 ]
 
 enc = rusty_neat.htm.EncoderBuilder()
@@ -73,7 +73,7 @@ def test(img):
     # active_columns_no_lbl = active_columns_no_lbl.to_bitset(enc.input_size)
     # active_columns_no_lbl = htm2(active_columns_no_lbl)
     overlap = [0] * 10
-    for lbl in range(0, 9):
+    for lbl in range(0, 10):
         lbl_enc.clear(bitset)
         lbl_enc.encode(bitset, lbl)
         active_columns = htm1(bitset)
@@ -118,8 +118,7 @@ run(100, 2, 20)
 #   lbl_enc = enc.add_categorical(10, 28 * 8)
 #   bitset = rusty_neat.htm.CpuBitset(enc.input_size)
 #   htm = rusty_neat.htm.CpuHTM2(enc.input_size, 28 * (28 + 10 * 4), 30, 28 * 4)
-# Evaluation: 302 / 600 = 0.5, 663 / 1600 = 0.414375
-# Ensemble accuracy(100,2,20): 0.422, 0.401
+# Ensemble accuracy(100,2,20):
 
 
 # Encoding:
@@ -128,7 +127,7 @@ run(100, 2, 20)
 #   lbl_enc = enc.add_categorical(10, 28 * 8)
 #   bitset = rusty_neat.htm.CpuBitset(enc.input_size)
 #   htm = rusty_neat.htm.CpuHTM2(enc.input_size, 28 * (28 + 10 * 4), 30, 28 * 4)
-# Ensemble accuracy(100,2,20): 0.205
+# Ensemble accuracy(100,2,20):
 
 
 # Encoding:
@@ -142,7 +141,7 @@ run(100, 2, 20)
 #   active_columns = htm1(bitset)
 #   active_columns = active_columns.to_bitset(enc.input_size)
 #   active_columns = htm2(active_columns)
-# Ensemble accuracy(100,2,20): 0.304
+# Ensemble accuracy(100,2,20):
 
 
 # Encoding:
@@ -156,7 +155,7 @@ run(100, 2, 20)
 #   lbl_enc = enc.add_categorical(10, 28 * 8)
 #   bitset = rusty_neat.htm.CpuBitset(enc.input_size)
 #   htm = rusty_neat.htm.CpuHTM2(enc.input_size, 28 * (28 + 10 * 4), 30, 28 * 8)
-# Ensemble accuracy(100,2,20): 0.363
+# Ensemble accuracy(100,2,20):
 
 
 # Encoding:
@@ -170,7 +169,7 @@ run(100, 2, 20)
 #   lbl_enc = enc.add_categorical(10, 28 * 4)
 #   bitset = rusty_neat.htm.CpuBitset(enc.input_size)
 #   htm = rusty_neat.htm.CpuHTM2(enc.input_size, 28 * (28 + 10 * 4), 30, 28 * 8)
-# Ensemble accuracy(100,2,20): 0.239
+# Ensemble accuracy(100,2,20):
 
 
 # Encoding:
@@ -179,5 +178,4 @@ run(100, 2, 20)
 #   lbl_enc = enc.add_categorical(10, 28 * 8)
 #   bitset = rusty_neat.htm.CpuBitset(enc.input_size)
 #   htm = rusty_neat.htm.CpuHTM4(enc.input_size, 28 * (28 + 10 * 4), 30, 28 * 4, 0.5)
-# Evaluation: 306 / 600 = 0.51, 645 / 1600 = 0.403125
-# Ensemble accuracy(100,2,20): 0.352
+# Ensemble accuracy(100,2,20):

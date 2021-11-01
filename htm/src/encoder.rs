@@ -1,6 +1,7 @@
-use crate::CpuSDR;
+use crate::{CpuSDR, CpuBitset};
 use std::ops::{RangeBounds, Range};
 use chrono::{DateTime, Utc, TimeZone, Datelike, Timelike, NaiveTime};
+use itertools::Itertools;
 
 pub trait EncoderTarget{
     fn push(&mut self, neuron_index:u32);
@@ -56,6 +57,33 @@ pub struct CategoricalEncoder{
     neuron_range_begin:u32,//inclusive
     num_of_categories:u32,
     sdr_cardinality: u32,
+}
+impl CategoricalEncoder{
+    pub fn num_of_categories(&self)->u32{
+        self.num_of_categories
+    }
+    pub fn sdr_cardinality(&self)->u32{
+        self.sdr_cardinality
+    }
+    pub fn find_category_with_highest_overlap(&self, sdr:&[u32])->u32{
+        let mut overlap = vec![0;self.num_of_categories as usize];
+        for &neuron_index in sdr{
+            if neuron_index >= self.neuron_range_begin{
+                let cat_index = (neuron_index - self.neuron_range_begin) / self.sdr_cardinality;
+                if cat_index < self.num_of_categories {
+                    overlap[cat_index as usize]+=1;
+                }
+            }
+        }
+        overlap.iter().position_max().unwrap() as u32
+    }
+    pub fn find_category_with_highest_overlap_bitset(&self, bitset:&CpuBitset)->u32{
+        (0..self.num_of_categories).map(|cat|{
+            let begin = self.neuron_range_begin + cat * self.sdr_cardinality;
+            let end = begin + self.sdr_cardinality;
+            bitset.cardinality_in_range(begin,end)
+        }).position_max().unwrap() as u32
+    }
 }
 impl Encoder<u32> for CategoricalEncoder {
     fn encode(&self, sdr: &mut impl EncoderTarget, scalar: u32) {

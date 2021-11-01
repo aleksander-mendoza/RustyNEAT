@@ -503,4 +503,46 @@ mod tests {
 
 
     }
+
+
+    #[test]
+    fn test19() {
+        let mut bits = CpuBitset::new(64);
+        bits.set_bits_on(&[0,1,2,3,4,5,6,7,8]);
+        assert_eq!(bits.cardinality_in_range(0,9),9);
+        assert_eq!(bits.cardinality_in_range(0,8),8);
+        assert_eq!(bits.cardinality_in_range(1,9),8);
+        assert_eq!(bits.cardinality_in_range(2,2),0);
+        assert_eq!(bits.cardinality_in_range(1,8),7);
+
+        bits.set_bits_on(&[0,1,2,3,4,5,6,7,8,32,33,34]);
+        assert_eq!(bits.cardinality_in_range(0,35),12);
+        assert_eq!(bits.cardinality_in_range(0,34),11);
+        assert_eq!(bits.cardinality_in_range(0,32),9);
+        assert_eq!(bits.cardinality_in_range(1,32),8);
+        assert_eq!(bits.cardinality_in_range(9,32),0);
+        assert_eq!(bits.cardinality_in_range(9,35),3);
+        assert_eq!(bits.cardinality_in_range(32,35),3);
+    }
+
+    #[test]
+    fn test20() {
+        let enc = EncoderBuilder::new().add_categorical(5,10);
+        let mut i = CpuInput::new(64);
+        i.set_sparse_from_slice(&[1,4,10,21,33,32,34,40]);
+        assert_eq!(enc.find_category_with_highest_overlap_bitset(i.get_dense()),3);
+        assert_eq!(enc.find_category_with_highest_overlap(i.get_sparse()),3);
+        i.set_sparse_from_slice(&[1,4,10,21,34,40]);
+        assert_eq!(enc.find_category_with_highest_overlap_bitset(i.get_dense()),0);
+        assert_eq!(enc.find_category_with_highest_overlap(i.get_sparse()),0);
+        i.set_sparse_from_slice(&[1,4,5,6,10,21,33,32,34,40]);
+        assert_eq!(enc.find_category_with_highest_overlap_bitset(i.get_dense()),0);
+        assert_eq!(enc.find_category_with_highest_overlap(i.get_sparse()),0);
+        i.set_sparse_from_slice(&[1]);
+        assert_eq!(enc.find_category_with_highest_overlap_bitset(i.get_dense()),0);
+        assert_eq!(enc.find_category_with_highest_overlap(i.get_sparse()),0);
+        i.set_sparse_from_slice(&[34]);
+        assert_eq!(enc.find_category_with_highest_overlap_bitset(i.get_dense()),3);
+        assert_eq!(enc.find_category_with_highest_overlap(i.get_sparse()),3);
+    }
 }

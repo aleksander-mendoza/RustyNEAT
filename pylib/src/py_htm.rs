@@ -204,19 +204,20 @@ impl EncoderBuilder {
     }
 }
 
-fn encode<T>(sdr:PyObject,scalar:T,f1:impl FnOnce(&mut htm::CpuSDR, T),f2:impl FnOnce(&mut htm::CpuBitset, T),f3:impl FnOnce(&mut htm::CpuInput, T))->PyResult<()>{
+fn encode<T,U>(sdr:PyObject,scalar:T,f1:impl FnOnce(&mut htm::CpuSDR, T)->U,f2:impl FnOnce(&mut htm::CpuBitset, T)->U,f3:impl FnOnce(&mut htm::CpuInput, T)->U)->PyResult<U>{
     let gil = Python::acquire_gil();
     let py = gil.python();
-    if let Ok(mut sdr) = sdr.extract::<PyRefMut<CpuBitset>>(py) {
+    let o = if let Ok(mut sdr) = sdr.extract::<PyRefMut<CpuBitset>>(py) {
         f2(&mut sdr.bits, scalar)
     }else if let Ok(mut sdr) = sdr.extract::<PyRefMut<CpuInput>>(py) {
         f3(&mut sdr.inp, scalar)
     }else{
         let mut sdr = sdr.extract::<PyRefMut<CpuSDR>>(py)?;
         f1(&mut sdr.sdr, scalar)
-    }
-    Ok(())
+    };
+    Ok(o)
 }
+
 #[pymethods]
 impl BitsEncoder {
 
@@ -294,6 +295,21 @@ impl CategoricalEncoder {
                |x,y|self.enc.encode(x,y),
                |x,y|self.enc.encode(x,y),
                |x,y|self.enc.encode(x,y))
+    }
+    #[getter]
+    pub fn num_of_categories(&self)->u32{
+        self.enc.num_of_categories()
+    }
+    #[getter]
+    pub fn sdr_cardinality(&self)->u32{
+        self.enc.sdr_cardinality()
+    }
+    #[text_signature = "(sdr, /)"]
+    pub fn find_category_with_highest_overlap(&self, sdr:PyObject) -> PyResult<u32> {
+        encode(sdr,(),
+               |sdr,_|self.enc.find_category_with_highest_overlap(sdr),
+               |sdr,_|self.enc.find_category_with_highest_overlap_bitset(sdr),
+               |sdr,_|self.enc.find_category_with_highest_overlap(sdr.get_sparse()))
     }
 }
 #[pymethods]
@@ -517,12 +533,15 @@ impl CpuHOM {
 impl CpuHTM {
     #[new]
     pub fn new(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, rand_seed:Option<u32>) -> PyResult<Self> {
-        if inputs_per_minicolumn > minicolumns{
-            return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} minicolumns",inputs_per_minicolumn, minicolumns)))
+        if inputs_per_minicolumn > input_size{
+            return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} inputs in total",inputs_per_minicolumn, input_size)))
         }
         Ok(CpuHTM { htm: htm::CpuHTM::new_globally_uniform_prob(input_size, minicolumns, n, inputs_per_minicolumn,rand_seed.unwrap_or_else(auto_gen_seed)) })
     }
-
+    #[getter]
+    fn get_synapse_count(&self) -> u32 {
+        self.htm.feedforward_connections_as_slice().len() as u32
+    }
     #[getter]
     fn get_input_size(&self) -> u32 {
         self.htm.input_size()
@@ -616,10 +635,14 @@ impl CpuHTM2 {
     ///
     #[new]
     pub fn new(input_size: u32, minicolumns: u32,n: u32, inputs_per_minicolumn: u32, rand_seed:Option<u32>) -> PyResult<Self> {
-        if inputs_per_minicolumn > minicolumns{
-            return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} minicolumns",inputs_per_minicolumn, minicolumns)))
+        if inputs_per_minicolumn > input_size{
+            return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} inputs in total",inputs_per_minicolumn, input_size)))
         }
         Ok(CpuHTM2 { htm: htm::CpuHTM2::new_globally_uniform_prob(input_size, minicolumns, n, inputs_per_minicolumn, rand_seed.unwrap_or_else(auto_gen_seed)) })
+    }
+    #[getter]
+    fn get_synapse_count(&self) -> u32 {
+        self.htm.feedforward_connections_as_slice().len() as u32
     }
     #[text_signature = "( /)"]
     fn clone(&self) -> CpuHTM2 {
@@ -687,9 +710,17 @@ impl CpuHTM2 {
     fn infer(&mut self, bitset_input: &CpuBitset, learn: Option<bool>) -> CpuSDR {
         CpuSDR{sdr:self.htm.infer2(&bitset_input.bits, learn.unwrap_or(false))}
     }
-    #[text_signature = "(bitset_input,active_columns)"]
-    fn update_permanence(&mut self, bitset_input: &CpuBitset, active_columns:&CpuSDR) {
+    #[text_signature = "(active_columns,bitset_input)"]
+    fn update_permanence(&mut self, active_columns:&CpuSDR, bitset_input: &CpuBitset) {
         self.htm.update_permanence2(&active_columns.sdr, &bitset_input.bits)
+    }
+    #[text_signature = "(top_n_minicolumns,active_columns,bitset_input)"]
+    fn update_permanence_ltd(&mut self, top_n_minicolumns:&CpuSDR, active_columns:&CpuBitset, bitset_input: &CpuBitset) {
+        self.htm.update_permanence_ltd2(&top_n_minicolumns.sdr,&active_columns.bits, &bitset_input.bits)
+    }
+    #[text_signature = "(top_n_minicolumns,active_columns,bitset_input,penalty_multiplier)"]
+    fn update_permanence_and_penalize(&mut self, active_columns:&CpuBitset, bitset_input: &CpuBitset,penalty_multiplier:Option<f32>) {
+        self.htm.update_permanence_and_penalize2(&active_columns.bits, &bitset_input.bits, penalty_multiplier.unwrap_or(-1.))
     }
     #[text_signature = "(bitset_input)"]
     fn compute(&mut self, bitset_input: &CpuBitset) -> CpuSDR {
@@ -731,10 +762,14 @@ impl CpuHTM4 {
     }
     #[new]
     pub fn new(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32,  excitatory_connection_probability:f32, rand_seed:Option<u32>) -> PyResult<Self> {
-        if inputs_per_minicolumn > minicolumns{
-            return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} minicolumns",inputs_per_minicolumn, minicolumns)))
+        if inputs_per_minicolumn > input_size{
+            return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} inputs in total",inputs_per_minicolumn, input_size)))
         }
-        Ok(CpuHTM4 { htm: htm::CpuHTM4::new_globally_uniform_prob(input_size, minicolumns, n, inputs_per_minicolumn,excitatory_connection_probability,rand_seed.unwrap_or_else(auto_gen_seed)) })
+        Ok(CpuHTM4 { htm: htm::CpuHTM4::new_globally_uniform_prob_without_inhibitory(input_size, minicolumns, n, inputs_per_minicolumn,excitatory_connection_probability,rand_seed.unwrap_or_else(auto_gen_seed)) })
+    }
+    #[getter]
+    fn get_synapse_count(&self) -> u32 {
+        self.htm.feedforward_connections_as_slice().len() as u32
     }
     #[getter]
     fn get_input_size(&self) -> u32 {
@@ -798,9 +833,17 @@ impl CpuHTM4 {
     fn infer(&mut self, bitset_input: &CpuBitset, learn: Option<bool>) -> CpuSDR {
         CpuSDR{sdr:self.htm.infer4(&bitset_input.bits, learn.unwrap_or(false))}
     }
-    #[text_signature = "(bitset_input,active_columns)"]
-    fn update_permanence(&mut self, bitset_input: &CpuBitset, active_columns:&CpuSDR) {
+    #[text_signature = "(active_columns,bitset_input)"]
+    fn update_permanence(&mut self, active_columns:&CpuSDR, bitset_input: &CpuBitset) {
         self.htm.update_permanence4(&active_columns.sdr, &bitset_input.bits)
+    }
+    #[text_signature = "(top_n_minicolumns,active_columns,bitset_input)"]
+    fn update_permanence_ltd(&mut self, top_n_minicolumns:&CpuSDR, active_columns:&CpuBitset, bitset_input: &CpuBitset) {
+        self.htm.update_permanence_ltd4(&top_n_minicolumns.sdr,&active_columns.bits, &bitset_input.bits)
+    }
+    #[text_signature = "(top_n_minicolumns,active_columns,bitset_input,penalty_multiplier)"]
+    fn update_permanence_and_penalize(&mut self, active_columns:&CpuBitset, bitset_input: &CpuBitset, penalty_multiplier:Option<f32>) {
+        self.htm.update_permanence_and_penalize4(&active_columns.bits, &bitset_input.bits, penalty_multiplier.unwrap_or(-1.))
     }
     #[text_signature = "(bitset_input)"]
     fn compute(&mut self, bitset_input: &CpuBitset) -> CpuSDR {
@@ -918,8 +961,23 @@ impl CpuSDR {
 }
 #[pyfunction]
 #[text_signature = "(input_size,minicolumns,n,inputs_per_minicolumn,radius,rand_seed)"]
-pub fn cpu_htm4_new_local_2d(input_size: (u32,u32), minicolumns: (u32,u32), n: u32, inputs_per_minicolumn: u32, radius:f32, rand_seed:Option<u32>) -> CpuHTM2{
+pub fn cpu_htm2_new_local_2d(input_size: (u32,u32), minicolumns: (u32,u32), n: u32, inputs_per_minicolumn: u32, radius:f32, rand_seed:Option<u32>) -> CpuHTM2{
     CpuHTM2{htm:htm::CpuHTM2::new_local_2d(input_size,minicolumns,n,inputs_per_minicolumn,radius,rand_seed.unwrap_or_else(auto_gen_seed))}
+}
+#[pyfunction]
+#[text_signature = "(input_size,minicolumns,n,inputs_per_minicolumn,inhibitory_inputs_per_minicolumn,rand_seed)"]
+pub fn cpu_htm4_new_globally_uniform_prob_exact_inhibitory(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, inhibitory_inputs_per_minicolumn:u32, rand_seed:Option<u32>) -> CpuHTM4{
+    CpuHTM4{htm:htm::CpuHTM4::new_globally_uniform_prob_exact_inhibitory(input_size,minicolumns,n,inputs_per_minicolumn,inhibitory_inputs_per_minicolumn,rand_seed.unwrap_or_else(auto_gen_seed))}
+}
+#[pyfunction]
+#[text_signature = "(input_size,minicolumns,n,inputs_per_minicolumn,excitatory_connection_probability,rand_seed)"]
+pub fn cpu_htm4_new_globally_uniform_prob(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, excitatory_connection_probability:f32, rand_seed:Option<u32>) -> CpuHTM4{
+    CpuHTM4{htm:htm::CpuHTM4::new_globally_uniform_prob(input_size,minicolumns,n,inputs_per_minicolumn,excitatory_connection_probability,rand_seed.unwrap_or_else(auto_gen_seed))}
+}
+#[pyfunction]
+#[text_signature = "(input_size,minicolumns,n,inputs_per_minicolumn,excitatory_connection_probability,rand_seed)"]
+pub fn cpu_htm4_new_globally_uniform_prob_without_inhibitory(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, excitatory_connection_probability:f32, rand_seed:Option<u32>) -> CpuHTM4{
+    CpuHTM4{htm:htm::CpuHTM4::new_globally_uniform_prob_without_inhibitory(input_size,minicolumns,n,inputs_per_minicolumn,excitatory_connection_probability,rand_seed.unwrap_or_else(auto_gen_seed))}
 }
 #[pyfunction]
 #[text_signature = "(bits)"]
