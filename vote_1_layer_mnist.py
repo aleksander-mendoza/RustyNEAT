@@ -25,15 +25,22 @@ bitset = rusty_neat.htm.CpuBitset(inp_enc.input_size)
 active_columns_bitset = rusty_neat.htm.CpuBitset(out_enc.input_size)
 htm = None
 MNIST, LABELS = torch.load('htm/data/mnist.pt')
-
+shuffle = torch.randperm(len(MNIST))
+MNIST = MNIST[shuffle]
+LABELS = LABELS[shuffle]
+# M5 = torch.zeros((28,28))
+# for m,l in zip(MNIST,LABELS):
+#     if l == 7:
+#         M5 += m
+#
+# plt.imshow(M5/sum(sum(M5)))
+# plt.show()
 
 def generate_htm():
     global htm
-    htm = rusty_neat.htm.CpuHTM4(inp_enc.input_size,
-                                                            out_enc.input_size,
-                                                            lbl_enc.sdr_cardinality,
-                                                            int(inp_enc.input_size*0.3),
-                                                            0.2)
+    htm = rusty_neat.htm.CpuHTM4(inp_enc.input_size,out_enc.input_size,lbl_enc.sdr_cardinality,int(inp_enc.input_size*0.8), 0.2)
+    htm.permanence_decrement = -0.002
+    htm.permanence_increment = 0.01
 
 
 def encode_img(img):
@@ -52,12 +59,12 @@ def encode_img(img):
 def infer(img, lbl=None):
     bitset.clear()
     encode_img(img)
+    predicted_columns = htm.compute(bitset)
     if lbl is not None:
         lbl_enc.encode(active_columns_bitset, lbl)
-        htm.update_permanence_and_penalize(active_columns_bitset, bitset, -0.2)
+        htm.update_permanence_ltd(predicted_columns, active_columns_bitset, bitset)
         active_columns_bitset.clear()
     else:
-        predicted_columns = htm.compute(bitset)
         return predicted_columns
 
 
@@ -195,6 +202,33 @@ def run(repetitions, trials, samples, test_samples=None):
 # Ensemble accuracy(2,20,200):
 # Ensemble accuracy(4,20,100): 0.454
 # Ensemble accuracy(2,20,400):
+# Ensemble accuracy(8,20,100): 0.659
+# Ensemble accuracy(16,20,100): 0.60
+# Ensemble accuracy(32,20,100):
+# Ensemble accuracy(64,1,100):
+# Ensemble accuracy(128,1,100):
+# Ensemble accuracy(512,1,100):
+# Ensemble accuracy(1,1,1000):
+
+
+# Encoding:
+#   GABOR_FILTERS = [np.array([[0, 0, 0], [0, 1, 0], [0, 0, 0]], dtype=np.float)]
+# Configuration:
+#   lbl_enc = out_enc.add_categorical(10, 1024)
+#   htm = rusty_neat.htm.CpuHTM4(inp_enc.input_size, out_enc.input_size,
+#        out_enc.sdr_cardinality, int(inp_enc.input_size*0.3), 0.2)
+# Voting mechanism:
+#     if lbl is not None:
+#         lbl_enc.encode(active_columns_bitset, lbl)
+#         htm.update_permanence_and_penalize_thresholded(active_columns_bitset, bitset, 28*2, -0.2)
+#         active_columns_bitset.clear()
+#     else:
+#         predicted_columns = htm.compute(bitset)
+#         return predicted_columns
+# Ensemble accuracy(2,20,100):
+# Ensemble accuracy(2,20,200):
+# Ensemble accuracy(4,20,100):
+# Ensemble accuracy(2,20,400):
 # Ensemble accuracy(8,20,100):
 # Ensemble accuracy(16,20,100):
 # Ensemble accuracy(32,20,100):
@@ -203,4 +237,4 @@ def run(repetitions, trials, samples, test_samples=None):
 # Ensemble accuracy(512,1,100):
 # Ensemble accuracy(1,1,1000):
 
-run(8,20,100)
+run(4,1,100)

@@ -10,6 +10,7 @@ use crate::htm2::*;
 use crate::cpu_htm::CpuHTM;
 use crate::cpu_bitset::CpuBitset;
 use crate::rand::{xorshift32, rand_u32_to_random_f32};
+use std::cmp::Ordering;
 
 /***This implementation assumes that most of the time  vast majority of minicolumns are connected to at least one active
 input. Hence instead of iterating the input and then visiting only connected minicolumns, it's better to just iterate all
@@ -92,15 +93,27 @@ impl CpuHTM2 {
     pub fn feedforward_connections_as_mut_slice(&mut self)->&mut [HtmFeedforwardConnection2]{
         self.feedforward_connections.as_mut_slice()
     }
+    pub fn set_all_permanences(&mut self, val:f32){
+        self.feedforward_connections.iter_mut().for_each(|c|c.permanence=val)
+    }
+    pub fn multiply_all_permanences(&mut self, val:f32){
+        self.feedforward_connections.iter_mut().for_each(|c|c.permanence*=val)
+    }
     pub fn minicolumns_as_slice(&self)->&[HtmMinicolumn2]{
         self.minicolumns.as_slice()
     }
-    pub fn new_local_2d(input_size: (u32,u32), minicolumns: (u32,u32), n: u32, inputs_per_minicolumn: u32, radius:f32, mut rand_seed:u32) -> Self {
+    pub fn new_local_2d(input_size: (u32,u32), minicolumns: (u32,u32), n:u32, inputs_per_minicolumn: u32, radius:f32, mut rand_seed:u32)->Self{
+        let mut slf = Self::new(input_size.0*input_size.1,n);
+        slf.add_local_2d(input_size,minicolumns,inputs_per_minicolumn,radius,rand_seed);
+        slf
+    }
+    pub fn add_local_2d(&mut self, input_size: (u32,u32), minicolumns: (u32,u32), inputs_per_minicolumn: u32, radius:f32, mut rand_seed:u32) {
+        assert_eq!(input_size.0*input_size.1,self.input_size,"There are {} inputs, but requested dimensions is {}x{}=={}", self.input_size, input_size.0,input_size.1,input_size.0*input_size.1);
         let stride = (input_size.0 as f32/minicolumns.0 as f32,input_size.1 as f32/minicolumns.1 as f32);
         let margin = (stride.0/2f32,stride.1/2f32);
 
         const EPSILON:f32 = 0.0001;
-        Self::new(input_size.0*input_size.1, minicolumns.0*minicolumns.1, n, |minicolumn_id|{
+        self.add_minicolumns(minicolumns.0*minicolumns.1,|minicolumn_id|{
             let minicolumn_pos = (minicolumn_id%minicolumns.0, minicolumn_id/minicolumns.0);
             let minicolumn_pos = (margin.0+stride.0*minicolumn_pos.0 as f32,margin.1+stride.1*minicolumn_pos.1 as f32);
             let min_bounds = ((minicolumn_pos.0-radius).max(0.),(minicolumn_pos.1-radius).max(0.));
@@ -119,9 +132,10 @@ impl CpuHTM2 {
             (input_idx,permanence)
         }, |minicolumn_id| inputs_per_minicolumn)
     }
-    pub fn new_globally_uniform_prob(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, mut rand_seed:u32) -> Self {
-        assert!(inputs_per_minicolumn <= input_size);
-        Self::new(input_size, minicolumns, n, |minicolumn_id|{
+    pub fn add_globally_uniform_prob(&mut self,minicolumns: u32, inputs_per_minicolumn: u32, mut rand_seed:u32) {
+        let input_size = self.input_size;
+        assert!(inputs_per_minicolumn <= input_size,"Column can't have {} inputs if there are only {} inputs in total",inputs_per_minicolumn, input_size);
+        self.add_minicolumns(minicolumns, |minicolumn_id|{
             rand_seed = xorshift32(rand_seed);
             let input_idx = rand_seed % input_size;
             rand_seed = xorshift32(rand_seed);
@@ -129,11 +143,45 @@ impl CpuHTM2 {
             (input_idx,permanence)
         }, |minicolumn_id| inputs_per_minicolumn)
     }
+    pub fn add_with_input_distribution(&mut self,input_densities: &[u32], minicolumns: u32, inputs_per_minicolumn: u32, mut rand_seed:u32) {
+        assert!(input_densities.len()<=self.input_size as usize,"Input densities has length {} but there are only {} inputs",input_densities.len(),self.input_size);
+        let total:u64 = input_densities.iter().map(|&x|x as u64).sum();
+        let mut pdf = Vec::<f64>::with_capacity(input_densities.len());
+        let mut sum = 0u64;
+        for &den in input_densities{
+            sum+=den as u64;
+            pdf.push(sum as f64 / total as f64);
+        }
+        self.add_minicolumns(minicolumns, |minicolumn_id|{
+            rand_seed = xorshift32(rand_seed);
+            let rand_density = rand_u32_to_random_f32(rand_seed) as f64;
+            let input_idx = match pdf.binary_search_by(|a|a.partial_cmp(&rand_density).unwrap()) {
+                Ok(x) => x, Err(x) => x
+            };
+            debug_assert!(input_idx<input_densities.len(),"Last element in pdf is total/total==1. The max value returned by rand_u32_to_random_f32 is less than 1.");
+            rand_seed = xorshift32(rand_seed);
+            let permanence = rand_u32_to_random_f32(rand_seed);
+            (input_idx as u32,permanence)
+        }, |minicolumn_id| inputs_per_minicolumn)
+    }
     /**n = how many minicolumns to activate. We will always take the top n minicolumns with the greatest overlap value.*/
-    pub fn new(input_size: u32, minicolumns_count: u32, n: u32, mut random_input_close_to_minicolumn: impl FnMut(u32) -> (u32,f32), mut input_count_incoming_to_minicolumn: impl FnMut(u32) -> u32) -> Self {
-        let mut feedforward_connections: Vec<HtmFeedforwardConnection2> = vec![];
-        let mut minicolumns: Vec<HtmMinicolumn2> = Vec::with_capacity(minicolumns_count as usize);
-
+    pub fn new(input_size: u32, n: u32) -> Self {
+        Self {
+            max_overlap:0,
+            feedforward_connections:vec![],
+            minicolumns:vec![],
+            n,
+            permanence_threshold:0.7,
+            permanence_decrement_increment: [-0.01, 0.02],
+            input_size
+        }
+    }
+    /**n = how many minicolumns to activate. We will always take the top n minicolumns with the greatest overlap value.*/
+    pub fn add_minicolumns(&mut self, minicolumns_count: u32, mut random_input_close_to_minicolumn: impl FnMut(u32) -> (u32,f32), mut input_count_incoming_to_minicolumn: impl FnMut(u32) -> u32) {
+        let Self{feedforward_connections,minicolumns,input_size,..} = self;
+        let &mut input_size = input_size;
+        minicolumns.reserve(minicolumns_count as usize);
+        let original_column_count = minicolumns.len();
         let mut connected_inputs = vec![false; input_size as usize];
         for minicolumn_id in 0..minicolumns_count as u32 {
             let input_count = input_count_incoming_to_minicolumn(minicolumn_id);
@@ -161,16 +209,8 @@ impl CpuHTM2 {
                 connected_inputs[input_id as usize] = false;
             }
         }
+        self.max_overlap = self.max_overlap.max(minicolumns[original_column_count..].iter().map(|m|m.connection_len).max().unwrap());
 
-        Self {
-            max_overlap:minicolumns.iter().map(|m|m.connection_len).max().unwrap(),
-            feedforward_connections,
-            minicolumns,
-            n,
-            permanence_threshold:0.7,
-            permanence_decrement_increment: [-0.01, 0.02],
-            input_size
-        }
     }
 
 
@@ -264,6 +304,28 @@ impl CpuHTM2 {
                 let old_permanence = feedforward_connection.permanence;
                 let new_permanence = (old_permanence + permanence_change).clamp(0., 1.);
                 feedforward_connection.permanence = new_permanence;
+            }
+        }
+    }
+
+
+    pub fn update_permanence_and_penalize_thresholded2(&mut self,
+                                                       active_minicolumns: &CpuBitset,
+                                                       bitset_input: &CpuBitset,
+                                                       activity_threshold:u32,
+                                                       penalty_multiplier: f32) {
+        for (c_idx, c) in self.minicolumns.iter().enumerate() {
+            let is_col_active = active_minicolumns.is_bit_on(c_idx as u32);
+            let multiplier = if is_col_active { 1. } else { penalty_multiplier };
+            let connections = &mut self.feedforward_connections[c.connection_offset as usize..(c.connection_offset + c.connection_len) as usize];
+            if is_col_active || connections.iter().map(|c|bitset_input.is_bit_on(c.input_id) as u32).sum::<u32>() >= activity_threshold {
+                for feedforward_connection in connections {
+                    let is_inp_active = bitset_input.is_bit_on(feedforward_connection.input_id);
+                    let permanence_change = self.permanence_decrement_increment[is_inp_active as usize] * multiplier;
+                    let old_permanence = feedforward_connection.permanence;
+                    let new_permanence = (old_permanence + permanence_change).clamp(0., 1.);
+                    feedforward_connection.permanence = new_permanence;
+                }
             }
         }
     }

@@ -311,6 +311,13 @@ impl CategoricalEncoder {
                |sdr,_|self.enc.find_category_with_highest_overlap_bitset(sdr),
                |sdr,_|self.enc.find_category_with_highest_overlap(sdr.get_sparse()))
     }
+    #[text_signature = "(sdr, /)"]
+    pub fn calculate_overlap(&self, sdr:PyObject) -> PyResult<Vec<u32>> {
+        encode(sdr,(),
+               |sdr,_|self.enc.calculate_overlap(sdr),
+               |sdr,_|self.enc.calculate_overlap_bitset(sdr),
+               |sdr,_|self.enc.calculate_overlap(sdr.get_sparse()))
+    }
 }
 #[pymethods]
 impl CircularIntegerEncoder {
@@ -538,6 +545,14 @@ impl CpuHTM {
         }
         Ok(CpuHTM { htm: htm::CpuHTM::new_globally_uniform_prob(input_size, minicolumns, n, inputs_per_minicolumn,rand_seed.unwrap_or_else(auto_gen_seed)) })
     }
+    #[text_signature = "()"]
+    fn get_synapses(&self) -> Vec<(u32,f32)> {
+        self.htm.feedforward_connections_as_slice().iter().map(|c|(c.input_id,c.permanence)).collect()
+    }
+    #[getter]
+    fn get_minicolumn_count(&self) -> u32 {
+        self.htm.minicolumns_as_slice().len() as u32
+    }
     #[getter]
     fn get_synapse_count(&self) -> u32 {
         self.htm.feedforward_connections_as_slice().len() as u32
@@ -634,15 +649,52 @@ impl CpuHTM2 {
     /// Otherwise the millisecond part of system time is used as a seed. Seed is a 32-bit number.
     ///
     #[new]
-    pub fn new(input_size: u32, minicolumns: u32,n: u32, inputs_per_minicolumn: u32, rand_seed:Option<u32>) -> PyResult<Self> {
+    pub fn new(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, rand_seed:Option<u32>) -> PyResult<Self> {
         if inputs_per_minicolumn > input_size{
             return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} inputs in total",inputs_per_minicolumn, input_size)))
         }
-        Ok(CpuHTM2 { htm: htm::CpuHTM2::new_globally_uniform_prob(input_size, minicolumns, n, inputs_per_minicolumn, rand_seed.unwrap_or_else(auto_gen_seed)) })
+        let mut htm = htm::CpuHTM2::new(input_size, n);
+        htm.add_globally_uniform_prob(minicolumns,inputs_per_minicolumn,rand_seed.unwrap_or_else(auto_gen_seed));
+        Ok(CpuHTM2 { htm })
+    }
+    #[text_signature = "(permenence)"]
+    pub fn set_all_permanences(&mut self, val: f32){
+        self.set_all_permanences(val)
+    }
+    #[text_signature = "(permenence)"]
+    pub fn multiply_all_permanences(&mut self, val: f32){
+        self.multiply_all_permanences(val)
+    }
+    #[text_signature = "(minicolumns,inputs_per_minicolumn,rand_seed)"]
+    pub fn add_globally_uniform_prob(&mut self, minicolumns: u32, inputs_per_minicolumn: u32, rand_seed:Option<u32>) -> PyResult<CpuHTM2>{
+        if inputs_per_minicolumn > self.htm.input_size(){
+            return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} inputs in total",inputs_per_minicolumn, self.htm.input_size())))
+        }
+        self.htm.add_globally_uniform_prob(minicolumns,inputs_per_minicolumn,rand_seed.unwrap_or_else(auto_gen_seed));
+        Ok(self.clone())
+    }
+    #[text_signature = "(input_size,minicolumns,inputs_per_minicolumn,radius,rand_seed)"]
+    pub fn add_local_2d(&mut self, input_size: (u32,u32), minicolumns: (u32,u32), inputs_per_minicolumn: u32, radius:f32, rand_seed:Option<u32>) -> CpuHTM2{
+        self.htm.add_local_2d(input_size,minicolumns,inputs_per_minicolumn,radius,rand_seed.unwrap_or_else(auto_gen_seed));
+        self.clone()
+    }
+    #[text_signature = "(input_densities,minicolumns,inputs_per_minicolumn,rand_seed)"]
+    pub fn add_with_input_distribution(&mut self, input_densities: Vec<u32>, minicolumns: u32, inputs_per_minicolumn: u32, rand_seed:Option<u32>) -> CpuHTM2{
+        self.htm.add_with_input_distribution(&input_densities,minicolumns,inputs_per_minicolumn,rand_seed.unwrap_or_else(auto_gen_seed));
+        self.clone()
     }
     #[getter]
     fn get_synapse_count(&self) -> u32 {
         self.htm.feedforward_connections_as_slice().len() as u32
+    }
+    #[text_signature = "(column_idx)"]
+    fn get_synapses(&self, column_idx:Option<u32>) -> Vec<(u32,f32)> {
+        if let Some(column_idx) = column_idx{
+            let s = self.htm.minicolumns_as_slice()[column_idx as usize];
+            self.htm.feedforward_connections_as_slice()[s.connection_offset as usize..(s.connection_offset + s.connection_len)as usize].iter().map(|c|(c.input_id,c.permanence)).collect()
+        }else{
+            self.htm.feedforward_connections_as_slice().iter().map(|c|(c.input_id,c.permanence)).collect()
+        }
     }
     #[text_signature = "( /)"]
     fn clone(&self) -> CpuHTM2 {
@@ -652,6 +704,11 @@ impl CpuHTM2 {
     fn get_input_size(&self) -> u32 {
         self.htm.input_size()
     }
+    #[getter]
+    fn get_minicolumn_count(&self) -> u32 {
+        self.htm.minicolumns_as_slice().len() as u32
+    }
+
     #[getter]
     fn get_n(&self) -> u32 {
         self.htm.n
@@ -722,6 +779,10 @@ impl CpuHTM2 {
     fn update_permanence_and_penalize(&mut self, active_columns:&CpuBitset, bitset_input: &CpuBitset,penalty_multiplier:Option<f32>) {
         self.htm.update_permanence_and_penalize2(&active_columns.bits, &bitset_input.bits, penalty_multiplier.unwrap_or(-1.))
     }
+    #[text_signature = "(top_n_minicolumns,active_columns,bitset_input,activity_threshold,penalty_multiplier)"]
+    fn update_permanence_and_penalize_thresholded(&mut self, active_columns:&CpuBitset, bitset_input: &CpuBitset, activity_threshold:u32,penalty_multiplier:Option<f32>) {
+        self.htm.update_permanence_and_penalize_thresholded2(&active_columns.bits, &bitset_input.bits, activity_threshold,penalty_multiplier.unwrap_or(-1.))
+    }
     #[text_signature = "(bitset_input)"]
     fn compute(&mut self, bitset_input: &CpuBitset) -> CpuSDR {
         CpuSDR{sdr:self.htm.compute2(&bitset_input.bits)}
@@ -765,11 +826,68 @@ impl CpuHTM4 {
         if inputs_per_minicolumn > input_size{
             return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} inputs in total",inputs_per_minicolumn, input_size)))
         }
-        Ok(CpuHTM4 { htm: htm::CpuHTM4::new_globally_uniform_prob_without_inhibitory(input_size, minicolumns, n, inputs_per_minicolumn,excitatory_connection_probability,rand_seed.unwrap_or_else(auto_gen_seed)) })
+        let mut htm = htm::CpuHTM4::new(input_size,n);
+        htm.add_globally_uniform_prob_without_inhibitory( minicolumns, inputs_per_minicolumn,excitatory_connection_probability,rand_seed.unwrap_or_else(auto_gen_seed));
+        Ok(CpuHTM4 { htm })
+    }
+    #[text_signature = "(permenence)"]
+    pub fn set_all_permanences(&mut self, val: f32){
+        self.set_all_permanences(val)
+    }
+    #[text_signature = "(permenence)"]
+    pub fn multiply_all_permanences(&mut self, val: f32){
+        self.multiply_all_permanences(val)
+    }
+    #[text_signature = "(minicolumns,inputs_per_minicolumn,rand_seed)"]
+    pub fn add_globally_uniform_prob(&mut self, minicolumns: u32, inputs_per_minicolumn: u32, excitatory_connection_probability: f32, rand_seed:Option<u32>) -> PyResult<CpuHTM4>{
+        if inputs_per_minicolumn > self.htm.input_size(){
+            return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} inputs in total",inputs_per_minicolumn, self.htm.input_size())))
+        }
+        self.htm.add_globally_uniform_prob(minicolumns,inputs_per_minicolumn,excitatory_connection_probability,rand_seed.unwrap_or_else(auto_gen_seed));
+        Ok(self.clone())
+    }
+    // #[text_signature = "(input_size,minicolumns,inputs_per_minicolumn,radius,rand_seed)"]
+    // pub fn add_local_2d(&mut self, input_size: (u32,u32), minicolumns: (u32,u32), inputs_per_minicolumn: u32, radius:f32, rand_seed:Option<u32>) -> CpuHTM4{
+    //     self.htm.add_local_2d(input_size,minicolumns,inputs_per_minicolumn,radius,rand_seed.unwrap_or_else(auto_gen_seed));
+    //     self.clone()
+    // }
+    #[text_signature = "(input_densities,negative_input_densities,minicolumns,inputs_per_minicolumn,inhibitory_inputs_per_minicolumn,rand_seed)"]
+    pub fn add_with_input_distribution_exact_inhibitory(&mut self, input_densities: Vec<u32>,negative_input_densities: Option<Vec<u32>>, minicolumns: u32, inputs_per_minicolumn: u32, inhibitory_inputs_per_minicolumn: Option<u32>,rand_seed:Option<u32>) -> CpuHTM4{
+        self.htm.add_with_input_distribution_exact_inhibitory(&input_densities,negative_input_densities.as_ref().unwrap_or(&input_densities),minicolumns,inputs_per_minicolumn,inhibitory_inputs_per_minicolumn.unwrap_or(inputs_per_minicolumn/2),rand_seed.unwrap_or_else(auto_gen_seed));
+        self.clone()
+    }
+    #[text_signature = "(input_densities,negative_input_densities,minicolumns,inputs_per_minicolumn,excitatory_connection_probability,rand_seed)"]
+    pub fn add_with_input_distribution(&mut self, input_densities: Vec<u32>,negative_input_densities: Option<Vec<u32>>, minicolumns: u32, inputs_per_minicolumn: u32, excitatory_connection_probability: Option<f32>,rand_seed:Option<u32>) -> CpuHTM4{
+        self.htm.add_with_input_distribution(&input_densities,negative_input_densities.as_ref().unwrap_or(&input_densities),minicolumns,inputs_per_minicolumn,excitatory_connection_probability.unwrap_or(0.5),rand_seed.unwrap_or_else(auto_gen_seed));
+        self.clone()
+    }
+
+    #[getter]
+    fn get_minicolumn_count(&self) -> u32 {
+        self.htm.minicolumns_as_slice().len() as u32
     }
     #[getter]
     fn get_synapse_count(&self) -> u32 {
         self.htm.feedforward_connections_as_slice().len() as u32
+    }
+    #[text_signature = "(column_idx)"]
+    fn get_synapses(&self, column_idx:Option<u32>) -> Vec<(u32,f32)> {
+        if let Some(column_idx) = column_idx{
+            let s = self.htm.minicolumns_as_slice()[column_idx as usize];
+            self.htm.feedforward_connections_as_slice()[s.connection_offset as usize..(s.connection_offset + s.connection_len)as usize].iter().map(|c|(c.input_id,c.permanence)).collect()
+        }else{
+            self.htm.feedforward_connections_as_slice().iter().map(|c|(c.input_id,c.permanence)).collect()
+        }
+    }
+    #[text_signature = "(column_idx)"]
+    fn get_synapses_and_inhibitions(&self, column_idx:Option<u32>) -> Vec<(u32,f32,bool)> {
+        if let Some(column_idx) = column_idx{
+            let s = self.htm.minicolumns_as_slice()[column_idx as usize];
+            self.htm.feedforward_connections_as_slice()[s.connection_offset as usize..(s.connection_offset + s.connection_len)as usize].iter().map(|c|(c.input_id,c.permanence,c.overlap_gain<0)).collect()
+        }else{
+            self.htm.feedforward_connections_as_slice().iter().map(|c|(c.input_id,c.permanence,c.overlap_gain<0)).collect()
+        }
+
     }
     #[getter]
     fn get_input_size(&self) -> u32 {
@@ -844,6 +962,10 @@ impl CpuHTM4 {
     #[text_signature = "(top_n_minicolumns,active_columns,bitset_input,penalty_multiplier)"]
     fn update_permanence_and_penalize(&mut self, active_columns:&CpuBitset, bitset_input: &CpuBitset, penalty_multiplier:Option<f32>) {
         self.htm.update_permanence_and_penalize4(&active_columns.bits, &bitset_input.bits, penalty_multiplier.unwrap_or(-1.))
+    }
+    #[text_signature = "(top_n_minicolumns,active_columns,bitset_input,activity_threshold,penalty_multiplier)"]
+    fn update_permanence_and_penalize_thresholded(&mut self, active_columns:&CpuBitset, bitset_input: &CpuBitset, activity_threshold:u32,penalty_multiplier:Option<f32>) {
+        self.htm.update_permanence_and_penalize_thresholded4(&active_columns.bits, &bitset_input.bits, activity_threshold,penalty_multiplier.unwrap_or(-1.))
     }
     #[text_signature = "(bitset_input)"]
     fn compute(&mut self, bitset_input: &CpuBitset) -> CpuSDR {
@@ -959,25 +1081,50 @@ impl CpuSDR {
         CpuBitset{bits:htm::CpuBitset::from_sdr(&self.sdr, input_size)}
     }
 }
+
 #[pyfunction]
-#[text_signature = "(input_size,minicolumns,n,inputs_per_minicolumn,radius,rand_seed)"]
-pub fn cpu_htm2_new_local_2d(input_size: (u32,u32), minicolumns: (u32,u32), n: u32, inputs_per_minicolumn: u32, radius:f32, rand_seed:Option<u32>) -> CpuHTM2{
-    CpuHTM2{htm:htm::CpuHTM2::new_local_2d(input_size,minicolumns,n,inputs_per_minicolumn,radius,rand_seed.unwrap_or_else(auto_gen_seed))}
+#[text_signature = "(input_size,minicolumns,n,inputs_per_minicolumn,inhibitory_inputs_per_minicolumn,rand_seed)"]
+pub fn cpu_htm4_new(input_size: u32, n: u32) -> CpuHTM4{
+    CpuHTM4{htm:htm::CpuHTM4::new(input_size,n)}
 }
+
 #[pyfunction]
 #[text_signature = "(input_size,minicolumns,n,inputs_per_minicolumn,inhibitory_inputs_per_minicolumn,rand_seed)"]
 pub fn cpu_htm4_new_globally_uniform_prob_exact_inhibitory(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, inhibitory_inputs_per_minicolumn:u32, rand_seed:Option<u32>) -> CpuHTM4{
-    CpuHTM4{htm:htm::CpuHTM4::new_globally_uniform_prob_exact_inhibitory(input_size,minicolumns,n,inputs_per_minicolumn,inhibitory_inputs_per_minicolumn,rand_seed.unwrap_or_else(auto_gen_seed))}
+    let mut htm = cpu_htm4_new(input_size,n);
+    htm.htm.add_globally_uniform_prob_exact_inhibitory(minicolumns,inputs_per_minicolumn,inhibitory_inputs_per_minicolumn,rand_seed.unwrap_or_else(auto_gen_seed));
+    htm
 }
 #[pyfunction]
 #[text_signature = "(input_size,minicolumns,n,inputs_per_minicolumn,excitatory_connection_probability,rand_seed)"]
 pub fn cpu_htm4_new_globally_uniform_prob(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, excitatory_connection_probability:f32, rand_seed:Option<u32>) -> CpuHTM4{
-    CpuHTM4{htm:htm::CpuHTM4::new_globally_uniform_prob(input_size,minicolumns,n,inputs_per_minicolumn,excitatory_connection_probability,rand_seed.unwrap_or_else(auto_gen_seed))}
+    let mut htm = cpu_htm4_new(input_size,n);
+    htm.htm.add_globally_uniform_prob(minicolumns,inputs_per_minicolumn,excitatory_connection_probability,rand_seed.unwrap_or_else(auto_gen_seed));
+    htm
 }
 #[pyfunction]
 #[text_signature = "(input_size,minicolumns,n,inputs_per_minicolumn,excitatory_connection_probability,rand_seed)"]
 pub fn cpu_htm4_new_globally_uniform_prob_without_inhibitory(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, excitatory_connection_probability:f32, rand_seed:Option<u32>) -> CpuHTM4{
-    CpuHTM4{htm:htm::CpuHTM4::new_globally_uniform_prob_without_inhibitory(input_size,minicolumns,n,inputs_per_minicolumn,excitatory_connection_probability,rand_seed.unwrap_or_else(auto_gen_seed))}
+    let mut htm = cpu_htm4_new(input_size,n);
+    htm.htm.add_globally_uniform_prob_without_inhibitory(minicolumns,inputs_per_minicolumn,excitatory_connection_probability,rand_seed.unwrap_or_else(auto_gen_seed));
+    htm
+}
+#[pyfunction]
+#[text_signature = "(input_size,n)"]
+pub fn cpu_htm2_new(input_size: u32, n: u32) -> CpuHTM2 {
+    CpuHTM2 { htm: htm::CpuHTM2::new(input_size,  n) }
+}
+#[pyfunction]
+#[text_signature = "(input_size,minicolumns,n,inputs_per_minicolumn,radius,rand_seed)"]
+pub fn cpu_htm2_new_local_2d(input_size: (u32,u32), minicolumns: (u32,u32), n:u32, inputs_per_minicolumn: u32, radius:f32, mut rand_seed:Option<u32>) -> CpuHTM2 {
+    CpuHTM2 { htm: htm::CpuHTM2::new_local_2d(input_size,  minicolumns,n,inputs_per_minicolumn,radius,rand_seed.unwrap_or_else(auto_gen_seed)) }
+}
+#[pyfunction]
+#[text_signature = "(input_densities,minicolumns,n,inputs_per_minicolumn,max_permanence,rand_seed)"]
+pub fn cpu_htm2_new_with_input_distribution(input_densities: Vec<u32>, minicolumns: u32, n:u32, inputs_per_minicolumn: u32, rand_seed:Option<u32>) -> CpuHTM2 {
+    let mut n = cpu_htm2_new(input_densities.len() as u32,n);
+    n.htm.add_with_input_distribution(&input_densities,minicolumns,inputs_per_minicolumn,rand_seed.unwrap_or_else(auto_gen_seed));
+    n
 }
 #[pyfunction]
 #[text_signature = "(bits)"]
@@ -1047,6 +1194,7 @@ impl CpuBitset{
     pub fn to_sdr(&self)->CpuSDR{
         CpuSDR{sdr:htm::CpuSDR::from(&self.bits)}
     }
+
 }
 
 #[pymethods]

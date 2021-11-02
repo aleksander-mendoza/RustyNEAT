@@ -65,7 +65,7 @@ impl CategoricalEncoder{
     pub fn sdr_cardinality(&self)->u32{
         self.sdr_cardinality
     }
-    pub fn find_category_with_highest_overlap(&self, sdr:&[u32])->u32{
+    pub fn calculate_overlap(&self, sdr:&[u32])->Vec<u32>{
         let mut overlap = vec![0;self.num_of_categories as usize];
         for &neuron_index in sdr{
             if neuron_index >= self.neuron_range_begin{
@@ -75,7 +75,10 @@ impl CategoricalEncoder{
                 }
             }
         }
-        overlap.iter().position_max().unwrap() as u32
+        overlap
+    }
+    pub fn find_category_with_highest_overlap(&self, sdr:&[u32])->u32{
+        self.calculate_overlap(sdr).iter().position_max().unwrap() as u32
     }
     pub fn find_category_with_highest_overlap_bitset(&self, bitset:&CpuBitset)->u32{
         (0..self.num_of_categories).map(|cat|{
@@ -83,6 +86,13 @@ impl CategoricalEncoder{
             let end = begin + self.sdr_cardinality;
             bitset.cardinality_in_range(begin,end)
         }).position_max().unwrap() as u32
+    }
+    pub fn calculate_overlap_bitset(&self, bitset:&CpuBitset)->Vec<u32>{
+        (0..self.num_of_categories).map(|cat|{
+            let begin = self.neuron_range_begin + cat * self.sdr_cardinality;
+            let end = begin + self.sdr_cardinality;
+            bitset.cardinality_in_range(begin,end)
+        }).collect()
     }
 }
 impl Encoder<u32> for CategoricalEncoder {

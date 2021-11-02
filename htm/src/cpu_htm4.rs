@@ -53,33 +53,80 @@ impl CpuHTM4 {
     pub fn minicolumns_as_slice(&self) -> &[HtmMinicolumn4] {
         self.minicolumns.as_slice()
     }
-    pub fn new_globally_uniform_prob(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, excitatory_connection_probability: f32, mut rand_seed: u32) -> Self {
-        assert!(inputs_per_minicolumn < minicolumns);
-        Self::new(input_size, minicolumns, n, |minicolumn_id, synapse_id| {
-            rand_seed = xorshift32(rand_seed);
-            let input_idx = rand_seed % input_size;
-            rand_seed = xorshift32(rand_seed);
-            let permanence = rand_u32_to_random_f32(rand_seed);
-            rand_seed = xorshift32(rand_seed);
-            let is_excitatory = rand_u32_to_random_f32(rand_seed) <= excitatory_connection_probability;
-            (input_idx, is_excitatory, permanence)
-        }, |minicolumn_id| inputs_per_minicolumn)
+    pub fn set_all_permanences(&mut self, val:f32){
+        self.feedforward_connections.iter_mut().for_each(|c|c.permanence=val)
     }
-    pub fn new_globally_uniform_prob_exact_inhibitory(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, inhibitory_inputs_per_minicolumn: u32, mut rand_seed: u32) -> Self {
-        assert!(inputs_per_minicolumn < minicolumns);
+    pub fn multiply_all_permanences(&mut self, val:f32){
+        self.feedforward_connections.iter_mut().for_each(|c|c.permanence*=val)
+    }
+    pub fn add_with_input_distribution(&mut self,input_densities: &[u32],input_neg_densities: &[u32], minicolumns: u32, inputs_per_minicolumn: u32, excitatory_connection_probability: f32, mut rand_seed:u32) {
+        self.add_with_input_distribution_(input_densities,input_neg_densities,minicolumns,inputs_per_minicolumn,|rand_seed,synapse_id|{
+            *rand_seed = xorshift32(*rand_seed);
+            rand_u32_to_random_f32(*rand_seed) <= excitatory_connection_probability
+        },rand_seed)
+    }
+    pub fn add_with_input_distribution_exact_inhibitory(&mut self,input_densities: &[u32],input_neg_densities: &[u32], minicolumns: u32, inputs_per_minicolumn: u32, inhibitory_inputs_per_minicolumn: u32, mut rand_seed:u32) {
         assert!(inhibitory_inputs_per_minicolumn <= inputs_per_minicolumn);
-        Self::new(input_size, minicolumns, n, |minicolumn_id, synapse_id| {
+        self.add_with_input_distribution_(input_densities,input_neg_densities,minicolumns,inputs_per_minicolumn,|rand_seed,synapse_id|{
+            inhibitory_inputs_per_minicolumn <= synapse_id
+        },rand_seed)
+    }
+    fn add_with_input_distribution_(&mut self,input_densities: &[u32],input_neg_densities: &[u32], minicolumns: u32, inputs_per_minicolumn: u32, mut is_excitatory: impl FnMut(&mut u32, u32)->bool, mut rand_seed:u32) {
+        assert!(input_densities.len()<=self.input_size as usize,"Input densities has length {} but there are only {} inputs",input_densities.len(),self.input_size);
+        assert!(input_neg_densities.len()<=self.input_size as usize,"Negative input densities has length {} but there are only {} inputs",input_neg_densities.len(),self.input_size);
+        fn f(input_densities: &[u32])->Vec<f64>{
+            let total:u64 = input_densities.iter().map(|&x|x as u64).sum();
+            let mut pdf = Vec::<f64>::with_capacity(input_densities.len());
+            let mut sum = 0u64;
+            for &den in input_densities{
+                sum+=den as u64;
+                pdf.push(sum as f64 / total as f64);
+            }
+            pdf
+        }
+        let pdf = [f(input_neg_densities),f(input_densities)];
+        self.add_minicolumns(minicolumns, |minicolumn_id,synapse_id|{
+            let is_excitatory = is_excitatory(&mut rand_seed, synapse_id);
+            rand_seed = xorshift32(rand_seed);
+            let rand_density = rand_u32_to_random_f32(rand_seed) as f64;
+            let input_idx = match pdf[is_excitatory as usize].binary_search_by(|a|a.partial_cmp(&rand_density).unwrap()) {
+                Ok(x) => x, Err(x) => x
+            };
+            debug_assert!(input_idx<input_densities.len(),"Last element in pdf is total/total==1. The max value returned by rand_u32_to_random_f32 is less than 1.");
+            rand_seed = xorshift32(rand_seed);
+            let permanence = rand_u32_to_random_f32(rand_seed);
+            (input_idx as u32,is_excitatory,permanence)
+        }, |minicolumn_id| inputs_per_minicolumn)
+    }
+    fn add_globally_uniform_prob_(&mut self, minicolumns: u32,inputs_per_minicolumn: u32, mut is_excitatory: impl FnMut(&mut u32, u32)->bool, mut rand_seed: u32){
+        assert!(inputs_per_minicolumn < minicolumns);
+        let input_size = self.input_size;
+        self.add_minicolumns( minicolumns, |minicolumn_id, synapse_id| {
             rand_seed = xorshift32(rand_seed);
             let input_idx = rand_seed % input_size;
             rand_seed = xorshift32(rand_seed);
             let permanence = rand_u32_to_random_f32(rand_seed);
-            let is_excitatory = inhibitory_inputs_per_minicolumn <= synapse_id;
+            rand_seed = xorshift32(rand_seed);
+            let is_excitatory = is_excitatory(&mut rand_seed, synapse_id);
             (input_idx, is_excitatory, permanence)
         }, |minicolumn_id| inputs_per_minicolumn)
     }
-    pub fn new_globally_uniform_prob_without_inhibitory(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, excitatory_connection_probability: f32, mut rand_seed: u32) -> Self {
+    pub fn add_globally_uniform_prob(&mut self, minicolumns: u32,inputs_per_minicolumn: u32, excitatory_connection_probability: f32, mut rand_seed: u32){
+        self.add_globally_uniform_prob_(minicolumns,inputs_per_minicolumn,|rand_seed,synapse_id|{
+            *rand_seed = xorshift32(*rand_seed);
+            rand_u32_to_random_f32(*rand_seed) <= excitatory_connection_probability
+        },rand_seed)
+    }
+    pub fn add_globally_uniform_prob_exact_inhibitory(&mut self, minicolumns: u32, inputs_per_minicolumn: u32, inhibitory_inputs_per_minicolumn: u32, mut rand_seed: u32) {
+        assert!(inhibitory_inputs_per_minicolumn <= inputs_per_minicolumn);
+        self.add_globally_uniform_prob_(minicolumns,inputs_per_minicolumn,|rand_seed,synapse_id|{
+            inhibitory_inputs_per_minicolumn <= synapse_id
+        },rand_seed)
+    }
+    pub fn add_globally_uniform_prob_without_inhibitory(&mut self, minicolumns: u32, inputs_per_minicolumn: u32, excitatory_connection_probability: f32, mut rand_seed: u32) {
         assert!(inputs_per_minicolumn < minicolumns);
-        Self::new(input_size, minicolumns, n, |minicolumn_id, synapse_id| {
+        let input_size = self.input_size;
+        self.add_minicolumns( minicolumns, |minicolumn_id, synapse_id| {
             rand_seed = xorshift32(rand_seed);
             let input_idx = rand_seed % input_size;
             rand_seed = xorshift32(rand_seed);
@@ -89,11 +136,26 @@ impl CpuHTM4 {
             (input_idx, is_excitatory, if is_excitatory { permanence } else { 0. })
         }, |minicolumn_id| inputs_per_minicolumn)
     }
-    /**n = how many minicolumns to activate. We will always take the top n minicolumns with the greatest overlap value.*/
-    pub fn new(input_size: u32, minicolumns_count: u32, n: u32, mut random_input_close_to_minicolumn: impl FnMut(u32, u32) -> (u32, bool, f32), mut input_count_incoming_to_minicolumn: impl FnMut(u32) -> u32) -> Self {
-        let mut feedforward_connections: Vec<HtmFeedforwardConnection4> = vec![];
-        let mut minicolumns: Vec<HtmMinicolumn4> = Vec::with_capacity(minicolumns_count as usize);
 
+    /**n = how many minicolumns to activate. We will always take the top n minicolumns with the greatest overlap value.*/
+    pub fn new(input_size: u32, n: u32) -> Self {
+        Self {
+            max_overlap: 0,
+            feedforward_connections: vec![],
+            minicolumns: vec![],
+            n,
+            permanence_threshold: 0.7,
+            permanence_decrement_increment: [-0.01, 0.02],
+            input_size,
+        }
+    }
+
+    /**n = how many minicolumns to activate. We will always take the top n minicolumns with the greatest overlap value.*/
+    pub fn add_minicolumns(&mut self, minicolumns_count: u32, mut random_input_close_to_minicolumn: impl FnMut(u32, u32) -> (u32, bool, f32), mut input_count_incoming_to_minicolumn: impl FnMut(u32) -> u32) {
+        let Self{feedforward_connections,minicolumns,input_size,..} = self;
+        minicolumns.reserve(minicolumns_count as usize);
+        let original_column_count = minicolumns.len();
+        let &mut input_size = input_size;
         let mut connected_inputs = vec![false; input_size as usize];
         for minicolumn_id in 0..minicolumns_count as u32 {
             let input_count = input_count_incoming_to_minicolumn(minicolumn_id);
@@ -124,15 +186,7 @@ impl CpuHTM4 {
             }
         }
 
-        Self {
-            max_overlap: minicolumns.iter().map(|m| m.connection_len).max().unwrap(),
-            feedforward_connections,
-            minicolumns,
-            n,
-            permanence_threshold: 0.7,
-            permanence_decrement_increment: [-0.01, 0.02],
-            input_size,
-        }
+        self.max_overlap = self.max_overlap.max(minicolumns[original_column_count..].iter().map(|m| m.connection_len).max().unwrap());
     }
 
     fn htm_calculate_overlap4(&mut self, bitset_input: &CpuBitset, number_of_minicolumns_per_overlap: &mut [i32]) {
@@ -218,10 +272,10 @@ impl CpuHTM4 {
     pub fn update_permanence_and_penalize4(&mut self,
                                            active_minicolumns: &CpuBitset,
                                            bitset_input: &CpuBitset,
-                                           penalty_multiplier:f32) {
+                                           penalty_multiplier: f32) {
         for (c_idx, c) in self.minicolumns.iter().enumerate() {
             let is_col_active = active_minicolumns.is_bit_on(c_idx as u32);
-            let multiplier = if is_col_active {1.} else {penalty_multiplier};
+            let multiplier = if is_col_active { 1. } else { penalty_multiplier };
             for feedforward_connection in &mut self.feedforward_connections[c.connection_offset as usize..(c.connection_offset + c.connection_len) as usize] {
                 let is_inp_active = bitset_input.is_bit_on(feedforward_connection.input_id);
                 let is_inhibitory = feedforward_connection.overlap_gain < 0;
@@ -230,6 +284,30 @@ impl CpuHTM4 {
                 let old_permanence = feedforward_connection.permanence;
                 let new_permanence = (old_permanence + permanence_change).clamp(0., 1.);
                 feedforward_connection.permanence = new_permanence;
+            }
+        }
+    }
+
+    pub fn update_permanence_and_penalize_thresholded4(&mut self,
+                                                       active_minicolumns: &CpuBitset,
+                                                       bitset_input: &CpuBitset,
+                                                       activity_threshold:u32,
+                                                       penalty_multiplier: f32) {
+        for (c_idx, c) in self.minicolumns.iter().enumerate() {
+            let is_col_active = active_minicolumns.is_bit_on(c_idx as u32);
+            let multiplier = if is_col_active { 1. } else { penalty_multiplier };
+            let connections = &mut self.feedforward_connections[c.connection_offset as usize..(c.connection_offset + c.connection_len) as usize];
+            let activity:u32 = connections.iter().map(|c|bitset_input.is_bit_on(c.input_id) as u32).sum();
+            if activity >= activity_threshold {
+                for feedforward_connection in connections {
+                    let is_inp_active = bitset_input.is_bit_on(feedforward_connection.input_id);
+                    let is_inhibitory = feedforward_connection.overlap_gain < 0;
+                    let reinforce = (is_inp_active ^ is_inhibitory);
+                    let permanence_change = self.permanence_decrement_increment[reinforce as usize] * multiplier;
+                    let old_permanence = feedforward_connection.permanence;
+                    let new_permanence = (old_permanence + permanence_change).clamp(0., 1.);
+                    feedforward_connection.permanence = new_permanence;
+                }
             }
         }
     }

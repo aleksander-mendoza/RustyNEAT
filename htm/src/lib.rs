@@ -248,13 +248,12 @@ mod tests {
         let mut encoder = EncoderBuilder::new();
         let cat_enc = encoder.add_categorical(5, 10);
         let number_of_minicolumns = 50;
-        let mut htm = CpuHTM2::new_globally_uniform_prob(
+        let mut htm = CpuHTM2::new(
             encoder.input_size(),
-            number_of_minicolumns,
             16,
-            25,
-            544768,
+
         );
+        htm.add_globally_uniform_prob(number_of_minicolumns,25, 544768);
         let mut hom = CpuHOM::new(1, number_of_minicolumns);
         hom.hyp.activation_threshold = 8;
         hom.hyp.learning_threshold = 8;
@@ -382,13 +381,8 @@ mod tests {
         const ACTIVATION_THRESHOLD:u32=4;
         let mut encoder = EncoderBuilder::new();
         let cat_enc = encoder.add_categorical(5, CELLS_PER_IN);
-        let mut htm = CpuHTM2::new_globally_uniform_prob(
-            encoder.input_size(),
-            COLUMNS,
-            N,
-            COLUMNS/2,
-            967786374
-        );
+        let mut htm = CpuHTM2::new(encoder.input_size(), N );
+        htm.add_globally_uniform_prob(COLUMNS,COLUMNS/2, 967786374);
         let mut hom = CpuHOM::new(1, COLUMNS);
         hom.hyp.activation_threshold = ACTIVATION_THRESHOLD;
         hom.hyp.learning_threshold = ACTIVATION_THRESHOLD;
@@ -424,7 +418,8 @@ mod tests {
 
     #[test]
     fn test15() -> Result<(), String> {
-        let mut htm = CpuHTM4::new_globally_uniform_prob(8,64,8,4,0.8,464567);
+        let mut htm = CpuHTM4::new(8,8);
+        htm.add_globally_uniform_prob(64,4,0.8,464567);
         let in1 = CpuBitset::from_bools(&[false,false,false,true,false,false,true,false]);
         let in2 = CpuBitset::from_bools(&[false,false,false,true,false,true,true,false]);
         for _ in 0..128{
@@ -490,7 +485,8 @@ mod tests {
             lbl_enc.encode(&mut sdr,lbl);
             sdr
         }).collect::<Vec<CpuSDR>>();
-        let mut htm1 = CpuHTM2::new_globally_uniform_prob(htm_enc.input_size(), out_columns, 30, 28 * 4,648679);
+        let mut htm1 = CpuHTM2::new(htm_enc.input_size(), 30);
+        htm1.add_globally_uniform_prob(out_columns, 28 * 4,648679);
         let mut hom = CpuHOM::new(1, hom_enc.input_size());
 
 
@@ -544,5 +540,25 @@ mod tests {
         i.set_sparse_from_slice(&[34]);
         assert_eq!(enc.find_category_with_highest_overlap_bitset(i.get_dense()),3);
         assert_eq!(enc.find_category_with_highest_overlap(i.get_sparse()),3);
+    }
+
+    #[test]
+    fn test21() {//2={permanence:0.438, input_id:1}, 3={permanence:0.2970, input_id:1}
+        let mut htm = CpuHTM2::new(3,2);
+        htm.add_globally_uniform_prob(2,3,345);
+        let data = [
+            CpuBitset::from_sdr(&[0,1],3),
+            CpuBitset::from_sdr(&[1,2],3),
+        ];
+        let active_columns = [
+            CpuBitset::from_sdr(&[0],2),
+            CpuBitset::from_sdr(&[1],2),
+        ];
+        for _ in 0..20 {
+            for (d, a) in data.iter().zip(active_columns.iter()) {
+                htm.update_permanence_and_penalize2(a, d, -0.2)
+            }
+        }
+        println!("{}",htm.permanence_threshold);
     }
 }
