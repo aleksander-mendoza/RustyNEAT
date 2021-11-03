@@ -19,6 +19,8 @@ mod cpu_bitset;
 mod cpu_input;
 mod ocl_input;
 mod rand;
+mod htm3;
+mod cpu_htm3;
 
 pub use crate::rand::auto_gen_seed;
 pub use ocl_htm2::OclHTM2;
@@ -65,12 +67,12 @@ mod tests {
         let mut htm = CpuHTM::new_globally_uniform_prob(16, 16, 4, 12, 4);
         let output_sdr = htm.infer(&sdr, false);
         let mut htm2 = CpuHTM2::from(&htm);
-        let output_sdr2 = htm2.infer2(sdr.get_dense(), false);
+        let output_sdr2 = htm2.infer(sdr.get_dense(), false);
 
         let mut ocl_sdr = OclInput::new(p.clone(), 16,16)?;
         ocl_sdr.set_sparse_from_slice(&[4, 6, 14, 3]);
         let mut ocl_htm2 = OclHTM2::new(&htm2, p.clone())?;
-        let output_sdr4 = ocl_htm2.infer2(ocl_sdr.get_dense(), false)?;
+        let output_sdr4 = ocl_htm2.infer(ocl_sdr.get_dense(), false)?;
         let mut ocl_htm = OclHTM::new(&htm, p.clone())?;
         let output_sdr3 = ocl_htm.infer(&ocl_sdr, false)?;
 
@@ -272,14 +274,14 @@ mod tests {
             sdr
         }).collect();
         for sdr in &sdrs{
-            let activated = htm.infer2(sdr.get_dense(),true);
+            let activated = htm.infer(sdr.get_dense(),true);
             hom.infer(&activated,true);
         }
         hom.reset();
-        let activated = htm.infer2(sdrs[0].get_dense(),false);
+        let activated = htm.infer(sdrs[0].get_dense(),false);
         let mut predicted = hom.infer(&activated,false);
         for sdr in &sdrs[1..]{
-            let activated = htm.infer2(sdr.get_dense(),true);
+            let activated = htm.infer(sdr.get_dense(),true);
             assert_eq!(predicted, activated);
             predicted = hom.infer(&activated,true);
         }
@@ -329,7 +331,7 @@ mod tests {
         let mut htm = CpuHTM::new_globally_uniform_prob(16, 16, 4, 12,36564);
         let output_sdr = htm.infer(&sdr, false);
         let mut htm2 = CpuHTM2::from(&htm);
-        let output_sdr2 = htm2.infer2(sdr.get_dense(), false);
+        let output_sdr2 = htm2.infer(sdr.get_dense(), false);
 
         let output_sdr = output_sdr.to_vec();
         let output_sdr2 = output_sdr2.to_vec();
@@ -401,14 +403,14 @@ mod tests {
             sdr
         }).collect();
         for sdr in &sdrs{
-            let activated = htm.infer2(sdr.get_dense(),true);
+            let activated = htm.infer(sdr.get_dense(),true);
             hom.infer(&activated,true);
         }
         hom.reset();
-        let activated = htm.infer2(sdrs[0].get_dense(),false);
+        let activated = htm.infer(sdrs[0].get_dense(),false);
         let mut predicted = hom.infer(&activated,false);
         for sdr in &sdrs[1..]{
-            let activated = htm.infer2(sdr.get_dense(),true);
+            let activated = htm.infer(sdr.get_dense(),true);
             assert_eq!(predicted, activated);
             predicted = hom.infer(&activated,true);
         }
@@ -423,8 +425,8 @@ mod tests {
         let in1 = CpuBitset::from_bools(&[false,false,false,true,false,false,true,false]);
         let in2 = CpuBitset::from_bools(&[false,false,false,true,false,true,true,false]);
         for _ in 0..128{
-            let out1 = htm.infer4(&in1,true);
-            let out2 = htm.infer4(&in2,true);
+            let out1 = htm.infer(&in1,true);
+            let out2 = htm.infer(&in2,true);
             println!("1{:?}",out1);
             println!("2{:?}",out2);
         }
@@ -491,7 +493,7 @@ mod tests {
 
 
         for (img, &lbl) in data.iter().zip(labels.iter()){
-            let active_columns = htm1.infer2(img,true);
+            let active_columns = htm1.infer(img,true);
             let predicted_columns = hom.infer(&active_columns,true);
             hom.infer(&label_sdrs[lbl as usize],true);
             hom.reset();
@@ -556,7 +558,7 @@ mod tests {
         ];
         for _ in 0..20 {
             for (d, a) in data.iter().zip(active_columns.iter()) {
-                htm.update_permanence_and_penalize2(a, d, -0.2)
+                htm.update_permanence_and_penalize(a, d, -0.2)
             }
         }
         println!("{}",htm.permanence_threshold);

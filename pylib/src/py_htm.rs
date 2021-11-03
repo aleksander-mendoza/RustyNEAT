@@ -765,27 +765,27 @@ impl CpuHTM2 {
     }
     #[text_signature = "(bitset_input, learn)"]
     fn infer(&mut self, bitset_input: &CpuBitset, learn: Option<bool>) -> CpuSDR {
-        CpuSDR{sdr:self.htm.infer2(&bitset_input.bits, learn.unwrap_or(false))}
+        CpuSDR{sdr:self.htm.infer(&bitset_input.bits, learn.unwrap_or(false))}
     }
     #[text_signature = "(active_columns,bitset_input)"]
     fn update_permanence(&mut self, active_columns:&CpuSDR, bitset_input: &CpuBitset) {
-        self.htm.update_permanence2(&active_columns.sdr, &bitset_input.bits)
+        self.htm.update_permanence(&active_columns.sdr, &bitset_input.bits)
     }
     #[text_signature = "(top_n_minicolumns,active_columns,bitset_input)"]
     fn update_permanence_ltd(&mut self, top_n_minicolumns:&CpuSDR, active_columns:&CpuBitset, bitset_input: &CpuBitset) {
-        self.htm.update_permanence_ltd2(&top_n_minicolumns.sdr,&active_columns.bits, &bitset_input.bits)
+        self.htm.update_permanence_ltd(&top_n_minicolumns.sdr,&active_columns.bits, &bitset_input.bits)
     }
     #[text_signature = "(top_n_minicolumns,active_columns,bitset_input,penalty_multiplier)"]
     fn update_permanence_and_penalize(&mut self, active_columns:&CpuBitset, bitset_input: &CpuBitset,penalty_multiplier:Option<f32>) {
-        self.htm.update_permanence_and_penalize2(&active_columns.bits, &bitset_input.bits, penalty_multiplier.unwrap_or(-1.))
+        self.htm.update_permanence_and_penalize(&active_columns.bits, &bitset_input.bits, penalty_multiplier.unwrap_or(-1.))
     }
     #[text_signature = "(top_n_minicolumns,active_columns,bitset_input,activity_threshold,penalty_multiplier)"]
     fn update_permanence_and_penalize_thresholded(&mut self, active_columns:&CpuBitset, bitset_input: &CpuBitset, activity_threshold:u32,penalty_multiplier:Option<f32>) {
-        self.htm.update_permanence_and_penalize_thresholded2(&active_columns.bits, &bitset_input.bits, activity_threshold,penalty_multiplier.unwrap_or(-1.))
+        self.htm.update_permanence_and_penalize_thresholded(&active_columns.bits, &bitset_input.bits, activity_threshold,penalty_multiplier.unwrap_or(-1.))
     }
     #[text_signature = "(bitset_input)"]
     fn compute(&mut self, bitset_input: &CpuBitset) -> CpuSDR {
-        CpuSDR{sdr:self.htm.compute2(&bitset_input.bits)}
+        CpuSDR{sdr:self.htm.compute(&bitset_input.bits)}
     }
 
     #[text_signature = "(minicolumn_id)"]
@@ -949,27 +949,27 @@ impl CpuHTM4 {
     }
     #[text_signature = "(bitset_input, learn)"]
     fn infer(&mut self, bitset_input: &CpuBitset, learn: Option<bool>) -> CpuSDR {
-        CpuSDR{sdr:self.htm.infer4(&bitset_input.bits, learn.unwrap_or(false))}
+        CpuSDR{sdr:self.htm.infer(&bitset_input.bits, learn.unwrap_or(false))}
     }
     #[text_signature = "(active_columns,bitset_input)"]
     fn update_permanence(&mut self, active_columns:&CpuSDR, bitset_input: &CpuBitset) {
-        self.htm.update_permanence4(&active_columns.sdr, &bitset_input.bits)
+        self.htm.update_permanence(&active_columns.sdr, &bitset_input.bits)
     }
     #[text_signature = "(top_n_minicolumns,active_columns,bitset_input)"]
     fn update_permanence_ltd(&mut self, top_n_minicolumns:&CpuSDR, active_columns:&CpuBitset, bitset_input: &CpuBitset) {
-        self.htm.update_permanence_ltd4(&top_n_minicolumns.sdr,&active_columns.bits, &bitset_input.bits)
+        self.htm.update_permanence_ltd(&top_n_minicolumns.sdr,&active_columns.bits, &bitset_input.bits)
     }
     #[text_signature = "(top_n_minicolumns,active_columns,bitset_input,penalty_multiplier)"]
     fn update_permanence_and_penalize(&mut self, active_columns:&CpuBitset, bitset_input: &CpuBitset, penalty_multiplier:Option<f32>) {
-        self.htm.update_permanence_and_penalize4(&active_columns.bits, &bitset_input.bits, penalty_multiplier.unwrap_or(-1.))
+        self.htm.update_permanence_and_penalize(&active_columns.bits, &bitset_input.bits, penalty_multiplier.unwrap_or(-1.))
     }
     #[text_signature = "(top_n_minicolumns,active_columns,bitset_input,activity_threshold,penalty_multiplier)"]
     fn update_permanence_and_penalize_thresholded(&mut self, active_columns:&CpuBitset, bitset_input: &CpuBitset, activity_threshold:u32,penalty_multiplier:Option<f32>) {
-        self.htm.update_permanence_and_penalize_thresholded4(&active_columns.bits, &bitset_input.bits, activity_threshold,penalty_multiplier.unwrap_or(-1.))
+        self.htm.update_permanence_and_penalize_thresholded(&active_columns.bits, &bitset_input.bits, activity_threshold,penalty_multiplier.unwrap_or(-1.))
     }
     #[text_signature = "(bitset_input)"]
     fn compute(&mut self, bitset_input: &CpuBitset) -> CpuSDR {
-        CpuSDR{sdr:self.htm.compute4(&bitset_input.bits)}
+        CpuSDR{sdr:self.htm.compute(&bitset_input.bits)}
     }
 
     #[text_signature = "(minicolumn_id)"]
@@ -1341,7 +1341,7 @@ impl OclHTM2 {
 
     #[call]
     fn __call__(&mut self, bitset_input: &OclBitset, learn: Option<bool>) -> PyResult<OclSDR> {
-        self.htm.infer2(&bitset_input.bits, learn.unwrap_or(false)).map(|sdr| OclSDR { sdr }).map_err(ocl_err_to_py_ex)
+        self.htm.infer(&bitset_input.bits, learn.unwrap_or(false)).map(|sdr| OclSDR { sdr }).map_err(ocl_err_to_py_ex)
     }
 }
 

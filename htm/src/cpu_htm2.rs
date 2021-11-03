@@ -214,7 +214,7 @@ impl CpuHTM2 {
     }
 
 
-    fn htm_calculate_overlap2(&mut self, bitset_input:&CpuBitset, number_of_minicolumns_per_overlap: &mut [i32]) {
+    fn htm_calculate_overlap(&mut self, bitset_input:&CpuBitset, number_of_minicolumns_per_overlap: &mut [i32]) {
         for minicolumn_idx in 0..self.minicolumns.len() {
             let connection_offset = self.minicolumns[minicolumn_idx].connection_offset;
             let connection_len = self.minicolumns[minicolumn_idx].connection_len;
@@ -239,7 +239,7 @@ impl CpuHTM2 {
     number_of_minicolumns_per_overlap_that_made_it_to_top_n.
     number_of_minicolumns_per_overlap_that_made_it_to_top_n holds rubbish for any overlap lower than smallest_overlap_that_made_it_to_top_n
     */
-    fn htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n2(&self, number_of_minicolumns_per_overlap: &mut [i32]) -> u32 {
+    fn htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n(&self, number_of_minicolumns_per_overlap: &mut [i32]) -> u32 {
         let mut total_minicolumns = 0;
         for overlap in (0..number_of_minicolumns_per_overlap.len()).rev() {
             let number_of_minicolumns = number_of_minicolumns_per_overlap[overlap as usize];
@@ -252,7 +252,7 @@ impl CpuHTM2 {
         0
     }
 
-    pub fn update_permanence2(&mut self,
+    pub fn update_permanence(&mut self,
                               top_n_minicolumns: &[u32],
                               bitset_input:&CpuBitset) {
         for &minicolumn_idx in top_n_minicolumns {
@@ -268,7 +268,7 @@ impl CpuHTM2 {
         }
     }
 
-    pub fn update_permanence_ltd2(&mut self,
+    pub fn update_permanence_ltd(&mut self,
                                   top_n_minicolumns: &[u32],
                                   active_minicolumns: &CpuBitset,
                                   bitset_input: &CpuBitset) {
@@ -291,7 +291,7 @@ impl CpuHTM2 {
     /**penalty_multiplier should be some negative number (more or less close to -1 probably). Numbers between
     -1 and 0 will make the penalties smaller. Numbers below -1 will make penalties larger. Positive numbers will
     invert the penalty and lead to greater activity of inactive columns (probably not what you want under normal circumstances)*/
-    pub fn update_permanence_and_penalize2(&mut self,
+    pub fn update_permanence_and_penalize(&mut self,
                                            active_minicolumns: &CpuBitset,
                                            bitset_input: &CpuBitset,
                                            penalty_multiplier:f32) {
@@ -309,7 +309,7 @@ impl CpuHTM2 {
     }
 
 
-    pub fn update_permanence_and_penalize_thresholded2(&mut self,
+    pub fn update_permanence_and_penalize_thresholded(&mut self,
                                                        active_minicolumns: &CpuBitset,
                                                        bitset_input: &CpuBitset,
                                                        activity_threshold:u32,
@@ -335,7 +335,7 @@ impl CpuHTM2 {
     connection to some active input. In cases where vast majority minicolumns is expected to have
     at least one connection to some active input, then htm_find_top_minicolumns2 will be much more optimal.
     */
-    fn htm_find_top_minicolumns2(&mut self,
+    fn htm_find_top_minicolumns(&mut self,
                                  number_of_minicolumns_per_overlap_that_made_it_to_top_n: &mut [i32],
                                  smallest_overlap_that_made_it_to_top_n: u32,
                                  top_n_minicolumns: &mut [u32],
@@ -351,24 +351,24 @@ impl CpuHTM2 {
             }
         }
     }
-    pub fn compute2(&mut self, bitset_input: &CpuBitset) -> CpuSDR{
+    pub fn compute(&mut self, bitset_input: &CpuBitset) -> CpuSDR{
         assert!(self.input_size()<=bitset_input.size(),"HTM expects input of size {} but got {}",self.input_size(),bitset_input.size());
         let mut number_of_minicolumns_per_overlap = vec![0; self.max_overlap as usize+1];
-        self.htm_calculate_overlap2(bitset_input,&mut number_of_minicolumns_per_overlap);
-        let smallest_overlap_that_made_it_to_top_n = self.htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n2(&mut number_of_minicolumns_per_overlap);
+        self.htm_calculate_overlap(bitset_input,&mut number_of_minicolumns_per_overlap);
+        let smallest_overlap_that_made_it_to_top_n = self.htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n(&mut number_of_minicolumns_per_overlap);
         let mut top_n_minicolumns = Vec::with_capacity(self.n as usize);
         unsafe { top_n_minicolumns.set_len(self.n as usize) }
         let mut current_top_n_minicolumn_idx = 0;
-        self.htm_find_top_minicolumns2(&mut number_of_minicolumns_per_overlap, smallest_overlap_that_made_it_to_top_n, &mut top_n_minicolumns, &mut current_top_n_minicolumn_idx);
+        self.htm_find_top_minicolumns(&mut number_of_minicolumns_per_overlap, smallest_overlap_that_made_it_to_top_n, &mut top_n_minicolumns, &mut current_top_n_minicolumn_idx);
         let top_minicolumn_count = current_top_n_minicolumn_idx;
 
         unsafe { top_n_minicolumns.set_len(top_minicolumn_count as usize) }
         CpuSDR::from(top_n_minicolumns)
     }
-    pub fn infer2(&mut self, bitset_input: &CpuBitset, learn: bool) -> CpuSDR{
-        let top_n_minicolumns = self.compute2(bitset_input);
+    pub fn infer(&mut self, bitset_input: &CpuBitset, learn: bool) -> CpuSDR{
+        let top_n_minicolumns = self.compute(bitset_input);
         if learn {
-            self.update_permanence2(&top_n_minicolumns, bitset_input)
+            self.update_permanence(&top_n_minicolumns, bitset_input)
         }
         top_n_minicolumns
     }
