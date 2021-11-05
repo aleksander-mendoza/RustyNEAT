@@ -9,6 +9,7 @@ from scipy import ndimage
 import numpy as np
 import os
 import sys
+import itertools
 import importlib, inspect
 
 
@@ -23,97 +24,90 @@ def genGabor(sz, omega, theta, func=np.cos, K=np.pi):
     return gabor
 
 
-def encode_img_gabor(img, target, filters, encoders, visualize=False):
+def visualize_gabor(img, filters, threshold):
     img = img.type(torch.float) / 255
-    if visualize:
-        fig, axs = plt.subplots(len(filters) + 1)
-        axs[0].imshow(img)
-    if len(filters) > 0:
-        for k, (kernel, encoder) in enumerate(zip(filters, encoders)):
-            i = ndimage.convolve(img, kernel, mode='constant')
-            i = i > 5
-            if visualize:
-                axs[1 + k].imshow(i)
-            i = i.reshape(28 * 28)
-            i = i.tolist()
-            encoder.encode(target, i)
-    else:
-        i = img > 0.8
-        if visualize:
-            axs[1].imshow(i)
+    fig, axs = plt.subplots(len(filters) + 1, 2)
+    axs[0, 0].imshow(img)
+    for k, kernel in enumerate(filters):
+        i = ndimage.convolve(img, kernel, mode='constant')
+        i = i > threshold
+        axs[1 + k, 0].imshow(i)
+        axs[1 + k, 1].imshow(kernel)
+    plt.show()
+
+
+def encode_img_gabor(img, targets, filters, encoders, threshold=5.):
+    img = img.type(torch.float) / 255
+    for k, (kernel, encoder) in enumerate(zip(filters, encoders)):
+        i = img
+        if kernel is not None:
+            i = ndimage.convolve(i, kernel, mode='constant')
+        i = i > threshold
         i = i.reshape(28 * 28)
         i = i.tolist()
-        encoders.encode(target, i)
-    if visualize:
-        plt.show()
+        for target in targets:
+            encoder.encode(target, i)
 
 
-# plt.imshow(genGabor((28, 28), 2, np.pi * 0.1, func=np.cos))
-def gen_gabor_filters():
-    return [genGabor((8, 8), 2, np.pi * x / 8, func=np.cos) for x in range(0, 8)]
+def htm_for_code(inp_size, card, out_size, syn_per_col, code: str):
+    if code.startswith('2'):
+        htm = rusty_neat.htm.CpuHTM2(inp_size, out_size, card, syn_per_col)
+    elif code.startswith('3'):
+        htm = rusty_neat.htm.CpuHTM3(inp_size, out_size, card, syn_per_col)
+    elif code.startswith('4'):
+        code, excitatory_perm_prob = code.split("#")
+        excitatory_perm_prob = float(excitatory_perm_prob)
+        if code == '4rn':
+            htm = rusty_neat.htm.cpu_htm4_new_globally_uniform_prob(inp_size, out_size, card, syn_per_col,
+                                                                    excitatory_perm_prob)
+        else:
+            htm = rusty_neat.htm.CpuHTM4(inp_size, out_size, card, syn_per_col, excitatory_perm_prob)
+    return htm
 
+
+# plt.imshow(genGabor((28, 28), 1.5, np.pi * 0.1, func=np.cos))
 
 class Model:
 
-    def __init__(self, gabor_filters, cat, htm_class, syn, neg=0., update_method='update'):
-        self.gabor_filters = gabor_filters
-        self.inp_enc = rusty_neat.htm.EncoderBuilder()
-        if len(gabor_filters) > 0:
-            self.img_enc = [self.inp_enc.add_bits(28 * 28) for _ in gabor_filters]
-        else:
-            self.img_enc = self.inp_enc.add_bits(28 * 28)
+    def __init__(self, gabor_filters, cat, htm_class, syn, update_method='update'):
+        self.args = [self.__class__.__name__, gabor_filters, cat, htm_class, syn, update_method]
+        if gabor_filters == 'g':
+            self.gabor_filters = [genGabor((8, 8), 2, np.pi * x / 8, func=np.cos) for x in range(0, 8)]
+            self.gabor_threshold = 5
+        elif gabor_filters == 'b':
+            self.gabor_filters = [genGabor((16, 16), 1.5, np.pi * x / 8, func=np.cos) for x in range(0, 8)]
+            self.gabor_threshold = 8
+        elif gabor_filters == 'n':
+            self.gabor_filters = [None]
+            self.gabor_threshold = 0.8
         self.syn = syn
-        self.neg = neg
         self.htm_class = htm_class
-        self.out_enc = rusty_neat.htm.EncoderBuilder()
-        self.lbl_enc = self.out_enc.add_categorical(10, cat)
-        self.sdr = rusty_neat.htm.CpuSDR()
-        self.bitset = rusty_neat.htm.CpuBitset(self.inp_enc.input_size)
-        self.active_columns_bitset = rusty_neat.htm.CpuBitset(self.out_enc.input_size)
         if update_method == 'update':
             self.infer = self.update_permanence
         elif update_method == 'penalize':
             self.infer = self.update_permanence_and_penalize
+        elif update_method == 'ltd':
+            self.infer = self.update_permanence_ltd
 
     def generate_htm(self):
-        if self.htm_class == 2:
-            htm = rusty_neat.htm.CpuHTM2(self.inp_enc.input_size, self.out_enc.input_size,
-                                         self.lbl_enc.sdr_cardinality,
-                                         int(self.inp_enc.input_size * self.syn))
-        elif self.htm_class == 4:
-            htm = rusty_neat.htm.CpuHTM4(self.inp_enc.input_size, self.out_enc.input_size,
-                                         self.lbl_enc.sdr_cardinality,
-                                         int(self.inp_enc.input_size * self.syn),
-                                         self.neg)
-        elif self.htm_class == '4 rand neg':
-            htm = rusty_neat.htm.cpu_htm4_new_globally_uniform_prob(self.inp_enc.input_size,
-                                                                    self.out_enc.input_size,
-                                                                    self.lbl_enc.sdr_cardinality,
-                                                                    int(self.inp_enc.input_size * self.syn),
-                                                                    self.neg)
-        return htm
+        pass
+
+    def encode_img_gabor(self, img, targets):
+        for target in targets:
+            target.clear()
+        encode_img_gabor(img, targets, self.gabor_filters, self.img_enc, threshold=self.gabor_threshold)
 
     def update_permanence_and_penalize(self, htm, img, lbl=None):
-        self.bitset.clear()
-        encode_img_gabor(img, self.bitset, self.gabor_filters, self.img_enc)
-        if lbl is not None:
-            self.lbl_enc.encode(self.active_columns_bitset, lbl)
-            htm.update_permanence_and_penalize(self.active_columns_bitset, self.bitset)
-            self.sdr.clear()
-        else:
-            predicted_columns = htm.compute(self.bitset)
-            return self.lbl_enc.find_category_with_highest_overlap(predicted_columns)
+        pass
 
     def update_permanence(self, htm, img, lbl=None):
-        self.bitset.clear()
-        encode_img_gabor(img, self.bitset, self.gabor_filters, self.img_enc)
-        if lbl is not None:
-            self.lbl_enc.encode(self.sdr, lbl)
-            htm.update_permanence(self.sdr, self.bitset)
-            self.sdr.clear()
-        else:
-            predicted_columns = htm.compute(self.bitset)
-            return self.lbl_enc.find_category_with_highest_overlap(predicted_columns)
+        pass
+
+    def update_permanence_ltd(self, htm, img, lbl=None):
+        pass
+
+    def name(self):
+        return ' '.join(map(str, self.args))
 
     def run(self, samples, repetitions=64, population=20):
         MNIST, LABELS = torch.load('htm/data/mnist.pt')
@@ -121,7 +115,8 @@ class Model:
         MNIST = MNIST[shuffle]
         LABELS = LABELS[shuffle]
 
-        results_file = "benchmarks/" + str(type(self).__name__) + "-" + str(samples) + ".pth"
+        name = self.name()
+        results_file = "benchmarks/" + name + " " + str(samples) + ".pth"
         results = torch.load(results_file) if os.path.exists(results_file) else np.zeros((population, repetitions, 2))
         for htm_instance_idx, zero in enumerate(results.sum((1, 2))):
             if zero == 0:
@@ -130,9 +125,9 @@ class Model:
         def show_results(instance_idx):
 
             plt.clf()
-            plt.title(str(type(self).__name__) + " samp=" + str(samples) + " inst=" + str(instance_idx))
-            plot_results(results, 0, "train")
-            plot_results(results, 1, "test")
+            plt.title(name + " " + str(samples) + " #" + str(instance_idx))
+            plt.plot(avg_results(results, 0), label="train")
+            plt.plot(avg_results(results, 1), label="test")
             plt.legend()
             plt.pause(0.001)
 
@@ -178,86 +173,132 @@ class Model:
                     torch.save(results, results_file)
 
 
-class VoteGaborCat1024HTM2Syn08(Model):
+class Htm(Model):
 
-    def __init__(self):
-        super().__init__(gen_gabor_filters(), 1024, 2, 0.8)
+    def __init__(self, gabor_filters, cat, htm_class, syn, update_method='update'):
+        super().__init__(gabor_filters, cat, htm_class, syn, update_method)
+        self.inp_enc = rusty_neat.htm.EncoderBuilder()
+        self.img_enc = [self.inp_enc.add_bits(28 * 28) for _ in self.gabor_filters]
+        self.out_enc = rusty_neat.htm.EncoderBuilder()
+        self.lbl_enc = self.out_enc.add_categorical(10, cat)
+        self.sdr = rusty_neat.htm.CpuSDR()
+        self.bitset = rusty_neat.htm.CpuBitset(self.inp_enc.input_size)
+        self.active_columns_bitset = rusty_neat.htm.CpuBitset(self.out_enc.input_size)
 
+    def generate_htm(self):
+        return htm_for_code(self.inp_enc.input_size,
+                            self.lbl_enc.sdr_cardinality,
+                            self.out_enc.input_size,
+                            int(self.inp_enc.input_size * self.syn),
+                            self.htm_class)
 
-class VoteGaborCat1024HTM4Syn08Neg08(Model):
+    def update_permanence_and_penalize(self, htm, img, lbl=None):
+        self.encode_img_gabor(img, [self.bitset])
+        if lbl is not None:
+            self.lbl_enc.encode(self.active_columns_bitset, lbl)
+            htm.update_permanence_and_penalize(self.active_columns_bitset, self.bitset)
+            self.sdr.clear()
+        else:
+            predicted_columns = htm.compute(self.bitset)
+            return self.lbl_enc.find_category_with_highest_overlap(predicted_columns)
 
-    def __init__(self):
-        super().__init__(gen_gabor_filters(), 1024, 4, 0.8, neg=0.8)
+    def update_permanence(self, htm, img, lbl=None):
+        self.encode_img_gabor(img, [self.bitset])
+        if lbl is not None:
+            self.lbl_enc.encode(self.sdr, lbl)
+            htm.update_permanence(self.sdr, self.bitset)
+            self.sdr.clear()
+        else:
+            predicted_columns = htm.compute(self.bitset)
+            return self.lbl_enc.find_category_with_highest_overlap(predicted_columns)
 
-
-class VoteGaborCat1024HTM4Syn08Neg02(Model):
-
-    def __init__(self):
-        super().__init__(gen_gabor_filters(), 1024, 4, 0.8, neg=0.2)
-
-
-class VoteGaborCat1024HTM4Syn08Neg02Penalize(Model):
-
-    def __init__(self):
-        super().__init__(gen_gabor_filters(), 1024, 4, 0.8, neg=0.2, update_method='penalize')
-
-
-class VoteGaborCat1024HTM4RandNegPermSyn08Neg02(Model):
-
-    def __init__(self):
-        super().__init__(gen_gabor_filters(), 1024, '4 rand neg', 0.8, neg=0.2)
-
-
-class VoteCat1024HTM2Syn08(Model):
-
-    def __init__(self):
-        super().__init__([], 1024, 2, 0.8)
-
-
-class VoteCat1024HTM4Syn08Neg08(Model):
-
-    def __init__(self):
-        super().__init__([], 1024, 4, 0.8, neg=0.8)
-
-
-class VoteCat1024HTM4Syn08Neg02(Model):
-
-    def __init__(self):
-        super().__init__([], 1024, 4, 0.8, neg=0.2)
-
-
-class VoteCat1024HTM4Syn08Neg02Penalize(Model):
-
-    def __init__(self):
-        super().__init__([], 1024, 4, 0.8, neg=0.2, update_method='penalize')
+    def update_permanence_ltd(self, htm, img, lbl=None):
+        self.encode_img_gabor(img, [self.bitset])
+        predicted_columns = htm.compute(self.bitset)
+        if lbl is not None:
+            self.lbl_enc.encode(self.active_columns_bitset, lbl)
+            htm.update_permanence_ltd(predicted_columns, self.active_columns_bitset, self.bitset)
+            self.active_columns_bitset.clear()
+        else:
+            return self.lbl_enc.find_category_with_highest_overlap(predicted_columns)
 
 
-class VoteCat1024HTM4RandNegPermSyn08Neg02(Model):
+class HtmHom(Model):
 
-    def __init__(self):
-        super().__init__([], 1024, '4 rand neg', 0.8, neg=0.2)
+    def __init__(self, gabor_filters, cat, htm_class, syn, update_method='update'):
+        super().__init__(gabor_filters, cat, htm_class, syn, update_method)
+        self.inp_enc = rusty_neat.htm.EncoderBuilder()
+        self.img_enc = [self.inp_enc.add_bits(28 * 28) for _ in self.gabor_filters]
+        self.out_enc = rusty_neat.htm.EncoderBuilder()
+        self.lbl_enc = self.out_enc.add_categorical(10, cat)
+        self.sdr = rusty_neat.htm.CpuSDR()
+        self.bitset = rusty_neat.htm.CpuBitset(self.inp_enc.input_size)
+        self.active_columns_bitset = rusty_neat.htm.CpuBitset(self.out_enc.input_size)
+
+    def generate_htm(self):
+        htm1 = htm_for_code(self.inp_enc.input_size,
+                            self.lbl_enc.sdr_cardinality,
+                            self.out_enc.input_size,
+                            int(self.inp_enc.input_size * self.syn),
+                            self.htm_class)
+        hom = rusty_neat.htm.CpuHOM(4, self.enc.input_size)
+
+    def update_permanence(self, img, htm, lbl=None):
+        htm1, hom = htm
+        self.encode_img_gabor(img, [self.bitset, self.sdr])
+        active_columns = htm1(self.bitset, lbl is not None)
+        hom(self.sdr, lbl is not None)
+        predicted_columns = hom(active_columns, lbl is not None)
+        if lbl is not None:
+            self.sdr.clear()
+            self.lbl_enc.encode(self.sdr, lbl)
+            predicted_columns = hom(self.sdr, True)
+        hom.reset()
+        return self.lbl_enc.find_category_with_highest_overlap(predicted_columns)
 
 
-def plot_results(results, idx, label):
+def avg_results(results, idx):
     train_results = results[:, :, idx]
     train_non_zero_results = train_results.copy()
     train_non_zero_results[train_non_zero_results != 0] = 1
-    plt.plot(train_results.sum(0) / train_non_zero_results.sum(0), label=label)
-
-
-def class_for_name(name):
-    for c_name, c in inspect.getmembers(sys.modules[__name__]):
-        if c.__module__ == '__main__' and name == c_name:
-            return c()
+    avg = train_results.sum(0) / train_non_zero_results.sum(0)
+    return avg
 
 
 def show_benchmarks(idx):
+    fig = plt.figure()
+    plot = fig.add_subplot(111)
+    model_to_results = {}
     for benchmarks in os.listdir('benchmarks'):
         model = benchmarks[:-len(".pth")]
         benchmarks = torch.load('benchmarks/' + benchmarks)
-        plot_results(benchmarks, idx, label=model)
-    plt.legend()
+        avg = avg_results(benchmarks, idx)
+        plot.plot(avg, label=model, gid=model)
+        model_to_results[model] = avg
+
+    annot = plot.annotate("", xy=(0, 0), xytext=(20, 20), textcoords="offset points",
+                          bbox=dict(boxstyle="round", fc="w"),
+                          arrowprops=dict(arrowstyle="->"))
+
+    def on_plot_hover(event):
+        # Iterating over each data member plotted
+        for curve in plot.get_lines():
+            # Searching which data member corresponds to current mouse position
+            if curve.contains(event)[0]:
+                model = curve.get_gid()
+                x = int(event.xdata)
+                y = model_to_results[model][x]
+                annot.xy = x, y
+                annot.set_text(model + " " + str((x, y)))
+                fig.canvas.draw_idle()
+                return
+
+    fig.canvas.mpl_connect('button_press_event', on_plot_hover)
     plt.show()
+
+
+def valid_configurations():
+    cnf = ["Htm", ["g", "n"], "1024", ["2", "3", "4#0.2", "4#0.8"], "0.8", ["update", "penalize", "ltd"], ["100", "400", "1000"]]
 
 
 def list_benchmarks():
@@ -281,8 +322,8 @@ def list_benchmarks():
                     self.samples == other.samples and self.evaluated_instances > other.evaluated_instances)
 
     candidates = []
-    for name, c in inspect.getmembers(sys.modules[__name__]):
-        if c != Model and type(c) is type and issubclass(c, Model):
+
+    for a in itertools.product(*[[1,2,3],[5,6],['a','b']]):
             if name in results:
                 results[name].sort()
                 recommended_samples = [100, 400, 1000]
@@ -304,6 +345,13 @@ def list_benchmarks():
         print(c.name, c.samples, c.evaluated_instances)
 
 
+def run_from_cmd():
+    my_path, model_class, gabor_filters, cat, htm_class, syn, update_method, samples = sys.argv
+    for c_name, c in inspect.getmembers(sys.modules[__name__]):
+        if c.__module__ == '__main__' and model_class == c_name:
+            c(gabor_filters, cat, htm_class, syn, update_method).run(samples)
+
+
 if sys.argv[1] == "train":
     show_benchmarks(0)
 elif sys.argv[1] == "test":
@@ -311,4 +359,4 @@ elif sys.argv[1] == "test":
 elif sys.argv[1] == "list":
     list_benchmarks()
 else:
-    class_for_name(sys.argv[1]).run(int(sys.argv[2]) if len(sys.argv) > 1 else 100)
+    run_from_cmd()
