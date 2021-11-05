@@ -164,10 +164,10 @@ impl CpuBitset {
             let mut u32_val = u32_val;
             let mut bit_index = 0;
             while u32_val != 0 {
-                if (u32_val & 1) != 0{
+                if (u32_val & 2147483648) != 0{
                     sdr.push(u32_index*32+bit_index)
                 }
-                u32_val = u32_val>>1;
+                u32_val = u32_val<<1;
                 bit_index += 1;
             }
         }

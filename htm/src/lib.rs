@@ -21,6 +21,8 @@ mod ocl_input;
 mod rand;
 mod htm3;
 mod cpu_htm3;
+mod cpu_htm5;
+mod htm5;
 
 pub use crate::rand::auto_gen_seed;
 pub use ocl_htm2::OclHTM2;
@@ -29,17 +31,22 @@ pub use ocl_input::OclInput;
 pub use ocl_sdr::OclSDR;
 pub use ocl_htm::OclHTM;
 pub use htm_program::HtmProgram;
-pub use htm::*;
+pub use htm5::*;
 pub use htm4::*;
+pub use htm3::*;
 pub use htm2::*;
+pub use htm::*;
 pub use encoder::*;
-pub use cpu_htm::CpuHTM;
 pub use cpu_hom::*;
 pub use cpu_bitset::CpuBitset;
 pub use cpu_input::CpuInput;
+pub use cpu_htm5::CpuHTM5;
 pub use cpu_htm4::CpuHTM4;
-pub use cpu_sdr::CpuSDR;
+pub use cpu_htm3::CpuHTM3;
 pub use cpu_htm2::CpuHTM2;
+pub use cpu_htm::CpuHTM;
+pub use cpu_sdr::CpuSDR;
+
 
 // pub use cpu_higher_order_memory::CpuHOM;
 
@@ -58,6 +65,7 @@ mod tests {
     use ndalgebra::context::Context;
     use crate::encoder::{EncoderBuilder, Encoder};
     use crate::rand::xorshift32;
+    use crate::cpu_htm3::CpuHTM3;
 
     #[test]
     fn test1() -> Result<(), String> {
@@ -546,7 +554,7 @@ mod tests {
 
     #[test]
     fn test21() {//2={permanence:0.438, input_id:1}, 3={permanence:0.2970, input_id:1}
-        let mut htm = CpuHTM2::new(3,2);
+        let mut htm = CpuHTM3::new(3,2);
         htm.add_globally_uniform_prob(2,3,345);
         let data = [
             CpuBitset::from_sdr(&[0,1],3),
@@ -558,9 +566,23 @@ mod tests {
         ];
         for _ in 0..20 {
             for (d, a) in data.iter().zip(active_columns.iter()) {
-                htm.update_permanence_and_penalize(a, d, -0.2)
+                htm.update_permanence_and_penalize(a, d)
             }
         }
         println!("{}",htm.permanence_threshold);
+    }
+    #[test]
+    fn test22() {
+
+        let a = [1,4,6,7];
+        assert_eq!(CpuSDR::from(&CpuBitset::from_sdr(&a,32)),CpuSDR::from(&a as &[u32]));
+        let a = [6,7];
+        assert_eq!(CpuSDR::from(&CpuBitset::from_sdr(&a,32)),CpuSDR::from(&a as &[u32]));
+        let a = [31];
+        assert_eq!(CpuSDR::from(&CpuBitset::from_sdr(&a,32)),CpuSDR::from(&a as &[u32]));
+        let a = [63];
+        assert_eq!(CpuSDR::from(&CpuBitset::from_sdr(&a,64)),CpuSDR::from(&a as &[u32]));
+        let a = [4,63];
+        assert_eq!(CpuSDR::from(&CpuBitset::from_sdr(&a,64)),CpuSDR::from(&a as &[u32]));
     }
 }

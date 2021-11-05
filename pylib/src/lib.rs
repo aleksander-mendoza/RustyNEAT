@@ -98,6 +98,7 @@ pub fn htm(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<CpuHTM>()?;
     m.add_class::<CpuHOM>()?;
     m.add_class::<CpuHTM2>()?;
+    m.add_class::<CpuHTM3>()?;
     m.add_class::<CpuHTM4>()?;
     m.add_class::<CpuSDR>()?;
     m.add_class::<CategoricalEncoder>()?;

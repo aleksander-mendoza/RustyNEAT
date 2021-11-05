@@ -10,63 +10,23 @@ use crate::cpu_htm::CpuHTM;
 use crate::cpu_bitset::CpuBitset;
 use crate::rand::{xorshift32, rand_u32_to_random_f32};
 use std::cmp::Ordering;
+use crate::cpu_htm2::mod_clamp;
 
 #[derive(Clone)]
-pub struct CpuHTM2 {
+pub struct CpuHTM3 {
     feedforward_connections: Vec<HtmFeedforwardConnection3>,
     minicolumns: Vec<HtmMinicolumn3>,
     input_size: u32,
     pub permanence_threshold: f32,
     pub n: u32,
-    pub permanence_decrement_increment: [f32; 2],
+    pub acceleration_decrement_increment: [f32; 2],
+    pub acceleration_gravity: f32,
+    pub acceleration_attractor_point: f32,
+    pub acceleration_moving_average: f32,
     pub max_overlap: u32,
 }
 
-impl From<&CpuHTM> for CpuHTM2{
-    fn from(htm: &CpuHTM) -> Self {
-        Self{
-            feedforward_connections: htm.connection_indices_as_slice().iter().map(| &connection_index|{
-                let feedforward_connection = &htm.feedforward_connections_as_slice()[connection_index as usize];
-                HtmFeedforwardConnection3{
-                    permanence: feedforward_connection.permanence,
-                    acceleration: 0.0,
-                    input_id: feedforward_connection.input_id
-                }
-            }).collect(),
-            minicolumns: htm.minicolumns_as_slice().iter().map(|m|HtmMinicolumn3{
-                connection_offset: m.connection_index_offset,
-                connection_len: m.connection_index_len,
-                overlap: 0
-            }).collect(),
-            input_size: htm.input_size(),
-            permanence_threshold: htm.permanence_threshold(),
-            n: htm.n(),
-            permanence_decrement_increment: htm.permanence_decrement_increment(),
-            max_overlap: htm.max_overlap()
-        }
-    }
-}
-fn mod_clamp(x:f32,min:f32,max:f32)->f32{
-    debug_assert!(min<max);
-    let len = max-min;
-    let y = x - f32::floor((x - min) / len) * len;
-    debug_assert!(min <= y,"{} <= {}",min,y);
-    debug_assert!(y <= max,"{} <= {}",y,max);
-    y
-}
-#[cfg(test)]
-mod tests{
-    use super::*;
-    #[test]
-    fn test1(){
-        assert_eq!(mod_clamp(2.,4.,6.),4.);
-        assert_eq!(mod_clamp(1.,4.,6.),5.);
-        assert_eq!(mod_clamp(1.,4.,6.5),6.);
-        assert_eq!(mod_clamp(7.,4.,6.5),4.5);
-        assert_eq!(mod_clamp(8.,4.,6.5),5.5);
-    }
-}
-impl CpuHTM2 {
+impl CpuHTM3 {
     pub fn input_size(&self)->u32{
         self.input_size
     }
@@ -77,7 +37,7 @@ impl CpuHTM2 {
         self.n
     }
     pub fn permanence_decrement_increment(&self) -> [f32; 2]{
-        self.permanence_decrement_increment
+        self.acceleration_decrement_increment
     }
     pub fn max_overlap(&self) -> u32{
         self.max_overlap
@@ -167,8 +127,11 @@ impl CpuHTM2 {
             minicolumns:vec![],
             n,
             permanence_threshold:0.7,
-            permanence_decrement_increment: [-0.01, 0.02],
-            input_size
+            acceleration_decrement_increment: [-1., 1.],
+            acceleration_gravity: 0.05,
+            acceleration_attractor_point: -0.05,
+            input_size,
+            acceleration_moving_average: 0.3
         }
     }
     /**n = how many minicolumns to activate. We will always take the top n minicolumns with the greatest overlap value.*/
@@ -256,75 +219,62 @@ impl CpuHTM2 {
             let connection_len = self.minicolumns[minicolumn_idx as usize].connection_len;
             for feedforward_connection_idx in connection_offset..(connection_offset+connection_len) {
                 let input_id = self.feedforward_connections[feedforward_connection_idx as usize].input_id;
-                let permanence_change = self.permanence_decrement_increment[bitset_input.is_bit_on(input_id) as usize];
+                let is_input_active = bitset_input.is_bit_on(input_id);
+                let old_acceleration = self.feedforward_connections[feedforward_connection_idx as usize].acceleration;
+                let avg_acceleration = self.acceleration_decrement_increment[ is_input_active as usize] * self.acceleration_moving_average + old_acceleration * (1. - self.acceleration_moving_average);
+                let new_acceleration = avg_acceleration + (self.acceleration_attractor_point - avg_acceleration) * self.acceleration_gravity;
                 let old_permanence = self.feedforward_connections[feedforward_connection_idx as usize].permanence;
-                let new_permanence = (old_permanence + permanence_change).clamp(0., 1.);
+                let new_permanence = (old_permanence + avg_acceleration).clamp(0., 1.);
                 self.feedforward_connections[feedforward_connection_idx as usize].permanence = new_permanence;
+                self.feedforward_connections[feedforward_connection_idx as usize].acceleration = new_acceleration;
             }
         }
     }
-
-    pub fn update_permanence_ltd(&mut self,
-                                  top_n_minicolumns: &[u32],
-                                  active_minicolumns: &CpuBitset,
-                                  bitset_input: &CpuBitset) {
-        for &minicolumn_idx in top_n_minicolumns {
-            let is_col_inactive = !active_minicolumns.is_bit_on(minicolumn_idx as u32);
-            let connection_offset = self.minicolumns[minicolumn_idx as usize].connection_offset;
-            let connection_len = self.minicolumns[minicolumn_idx as usize].connection_len;
-            for feedforward_connection_idx in connection_offset..(connection_offset+connection_len) {
-                let input_id = self.feedforward_connections[feedforward_connection_idx as usize].input_id;
-                let is_inp_active = bitset_input.is_bit_on(input_id);
-                let reinforce = is_inp_active ^ is_col_inactive;
-                let permanence_change = self.permanence_decrement_increment[reinforce as usize];
-                let old_permanence = self.feedforward_connections[feedforward_connection_idx as usize].permanence;
-                let new_permanence = (old_permanence + permanence_change).clamp(0., 1.);
-                self.feedforward_connections[feedforward_connection_idx as usize].permanence = new_permanence;
-            }
-        }
-    }
+    //
+    // pub fn update_permanence_ltd(&mut self,
+    //                               top_n_minicolumns: &[u32],
+    //                               active_minicolumns: &CpuBitset,
+    //                               bitset_input: &CpuBitset) {
+    //     for &minicolumn_idx in top_n_minicolumns {
+    //         let is_col_inactive = !active_minicolumns.is_bit_on(minicolumn_idx as u32);
+    //         let connection_offset = self.minicolumns[minicolumn_idx as usize].connection_offset;
+    //         let connection_len = self.minicolumns[minicolumn_idx as usize].connection_len;
+    //         for feedforward_connection_idx in connection_offset..(connection_offset+connection_len) {
+    //             let input_id = self.feedforward_connections[feedforward_connection_idx as usize].input_id;
+    //             let is_inp_active = bitset_input.is_bit_on(input_id);
+    //             let reinforce = is_inp_active ^ is_col_inactive;
+    //             let permanence_change = self.acceleration_decrement_increment[reinforce as usize];
+    //             let old_permanence = self.feedforward_connections[feedforward_connection_idx as usize].permanence;
+    //             let new_permanence = (old_permanence + permanence_change).clamp(0., 1.);
+    //             self.feedforward_connections[feedforward_connection_idx as usize].permanence = new_permanence;
+    //         }
+    //     }
+    // }
 
     /**penalty_multiplier should be some negative number (more or less close to -1 probably). Numbers between
     -1 and 0 will make the penalties smaller. Numbers below -1 will make penalties larger. Positive numbers will
     invert the penalty and lead to greater activity of inactive columns (probably not what you want under normal circumstances)*/
     pub fn update_permanence_and_penalize(&mut self,
                                            active_minicolumns: &CpuBitset,
-                                           bitset_input: &CpuBitset,
-                                           penalty_multiplier:f32) {
+                                           bitset_input: &CpuBitset) {
         for (c_idx, c) in self.minicolumns.iter().enumerate() {
             let is_col_active = active_minicolumns.is_bit_on(c_idx as u32);
-            let multiplier = if is_col_active {1.} else {penalty_multiplier};
-            for feedforward_connection in &mut self.feedforward_connections[c.connection_offset as usize..(c.connection_offset + c.connection_len) as usize] {
-                let is_inp_active = bitset_input.is_bit_on(feedforward_connection.input_id);
-                let permanence_change = self.permanence_decrement_increment[is_inp_active as usize] * multiplier;
-                let old_permanence = feedforward_connection.permanence;
-                let new_permanence = (old_permanence + permanence_change).clamp(0., 1.);
-                feedforward_connection.permanence = new_permanence;
+            let multiplier = if is_col_active {1.} else {-1.};
+            for feedforward_connection_idx in c.connection_offset..(c.connection_offset+c.connection_len) {
+                let input_id = self.feedforward_connections[feedforward_connection_idx as usize].input_id;
+                let is_input_active = bitset_input.is_bit_on(input_id);
+                let old_acceleration = self.feedforward_connections[feedforward_connection_idx as usize].acceleration;
+                let avg_acceleration = multiplier * self.acceleration_decrement_increment[ is_input_active as usize] * self.acceleration_moving_average + old_acceleration * (1. - self.acceleration_moving_average);
+                let new_acceleration = avg_acceleration + (self.acceleration_attractor_point - avg_acceleration) * self.acceleration_gravity;
+                let old_permanence = self.feedforward_connections[feedforward_connection_idx as usize].permanence;
+                let new_permanence = (old_permanence + avg_acceleration).clamp(0., 1.);
+                self.feedforward_connections[feedforward_connection_idx as usize].permanence = new_permanence;
+                self.feedforward_connections[feedforward_connection_idx as usize].acceleration = new_acceleration;
             }
         }
     }
 
 
-    pub fn update_permanence_and_penalize_thresholded(&mut self,
-                                                       active_minicolumns: &CpuBitset,
-                                                       bitset_input: &CpuBitset,
-                                                       activity_threshold:u32,
-                                                       penalty_multiplier: f32) {
-        for (c_idx, c) in self.minicolumns.iter().enumerate() {
-            let is_col_active = active_minicolumns.is_bit_on(c_idx as u32);
-            let multiplier = if is_col_active { 1. } else { penalty_multiplier };
-            let connections = &mut self.feedforward_connections[c.connection_offset as usize..(c.connection_offset + c.connection_len) as usize];
-            if is_col_active || connections.iter().map(|c|bitset_input.is_bit_on(c.input_id) as u32).sum::<u32>() >= activity_threshold {
-                for feedforward_connection in connections {
-                    let is_inp_active = bitset_input.is_bit_on(feedforward_connection.input_id);
-                    let permanence_change = self.permanence_decrement_increment[is_inp_active as usize] * multiplier;
-                    let old_permanence = feedforward_connection.permanence;
-                    let new_permanence = (old_permanence + permanence_change).clamp(0., 1.);
-                    feedforward_connection.permanence = new_permanence;
-                }
-            }
-        }
-    }
 
     /**This function does the exact same thing as htm_find_top_minicolumns, but that function works
     optimally when the input is so sparse that only a tiny fraction of minicolumns has even a single

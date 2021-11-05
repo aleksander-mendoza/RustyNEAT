@@ -76,33 +76,3 @@ print(confusion_matrix)
 #  [ 236    0   42   72   13  200    1 4277   20  131]
 #  [   9    2  149   58    7  227    4   49 1514   77]
 #  [  42    5  125  445 2999  490    2  714 1079 4993]]
-exit()
-
-sp = htm.CpuHTM2(3, 2, 2, 3, 345)
-sp.permanence_increment = -sp.permanence_decrement
-
-data = [
-    htm.bitset_from_indices([0, 1], 3),
-    htm.bitset_from_indices([1, 2], 3),
-]
-active_columns = [
-    htm.bitset_from_indices([0], 2),
-    htm.bitset_from_indices([1], 2),
-]
-
-permanences = [[], [], [], [], [], []]
-
-for _ in range(0, 20):
-    for d, a in zip(data, active_columns):
-        sp.update_permanence_and_penalize(a, d, -1)
-        plt.clf()
-        for s in range(0, sp.synapse_count):
-            i, p = sp.get_synapse_input_and_permanence(s)
-            if s >= 3:
-                i += 3
-            permanences[i].append(p)
-        for i in range(0, 6):
-            plt.plot(permanences[i], label=str(i))
-        plt.legend()
-        plt.pause(0.001)
-plt.show()
