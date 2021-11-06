@@ -109,7 +109,7 @@ class Model:
     def name(self):
         return ' '.join(map(str, self.args))
 
-    def run(self, samples, repetitions=64, population=20):
+    def run(self, samples, sample_checkpoint=60000, repetitions=64, population=20):
         MNIST, LABELS = torch.load('htm/data/mnist.pt')
         shuffle = torch.randperm(len(MNIST))
         MNIST = MNIST[shuffle]
@@ -146,10 +146,6 @@ class Model:
                                    total=repetitions,
                                    position=0):
 
-                htm_instance = self.generate_htm()
-                for img, lbl in zip(MNIST[0:samples], LABELS[0:samples]):
-                    self.infer(htm_instance, img, lbl)
-
                 def eval(begin, end):
                     confusion_matrix = np.zeros((10, 10))
                     for img, lbl in tqdm(zip(MNIST[begin:end], LABELS[begin:end]),
@@ -159,12 +155,29 @@ class Model:
                         confusion_matrix[guessed, lbl] += 1
                     return confusion_matrix
 
+                def calc_accuracy(begin, end):
+                    confusion_matrix = eval(begin, end)
+                    return confusion_matrix.trace() / confusion_matrix.sum()
+
                 def save_accuracy(idx, label):
                     confusion_matrix = eval(idx * samples, idx * samples + samples)
                     accuracy = confusion_matrix.trace() / confusion_matrix.sum()
                     results[htm_instance_idx, repetition, idx] = accuracy
                     print(label + " accuracy(" + str(htm_instance_idx) + "," + str(repetition) + "):", accuracy)
                     print(confusion_matrix)
+
+                htm_instance = self.generate_htm()
+                if sample_checkpoint <= samples:
+                    accuracies = [calc_accuracy(samples, samples+1000)]
+                for sample_idx, (img, lbl) in enumerate(zip(MNIST[0:samples], LABELS[0:samples])):
+                    self.infer(htm_instance, img, lbl)
+                    if sample_idx % sample_checkpoint == sample_checkpoint - 1:
+                        accuracies.append(calc_accuracy(samples, samples+1000))
+                        plt.clf()
+                        plt.plot(accuracies)
+                        plt.pause(0.01)
+                if sample_checkpoint <= samples:
+                    plt.show()
 
                 if repetition in eval_points:
                     save_accuracy(0, "Training")
@@ -345,13 +358,14 @@ def list_benchmarks():
         print(c.name, c.samples, c.evaluated_instances)
 
 
-def run_from_cmd():
-    my_path, model_class, gabor_filters, cat, htm_class, syn, update_method, samples = sys.argv
+def run(model_class, gabor_filters, cat, htm_class, syn, update_method, samples, sample_checkpoint):
     for c_name, c in inspect.getmembers(sys.modules[__name__]):
         if c.__module__ == '__main__' and model_class == c_name:
-            c(gabor_filters, cat, htm_class, syn, update_method).run(samples)
+            c(gabor_filters, int(cat), str(htm_class), float(syn), update_method).run(int(samples), int(sample_checkpoint))
 
 
+# run("Htm", "g", 1024, "2", 0.8, "update", 10000, 500)
+# exit()
 if sys.argv[1] == "train":
     show_benchmarks(0)
 elif sys.argv[1] == "test":
@@ -359,4 +373,4 @@ elif sys.argv[1] == "test":
 elif sys.argv[1] == "list":
     list_benchmarks()
 else:
-    run_from_cmd()
+    run(*sys.argv[1:])
