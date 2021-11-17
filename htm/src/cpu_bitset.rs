@@ -119,6 +119,9 @@ impl CpuBitset {
             self.set_bit_off(index);
         }
     }
+    pub fn overlap(&self, other:&CpuBitset) -> u32 {
+        self.bits.iter().cloned().zip(other.bits.iter().cloned()).map(| (bits,other_bits)|(bits&other_bits).count_ones()).sum()
+    }
     pub fn clear_all(&mut self) {
         self.bits.fill(0)
     }

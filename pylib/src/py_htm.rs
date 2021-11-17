@@ -1339,6 +1339,10 @@ impl CpuBitset{
     pub fn size(&self)->u32{
         self.bits.size()
     }
+    #[text_signature = "(bitset)"]
+    pub fn overlap(&self, bitset:&CpuBitset)->u32{
+        self.bits.overlap(&bitset.bits)
+    }
     #[text_signature = "(bit_index)"]
     pub fn is_bit_on(&self, bit_index:u32)->bool{
         self.bits.is_bit_on(bit_index)

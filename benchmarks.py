@@ -12,6 +12,20 @@ import sys
 import itertools
 import importlib, inspect
 
+# ["Htm", ["n", "g"], "1024", ["2", "3", "4#0.2", "4#0.8"], "0.8", ["update", "penalize", "ltd"], ["100", "400", "1000"]]
+
+BENCHMARK_DIR = "benchmarks2"
+BENCHMARK_LIST = [
+    "Htm n 1024 2 0.8 update 10000",
+    "Htm n 1024 2 0.8 ltd 10000",
+    "Htm n 1024 4#0.2 0.8 update 10000",
+    "Htm n 1024 4#0.2 0.8 ltd 10000",
+]
+
+POPULATION = 20
+TEST_SIZE = 400
+TRAIN_SIZE = 4000
+
 
 def genGabor(sz, omega, theta, func=np.cos, K=np.pi):
     radius = (int(sz[0] / 2.0), int(sz[1] / 2.0))
@@ -109,15 +123,15 @@ class Model:
     def name(self):
         return ' '.join(map(str, self.args))
 
-    def run(self, samples, sample_checkpoint=60000, repetitions=64, population=20):
+    def run(self, samples, ):
         MNIST, LABELS = torch.load('htm/data/mnist.pt')
         shuffle = torch.randperm(len(MNIST))
         MNIST = MNIST[shuffle]
         LABELS = LABELS[shuffle]
 
         name = self.name()
-        results_file = "benchmarks/" + name + " " + str(samples) + ".pth"
-        results = torch.load(results_file) if os.path.exists(results_file) else np.zeros((population, repetitions, 2))
+        results_file = "/" + name + " " + str(samples) + ".pth"
+        results = torch.load(results_file) if os.path.exists(results_file) else np.zeros((POPULATION, repetitions, 2))
         for htm_instance_idx, zero in enumerate(results.sum((1, 2))):
             if zero == 0:
                 break
@@ -168,11 +182,11 @@ class Model:
 
                 htm_instance = self.generate_htm()
                 if sample_checkpoint <= samples:
-                    accuracies = [calc_accuracy(samples, samples+1000)]
+                    accuracies = [calc_accuracy(samples, samples + 1000)]
                 for sample_idx, (img, lbl) in enumerate(zip(MNIST[0:samples], LABELS[0:samples])):
                     self.infer(htm_instance, img, lbl)
                     if sample_idx % sample_checkpoint == sample_checkpoint - 1:
-                        accuracies.append(calc_accuracy(samples, samples+1000))
+                        accuracies.append(calc_accuracy(samples, samples + 1000))
                         plt.clf()
                         plt.plot(accuracies)
                         plt.pause(0.01)
@@ -282,9 +296,9 @@ def show_benchmarks(idx):
     fig = plt.figure()
     plot = fig.add_subplot(111)
     model_to_results = {}
-    for benchmarks in os.listdir('benchmarks'):
+    for benchmarks in os.listdir(BENCHMARK_DIR):
         model = benchmarks[:-len(".pth")]
-        benchmarks = torch.load('benchmarks/' + benchmarks)
+        benchmarks = torch.load(BENCHMARK_DIR+'/' + benchmarks)
         avg = avg_results(benchmarks, idx)
         plot.plot(avg, label=model, gid=model)
         model_to_results[model] = avg
@@ -310,14 +324,10 @@ def show_benchmarks(idx):
     plt.show()
 
 
-def valid_configurations():
-    cnf = ["Htm", ["g", "n"], "1024", ["2", "3", "4#0.2", "4#0.8"], "0.8", ["update", "penalize", "ltd"], ["100", "400", "1000"]]
-
-
 def list_benchmarks():
     results = {}
-    for f in os.listdir('benchmarks'):
-        name, samples = f[:-len(".pth")].split("-")
+    for f in os.listdir(BENCHMARK_DIR):
+        name, samples = f[:-len(".pth")].rsplit(' ', maxsplit=1)
         samples = int(samples)
         if name in results:
             results[name].append(samples)
@@ -325,33 +335,45 @@ def list_benchmarks():
             results[name] = [samples]
 
     class Candidate:
-        def __init__(self, name, samples, evaluated_instances):
+        def __init__(self, favourite, name, samples, evaluated_instances):
+            self.favourite = favourite
             self.name = name
             self.samples = samples
             self.evaluated_instances = evaluated_instances
 
         def __gt__(self, other):
+            if self.favourite and not other.favourite:
+                return True
+            if not self.favourite and other.favourite:
+                return False
             return self.samples > other.samples or (
                     self.samples == other.samples and self.evaluated_instances > other.evaluated_instances)
 
     candidates = []
 
-    for a in itertools.product(*[[1,2,3],[5,6],['a','b']]):
-            if name in results:
-                results[name].sort()
-                recommended_samples = [100, 400, 1000]
-                for samples in results[name]:
-                    if samples in recommended_samples:
-                        recommended_samples.remove(samples)
-                    benchmarks = torch.load('benchmarks/' + name + '-' + str(samples) + '.pth')
-                    benchmarks = benchmarks[:, :, 0]
-                    benchmarks = benchmarks.sum(1)
-                    evaluated_instances = sum(benchmarks != 0)
-                    candidates.append(Candidate(name, samples, evaluated_instances))
-                for samples in recommended_samples:
-                    candidates.append(Candidate(name, samples, 0))
-            else:
-                candidates.append(Candidate(name, 100, 0))
+    def add_entry(favourite, name):
+        if name in results:
+            results[name].sort()
+            recommended_samples = [100, 400, 1000]
+            for samples in results[name]:
+                if samples in recommended_samples:
+                    recommended_samples.remove(samples)
+                benchmarks = torch.load(BENCHMARK_DIR+'/' + name + '-' + str(samples) + '.pth')
+                benchmarks = benchmarks[:, :, 0]
+                benchmarks = benchmarks.sum(1)
+                evaluated_instances = sum(benchmarks != 0)
+                candidates.append(Candidate(favourite, name, samples, evaluated_instances))
+            for samples in recommended_samples:
+                candidates.append(Candidate(favourite, name, samples, 0))
+        else:
+            candidates.append(Candidate(favourite, name, 100, 0))
+
+    favourite_set = set(BENCHMARK_LIST)
+    for name in BENCHMARK_LIST:
+        add_entry(True, name)
+    for name in results.keys():
+        if name not in favourite_set:
+            add_entry(True, name)
 
     candidates.sort()
     for c in candidates:
@@ -360,10 +382,13 @@ def list_benchmarks():
 
 def run(model_class, gabor_filters, cat, htm_class, syn, update_method, samples, sample_checkpoint):
     for c_name, c in inspect.getmembers(sys.modules[__name__]):
-        if c.__module__ == '__main__' and model_class == c_name:
-            c(gabor_filters, int(cat), str(htm_class), float(syn), update_method).run(int(samples), int(sample_checkpoint))
+        if type(c) == type and c.__module__ == '__main__' and model_class == c_name:
+            c(gabor_filters, int(cat), str(htm_class), float(syn), update_method).run(int(samples),
+                                                                                      int(sample_checkpoint))
 
 
+list_benchmarks()
+exit()
 # run("Htm", "g", 1024, "2", 0.8, "update", 10000, 500)
 # exit()
 if sys.argv[1] == "train":

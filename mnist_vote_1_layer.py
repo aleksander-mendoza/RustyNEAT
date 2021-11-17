@@ -9,7 +9,7 @@ from scipy import ndimage
 import numpy as np
 
 GABOR_FILTERS = [
-    np.array([[0, 0, 0], [0, 1, 0], [0, 0, 0]], dtype=np.float),
+    None
     # np.array([[-1, -1, -1], [2, 2, 2], [-1, -1, -1]], dtype=np.float),
     # np.array([[-1, 2, -1], [-1, 2, -1], [-1, 2, -1]], dtype=np.float),
     # np.array([[-1, -1, 2], [-1, 2, -1], [2, -1, -1]], dtype=np.float),
@@ -23,6 +23,7 @@ out_enc = rusty_neat.htm.EncoderBuilder()
 lbl_enc = out_enc.add_categorical(10, 1024)
 bitset = rusty_neat.htm.CpuBitset(inp_enc.input_size)
 active_columns_bitset = rusty_neat.htm.CpuBitset(out_enc.input_size)
+sdr = rusty_neat.htm.CpuSDR()
 htm = None
 MNIST, LABELS = torch.load('htm/data/mnist.pt')
 shuffle = torch.randperm(len(MNIST))
@@ -39,15 +40,15 @@ LABELS = LABELS[shuffle]
 def generate_htm():
     global htm
     htm = rusty_neat.htm.CpuHTM4(inp_enc.input_size,out_enc.input_size,lbl_enc.sdr_cardinality,int(inp_enc.input_size*0.8), 0.2)
-    htm.permanence_decrement = -0.002
-    htm.permanence_increment = 0.01
 
 
 def encode_img(img):
     img = img.type(torch.float) / 255
     for kernel, enc in zip(GABOR_FILTERS, img_enc):
-        i = ndimage.convolve(img, kernel, mode='constant')
-        i = i.clip(0, 1)
+        i = img
+        if kernel is not None:
+            i = ndimage.convolve(i, kernel, mode='constant')
+            i = i.clip(0, 1)
         i = i > 0.8
         # plt.imshow(i)
         # plt.show()
@@ -59,12 +60,13 @@ def encode_img(img):
 def infer(img, lbl=None):
     bitset.clear()
     encode_img(img)
-    predicted_columns = htm.compute(bitset)
     if lbl is not None:
-        lbl_enc.encode(active_columns_bitset, lbl)
-        htm.update_permanence_ltd(predicted_columns, active_columns_bitset, bitset)
-        active_columns_bitset.clear()
+        lbl_enc.encode(sdr, lbl)
+        htm.update_permanence(sdr, bitset)
+        # htm.update_permanence_ltd(predicted_columns, active_columns_bitset, bitset)
+        sdr.clear()
     else:
+        predicted_columns = htm.compute(bitset)
         return predicted_columns
 
 
@@ -237,4 +239,48 @@ def run(repetitions, trials, samples, test_samples=None):
 # Ensemble accuracy(512,1,100):
 # Ensemble accuracy(1,1,1000):
 
-run(4,1,100)
+run(2,1,400,1000)
+
+
+# Encoding:
+#   GABOR_FILTERS = [None]
+# Configuration:
+#   lbl_enc = out_enc.add_categorical(10, 1024)
+#   htm = rusty_neat.htm.CpuHTM4(inp_enc.input_size, out_enc.input_size,
+#        out_enc.sdr_cardinality, int(inp_enc.input_size*0.8), 0.2)
+# Voting mechanism:
+#     predicted_columns = htm.compute(bitset)
+#     if lbl is not None:
+#         lbl_enc.encode(sdr, lbl)
+#         htm.update_permanence_ltd(predicted_columns, sdr, bitset)
+#         sdr.clear()
+#     return predicted_columns
+# Ensemble accuracy(2,1,1000, 1000):  0.55899
+
+
+# Encoding: same as above
+# Configuration:
+#   lbl_enc = out_enc.add_categorical(10, 1024)
+#   htm = rusty_neat.htm.CpuHTM2(inp_enc.input_size, out_enc.input_size,
+#        out_enc.sdr_cardinality, int(inp_enc.input_size*0.8))
+# Voting mechanism: same as above
+# Ensemble accuracy(2,1,1000, 1000):  0.101
+
+
+# Encoding: same as above
+# Configuration:
+#   lbl_enc = out_enc.add_categorical(10, 1024)
+#   htm = rusty_neat.htm.CpuHTM4(inp_enc.input_size, out_enc.input_size,
+#        out_enc.sdr_cardinality, int(inp_enc.input_size*0.8), 0.2)
+# Voting mechanism:
+# def infer(img, lbl=None):
+#     bitset.clear()
+#     encode_img(img)
+#     if lbl is not None:
+#         lbl_enc.encode(sdr, lbl)
+#         htm.update_permanence(sdr, bitset)
+#         sdr.clear()
+#     else:
+#         predicted_columns = htm.compute(bitset)
+#         return predicted_columns
+# Ensemble accuracy(2,1,1000, 1000):  0.126

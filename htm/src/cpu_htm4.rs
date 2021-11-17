@@ -124,7 +124,7 @@ impl CpuHTM4 {
         },rand_seed)
     }
     pub fn add_globally_uniform_prob_without_inhibitory(&mut self, minicolumns: u32, inputs_per_minicolumn: u32, excitatory_connection_probability: f32, mut rand_seed: u32) {
-        assert!(inputs_per_minicolumn < minicolumns);
+        assert!(inputs_per_minicolumn <= minicolumns);
         let input_size = self.input_size;
         self.add_minicolumns( minicolumns, |minicolumn_id, synapse_id| {
             rand_seed = xorshift32(rand_seed);
@@ -189,7 +189,7 @@ impl CpuHTM4 {
         self.max_overlap = self.max_overlap.max(minicolumns[original_column_count..].iter().map(|m| m.connection_len).max().unwrap());
     }
 
-    fn htm_calculate_overlap(&mut self, bitset_input: &CpuBitset, number_of_minicolumns_per_overlap: &mut [i32]) {
+    fn htm_calculate_overlap(&mut self, bitset_input: &CpuBitset, number_of_minicolumns_per_overlap: &mut [i32], index_of_zero_overlap:u32) {
         for minicolumn_idx in 0..self.minicolumns.len() {
             let connection_offset = self.minicolumns[minicolumn_idx].connection_offset;
             let connection_len = self.minicolumns[minicolumn_idx].connection_len;
@@ -202,9 +202,7 @@ impl CpuHTM4 {
                     }
                 }
             }
-            if overlap > 0 {
-                number_of_minicolumns_per_overlap[overlap as usize] += 1;
-            }
+            number_of_minicolumns_per_overlap[(index_of_zero_overlap as i32 +overlap) as usize] += 1;
             self.minicolumns[minicolumn_idx].overlap = overlap;
         }
     }
@@ -319,12 +317,14 @@ impl CpuHTM4 {
     at least one connection to some active input, then htm_find_top_minicolumns2 will be much more optimal.
     */
     fn htm_find_top_minicolumns(&mut self,
-                                 number_of_minicolumns_per_overlap_that_made_it_to_top_n: &mut [i32],
-                                 smallest_overlap_that_made_it_to_top_n: u32,
-                                 top_n_minicolumns: &mut [u32],
-                                 current_top_n_minicolumn_idx: &mut u32) {
+                                number_of_minicolumns_per_overlap_that_made_it_to_top_n: &mut [i32],
+                                smallest_overlap_that_made_it_to_top_n: u32,
+                                top_n_minicolumns: &mut [u32],
+                                current_top_n_minicolumn_idx: &mut u32,
+                                index_of_zero_overlap:u32
+    ) {
         for minicolumn_idx in 0..self.minicolumns.len() {
-            let overlap = self.minicolumns[minicolumn_idx].overlap;
+            let overlap = index_of_zero_overlap as i32 + self.minicolumns[minicolumn_idx].overlap;
             if overlap >= smallest_overlap_that_made_it_to_top_n as i32 { // the array number_of_minicolumns_per_overlap_that_made_it_to_top_n holds rubbish for any overlap lower than smallest_overlap_that_made_it_to_top_n
                 if number_of_minicolumns_per_overlap_that_made_it_to_top_n[overlap as usize] > 0 { // only add those columns that made it to top n
                     number_of_minicolumns_per_overlap_that_made_it_to_top_n[overlap as usize] -= 1;
@@ -337,13 +337,14 @@ impl CpuHTM4 {
 
     pub fn compute(&mut self, bitset_input: &CpuBitset) -> CpuSDR {
         assert!(self.input_size() <= bitset_input.size());
-        let mut number_of_minicolumns_per_overlap = vec![0; self.max_overlap as usize + 1];
-        self.htm_calculate_overlap(bitset_input, &mut number_of_minicolumns_per_overlap);
+        let mut number_of_minicolumns_per_overlap = vec![0; 2*(self.max_overlap as usize + 1)];
+        let index_of_zero_overlap = self.max_overlap+1;
+        self.htm_calculate_overlap(bitset_input, &mut number_of_minicolumns_per_overlap, index_of_zero_overlap);
         let smallest_overlap_that_made_it_to_top_n = self.htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n(&mut number_of_minicolumns_per_overlap);
         let mut top_n_minicolumns = Vec::with_capacity(self.n as usize);
         unsafe { top_n_minicolumns.set_len(self.n as usize) }
         let mut current_top_n_minicolumn_idx = 0;
-        self.htm_find_top_minicolumns(&mut number_of_minicolumns_per_overlap, smallest_overlap_that_made_it_to_top_n, &mut top_n_minicolumns, &mut current_top_n_minicolumn_idx);
+        self.htm_find_top_minicolumns(&mut number_of_minicolumns_per_overlap, smallest_overlap_that_made_it_to_top_n, &mut top_n_minicolumns, &mut current_top_n_minicolumn_idx, index_of_zero_overlap);
         let top_minicolumn_count = current_top_n_minicolumn_idx;
         unsafe { top_n_minicolumns.set_len(top_minicolumn_count as usize) }
         CpuSDR::from(top_n_minicolumns)
