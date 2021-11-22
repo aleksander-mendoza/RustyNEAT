@@ -21,6 +21,7 @@ use htm::{Encoder, HomSegment, auto_gen_seed, EncoderTarget, EncoderRange};
 use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
+use std::borrow::Borrow;
 
 #[pyclass]
 pub struct CpuSDR {
@@ -31,7 +32,10 @@ pub struct CpuSDR {
 pub struct CpuBitset{
     bits: htm::CpuBitset
 }
-
+#[pyclass]
+pub struct CpuBitset2d{
+    bits: htm::CpuBitset2d
+}
 #[pyclass]
 pub struct CpuInput{
     inp: htm::CpuInput
@@ -42,6 +46,10 @@ pub struct CpuHTM {
     htm: htm::CpuHTM,
 }
 
+#[pyclass]
+pub struct CpuDG2_2d {
+    dg: htm::CpuDG2<(u32,u32)>,
+}
 
 #[pyclass]
 pub struct CpuHOM {
@@ -216,6 +224,8 @@ fn encode<T,U>(sdr:PyObject,scalar:T,f1:impl FnOnce(&mut htm::CpuSDR, T)->U,f2:i
         f2(&mut sdr.bits, scalar)
     }else if let Ok(mut sdr) = sdr.extract::<PyRefMut<CpuInput>>(py) {
         f3(&mut sdr.inp, scalar)
+    }else if let Ok(mut sdr) = sdr.extract::<PyRefMut<CpuBitset2d>>(py) {
+        f2(sdr.bits.as_bitset_mut(), scalar)
     }else{
         let mut sdr = sdr.extract::<PyRefMut<CpuSDR>>(py)?;
         f1(&mut sdr.sdr, scalar)
@@ -644,6 +654,93 @@ impl CpuHTM {
     }
 }
 
+#[pymethods]
+impl CpuDG2_2d {
+
+    /// new(input_width,input_height, minicolumns, inputs_per_minicolumn, n, rand_seed)
+    /// --
+    ///
+    /// Randomly generate a new Dentate Gyrus. You can provide a random seed manually.
+    /// Otherwise the millisecond part of system time is used as a seed. Seed is a 32-bit number.
+    ///
+    #[new]
+    pub fn new(input_size:(u32,u32), minicolumns: u32, n: u32, span: (u32,u32), inputs_per_granular_cell:u32, rand_seed:Option<u32>) -> PyResult<Self> {
+        let (input_height, input_width) = input_size;
+        let (span_h, span_w) = span;
+        if span_w > input_width{
+            return Err(PyValueError::new_err(format!("Span has width {} but total input is of width {}",span_w,input_width)))
+        }
+        if span_h > input_height{
+            return Err(PyValueError::new_err(format!("Span has height  {} but total input is of height {}",span_h,input_height)))
+        }
+        if inputs_per_granular_cell >  span_w*span_h{
+            return Err(PyValueError::new_err(format!("Column can't have {} inputs if there are only {} inputs in span of {}x{}", inputs_per_granular_cell, span_w*span_h,span_w,span_h)));
+        }
+        let mut dg =  htm::CpuDG2::new_2d(input_size,span,n);
+        dg.add_globally_uniform_prob(minicolumns,inputs_per_granular_cell,rand_seed.unwrap_or_else(auto_gen_seed) );
+        Ok(CpuDG2_2d { dg })
+    }
+    #[text_signature = "( /)"]
+    fn clone(&self) -> CpuDG2_2d {
+        CpuDG2_2d { dg: self.dg.clone() }
+    }
+    #[getter]
+    fn get_input_size(&self) -> (u32,u32) {
+        self.dg.input_size()
+    }
+    #[getter]
+    fn get_minicolumn_count(&self) -> u32 {
+        self.dg.minicolumns_as_slice().len() as u32
+    }
+
+    #[getter]
+    fn get_n(&self) -> u32 {
+        self.dg.n
+    }
+    #[getter]
+    fn make_bitset(&self) -> CpuBitset2d {
+        CpuBitset2d{bits:self.dg.make_bitset()}
+    }
+    #[setter]
+    fn set_n(&mut self, n: u32) {
+        self.dg.n = n
+    }
+    #[getter]
+    fn get_max_overlap(&self) -> u32 {
+        self.dg.max_overlap
+    }
+
+    #[setter]
+    fn set_max_overlap(&mut self, max_overlap: u32) {
+        self.dg.max_overlap = max_overlap
+    }
+
+    #[text_signature = "(bitset_input,stride)"]
+    fn compute_translation_invariant(&mut self, bitset_input: &CpuBitset2d,stride:(u32,u32)) -> CpuSDR {
+        CpuSDR{sdr:self.dg.compute_translation_invariant(&bitset_input.bits,stride)}
+    }
+
+    #[text_signature = "(minicolumn_id)"]
+    fn get_overlap(&self, minicolumn_id:u32) -> i32 {
+        self.dg.minicolumns_as_slice()[minicolumn_id as usize].overlap
+    }
+
+    #[text_signature = "(minicolumn_id)"]
+    fn get_synapses_range(&self, minicolumn_id:u32) -> (u32,u32) {
+        let range = &self.dg.minicolumns_as_slice()[minicolumn_id as usize];
+        (range.connection_offset,range.connection_len)
+    }
+
+    #[text_signature = "(synapse_id)"]
+    fn get_synapse_input(&self, synapse_id:u32) -> (u32,u32) {
+        self.dg.feedforward_connections_as_slice()[synapse_id as usize]
+    }
+
+    #[text_signature = "(synapse_id, input_coords)"]
+    fn set_synapse_input(&mut self, synapse_id:u32, input_coords:(u32,u32)) {
+        self.dg.feedforward_connections_as_mut_slice()[synapse_id as usize] = input_coords;
+    }
+}
 
 #[pymethods]
 impl CpuHTM2 {
@@ -1245,6 +1342,28 @@ impl CpuSDR {
         self.sdr.extend(&other.sdr)
     }
     #[text_signature = "(other_sdr)"]
+    pub fn subtract(&self, other:&CpuSDR)->Self{
+        let mut c = self.clone();
+        c.sdr.subtract(&other.sdr);
+        c
+    }
+
+    #[text_signature = "(n,range_begin_inclusive,range_end_exclusive)"]
+    pub fn add_unique_random(&mut self, n:u32, range_begin:u32, range_end:u32){
+        self.sdr.add_unique_random(n,range_begin..range_end)
+    }
+    #[text_signature = "(other_sdr,n)"]
+    pub fn randomly_extend_from(&self, other:&CpuSDR, n:Option<u32>)->Self{
+        let mut c = self.clone();
+        c.sdr.randomly_extend_from(&other.sdr, n.unwrap_or(self.cardinality()) as usize);
+        c
+    }
+    #[text_signature = "(other_sdr)"]
+    pub fn subtract_<'py>(mut slf:PyRefMut<'py, Self>, other:&CpuSDR)->PyRefMut<'py, Self>{
+        slf.sdr.subtract(&other.sdr);
+        slf
+    }
+    #[text_signature = "(other_sdr)"]
     pub fn union(&self, other:&CpuSDR)->CpuSDR{
         CpuSDR{sdr:self.sdr.union(&other.sdr)}
     }
@@ -1269,12 +1388,30 @@ impl CpuSDR {
     fn get_active_neurons(&self) -> Vec<u32> {
         self.sdr.clone().to_vec()
     }
+    #[getter]
+    fn cardinality(&self) -> u32 {
+        self.sdr.cardinality()
+    }
     #[text_signature = "(input_size)"]
     pub fn to_bitset(&self, input_size:u32)->CpuBitset{
         CpuBitset{bits:htm::CpuBitset::from_sdr(&self.sdr, input_size)}
     }
+    #[text_signature = "()"]
+    pub fn clone(&self)->Self{
+        CpuSDR{sdr:self.sdr.clone()}
+    }
 }
-
+#[pyfunction]
+#[text_signature = "(sdrs,n,activity_threshold,stride,kernel_size)"]
+pub fn vote_conv2d(sdrs: Vec<Vec<PyRef<CpuSDR>>>, n: usize,threshold: u32, stride:(u32,u32), kernel_size:(u32,u32)) -> Vec<Vec<CpuSDR>>{
+    let grid_size = (sdrs.len() as u32, sdrs[0].len() as u32);
+    htm::CpuSDR::vote_conv2d_arr_with(n,threshold,stride,kernel_size,grid_size,&|i0,i1|&sdrs[i0 as usize][i1 as usize].sdr,|sdr|CpuSDR{sdr})
+}
+#[pyfunction]
+#[text_signature = "(sdrs,n,activity_threshold)"]
+pub fn vote(sdrs: Vec<PyRef<CpuSDR>>, n: usize,threshold: u32) -> CpuSDR{
+    CpuSDR{sdr:htm::CpuSDR::vote_over_iter(sdrs.as_slice().iter().map(|s|&s.sdr),n,threshold)}
+}
 #[pyfunction]
 #[text_signature = "(input_size,minicolumns,n,inputs_per_minicolumn,inhibitory_inputs_per_minicolumn,rand_seed)"]
 pub fn cpu_htm4_new(input_size: u32, n: u32) -> CpuHTM4{
@@ -1330,6 +1467,92 @@ pub fn bitset_from_indices(bit_indices: Vec<u32>, input_size:u32) -> CpuBitset{
     CpuBitset{bits:htm::CpuBitset::from_sdr(&bit_indices,input_size)}
 }
 #[pymethods]
+impl CpuBitset2d{
+    #[new]
+    pub fn new(height:u32, width:u32, bitset:Option<&CpuBitset>)->Self{
+        let bits = if let Some(b) = bitset{
+            let CpuBitset{bits} = b;
+            bits.clone()
+        } else {
+            htm::CpuBitset::new(width*height)
+        };
+        CpuBitset2d{bits:htm::CpuBitset2d::new(bits,height,width)}
+    }
+    #[getter]
+    pub fn size(&self)->u32{
+        self.bits.size()
+    }
+    #[text_signature = "(bitset)"]
+    pub fn overlap(&self, bitset:&CpuBitset)->u32{
+        self.bits.overlap(&bitset.bits)
+    }
+    #[text_signature = "(offset1,offset2,size)"]
+    pub fn swap_u32(&mut self, offset1:u32, offset2:u32, size:u32){
+        self.bits.swap_u32(offset1, offset2, size)
+    }
+    #[text_signature = "(bit_index)"]
+    pub fn is_bit_on(&self, bit_index:u32)->bool{
+        self.bits.is_bit_on(bit_index)
+    }
+    #[text_signature = "(y,x)"]
+    pub fn is_bit_at(&self, y:u32,x:u32)->bool{
+        self.bits.is_bit_at(x,y)
+    }
+    #[text_signature = "(sdr)"]
+    pub fn append_to_sdr(&self, sdr:&mut CpuSDR){
+        self.bits.append_to_sdr(&mut sdr.sdr)
+    }
+    #[getter]
+    pub fn cardinality(&self)->u32{
+        self.bits.cardinality()
+    }
+    #[text_signature = "(sdr)"]
+    pub fn clear(&mut self, sdr:Option<&CpuSDR>){
+        if let Some(sdr) = sdr{
+            self.bits.clear(&sdr.sdr)
+        }else{
+            self.bits.clear_all()
+        }
+    }
+    #[text_signature = "(min_size)"]
+    pub fn ensure_size(&mut self, min_size:u32){
+        self.bits.ensure_size(min_size)
+    }
+    #[text_signature = "(size)"]
+    pub fn set_size(&mut self, size:u32){
+        self.bits.set_size(size)
+    }
+    #[text_signature = "(bit_idx)"]
+    pub fn set_bit_on(&mut self, bit_idx:u32){
+        self.bits.set_bit_on(bit_idx)
+    }
+    #[text_signature = "(y,x)"]
+    pub fn set_bit_at(&mut self, y:u32,x:u32){
+        self.bits.set_bit_at(y,x)
+    }
+    #[text_signature = "(y,x,height,width,sdr)"]
+    pub fn set_bits_at(&mut self,y:u32,x:u32,height:u32,width:u32,sdr:&CpuSDR){
+        self.bits.set_bits_at(y,x,height,width,&sdr.sdr)
+    }
+    #[text_signature = "(sdr)"]
+    pub fn set_bit_off(&mut self, bit_idx:u32){
+        self.bits.set_bit_off(bit_idx)
+    }
+    #[text_signature = "(sdr)"]
+    pub fn set_bits_on(&mut self, sdr:&CpuSDR){
+        self.bits.set_bits_on(&sdr.sdr)
+    }
+    #[text_signature = "(sdr)"]
+    pub fn set_bits_off(&mut self, sdr:&CpuSDR){
+        self.bits.set_bits_off(&sdr.sdr)
+    }
+    #[text_signature = "(sdr)"]
+    pub fn to_sdr(&self)->CpuSDR{
+        CpuSDR{sdr:htm::CpuSDR::from(self.bits.as_bitset())}
+    }
+}
+
+#[pymethods]
 impl CpuBitset{
     #[new]
     pub fn new(bit_count:u32)->Self{
@@ -1342,6 +1565,10 @@ impl CpuBitset{
     #[text_signature = "(bitset)"]
     pub fn overlap(&self, bitset:&CpuBitset)->u32{
         self.bits.overlap(&bitset.bits)
+    }
+    #[text_signature = "(offset1,offset2,size)"]
+    pub fn swap_u32(&mut self, offset1:u32, offset2:u32, size:u32){
+        self.bits.swap_u32(offset1, offset2, size)
     }
     #[text_signature = "(bit_index)"]
     pub fn is_bit_on(&self, bit_index:u32)->bool{

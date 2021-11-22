@@ -1,8 +1,8 @@
-use crate::{CpuSDR, EncoderTarget};
+use crate::{CpuSDR, EncoderTarget, CpuBitset2d};
 use std::fmt::{Debug, Formatter};
 use crate::rand::xorshift32;
 
-#[derive( Eq, PartialEq)]
+#[derive( Clone, Eq, PartialEq)]
 pub struct CpuBitset {
     bits: Vec<u32>,
 }
@@ -26,6 +26,15 @@ impl From<Vec<u32>> for CpuBitset {
 }
 pub fn bit_count_to_vec_size(bit_count:u32)->usize{
     (bit_count as usize + 31) / 32
+}
+impl EncoderTarget for CpuBitset2d{
+    fn push(&mut self, neuron_index: u32) {
+        self.as_bitset_mut().push(neuron_index)
+    }
+
+    fn clear_range(&mut self, from: u32, to: u32) {
+        self.as_bitset_mut().clear_range(from, to)
+    }
 }
 impl EncoderTarget for CpuBitset{
     fn push(&mut self, neuron_index: u32) {
@@ -176,6 +185,14 @@ impl CpuBitset {
         }
 
     }
+
+    pub fn swap_u32(&mut self, offset1:u32, offset2:u32, size:u32){
+        assert!(!(offset1 <= offset2 && offset2 < offset1+size), "the two regions overlap");
+        for i in 0..size{
+            self.bits.swap((offset1+i) as usize,(offset2+i) as usize)
+        }
+    }
+
 }
 impl From<&CpuBitset> for CpuSDR{
     fn from(bitset: &CpuBitset) -> Self {

@@ -23,6 +23,11 @@ mod htm3;
 mod cpu_htm3;
 mod cpu_htm5;
 mod htm5;
+mod map;
+mod dg2;
+mod cpu_dg2;
+mod cpu_bitset2d;
+mod shape;
 
 pub use crate::rand::auto_gen_seed;
 pub use ocl_htm2::OclHTM2;
@@ -31,11 +36,16 @@ pub use ocl_input::OclInput;
 pub use ocl_sdr::OclSDR;
 pub use ocl_htm::OclHTM;
 pub use htm_program::HtmProgram;
+pub use dg2::*;
+pub use shape::*;
+pub use cpu_bitset2d::*;
+pub use cpu_dg2::*;
 pub use htm5::*;
 pub use htm4::*;
 pub use htm3::*;
 pub use htm2::*;
 pub use htm::*;
+pub use map::*;
 pub use encoder::*;
 pub use cpu_hom::*;
 pub use cpu_bitset::CpuBitset;
@@ -253,6 +263,55 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test7_union() -> Result<(), String> {
+        fn union(a: &[u32], b: &[u32]) -> CpuSDR {
+            let mut sdr1 = CpuSDR::new();
+            sdr1.set(a);
+            let mut sdr2 = CpuSDR::new();
+            sdr2.set(b);
+            sdr1.normalize();
+            sdr2.normalize();
+            sdr1.union(&sdr2)
+        }
+        assert_eq!(union(&[1, 5, 6, 76], &[1]).as_slice(), &[1, 5, 6, 76]);
+        assert_eq!(union(&[1, 5, 6, 76], &[]).as_slice(), &[1, 5, 6, 76]);
+        assert_eq!(union(&[], &[]).as_slice(), &[]);
+        assert_eq!(union(&[1], &[]).as_slice(), &[1]);
+        assert_eq!(union(&[], &[1]).as_slice(), &[1]);
+        assert_eq!(union(&[1, 5, 6, 76], &[1, 5, 6, 76]).as_slice(), &[1, 5, 6, 76]);
+        assert_eq!(union(&[1, 5, 6, 76], &[5, 76, 6, 1]).as_slice(), &[1, 5, 6, 76]);
+        assert_eq!(union(&[1, 5, 6, 76], &[53, 746, 6, 1]).as_slice(), &[1, 5, 6, 53, 76, 746]);
+        assert_eq!(union(&[1, 5, 6, 76], &[53, 746, 6, 1, 5, 78, 3, 6, 7]).as_slice(), &[1, 3, 5, 6, 7, 53, 76, 78, 746]);
+        Ok(())
+    }
+    #[test]
+    fn test7_subtract() -> Result<(), String> {
+        fn subtract(a: &[u32], b: &[u32]) -> CpuSDR {
+            let mut sdr1 = CpuSDR::new();
+            sdr1.set(a);
+            let mut sdr2 = CpuSDR::new();
+            sdr2.set(b);
+            sdr1.normalize();
+            sdr2.normalize();
+            sdr1.subtract(&sdr2);
+            sdr1
+        }
+        assert_eq!(subtract(&[1, 5, 6, 76], &[1]).as_slice(), &[5, 6, 76]);
+        assert_eq!(subtract(&[1, 5, 6, 76], &[]).as_slice(), &[1, 5, 6, 76]);
+        assert_eq!(subtract(&[], &[]).as_slice(), &[]);
+        assert_eq!(subtract(&[1], &[]).as_slice(), &[1]);
+        assert_eq!(subtract(&[], &[1]).as_slice(), &[]);
+        assert_eq!(subtract(&[1], &[1]).as_slice(), &[]);
+        assert_eq!(subtract(&[1], &[2]).as_slice(), &[1]);
+        assert_eq!(subtract(&[1,2], &[2]).as_slice(), &[1]);
+        assert_eq!(subtract(&[2,3], &[2]).as_slice(), &[3]);
+        assert_eq!(subtract(&[1, 5, 6, 76], &[1, 5, 6, 76]).as_slice(), &[]);
+        assert_eq!(subtract(&[1, 5, 6, 76], &[5, 76, 6, 1]).as_slice(), &[]);
+        assert_eq!(subtract(&[1, 5, 6, 76], &[53, 746, 6, 1]).as_slice(), &[5, 76]);
+        assert_eq!(subtract(&[1, 5, 6, 76], &[53, 746, 6, 1, 5, 78, 3, 6, 7]).as_slice(), &[76]);
+        Ok(())
+    }
     #[test]
     fn test8() -> Result<(), String> {
         let mut encoder = EncoderBuilder::new();
@@ -584,5 +643,58 @@ mod tests {
         assert_eq!(CpuSDR::from(&CpuBitset::from_sdr(&a,64)),CpuSDR::from(&a as &[u32]));
         let a = [4,63];
         assert_eq!(CpuSDR::from(&CpuBitset::from_sdr(&a,64)),CpuSDR::from(&a as &[u32]));
+    }
+
+    #[test]
+    fn test23() {
+        let sdr_grid = [[CpuSDR::from_slice(&[1,2,3])]];
+        let o = CpuSDR::vote_conv2d_arr(4,0,(1,1),(1,1),(1,1),&sdr_grid);
+        assert_eq!(o[0][0],sdr_grid[0][0])
+    }
+    #[test]
+    fn test24() {
+        let sdr_grid = [
+            [
+                CpuSDR::from_slice(&[1,2,3]),
+                CpuSDR::from_slice(&[1,2,3])
+            ],
+            [
+                CpuSDR::from_slice(&[1,2,3]),
+                CpuSDR::from_slice(&[1,2,3])
+            ]
+        ];
+        let o = CpuSDR::vote_conv2d_arr(4,0,(1,1),(2,2),(2,2),&sdr_grid);
+        assert_eq!(o.len(),1);
+        assert_eq!(o[0].len(),1);
+        assert_eq!(o[0][0],sdr_grid[0][0])
+    }
+    #[test]
+    fn test25() {
+        let sdr_grid = [
+            [
+                CpuSDR::from_slice(&[1,2,3]),
+                CpuSDR::from_slice(&[0,2,3])
+            ],
+            [
+                CpuSDR::from_slice(&[0,2,3]),
+                CpuSDR::from_slice(&[1,4,3])
+            ]
+        ];
+        let o = CpuSDR::vote_conv2d_arr(2,0,(1,1),(2,2),(2,2),&sdr_grid);
+        assert_eq!(o.len(),1);
+        assert_eq!(o[0].len(),1);
+        assert_eq!(o[0][0],CpuSDR::from_slice(&[2,3]))
+    }
+    #[test]
+    fn test26() {
+        let sdr_grid = [[
+                CpuSDR::from_slice(&[1,2,3]), CpuSDR::from_slice(&[0,2,3]), CpuSDR::from_slice(&[0,2,4]), ], [
+                CpuSDR::from_slice(&[0,2,3]), CpuSDR::from_slice(&[1,4,3]), CpuSDR::from_slice(&[1,4,3]), ]
+        ];
+        let o = CpuSDR::vote_conv2d_arr(2,0,(1,1),(2,2),(2,3),&sdr_grid);
+        assert_eq!(o.len(),1);
+        assert_eq!(o[0].len(),2);
+        assert_eq!(o[0][0],CpuSDR::from_slice(&[2,3]));
+        assert_eq!(o[0][1],CpuSDR::from_slice(&[3,4]));
     }
 }
