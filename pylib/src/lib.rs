@@ -89,6 +89,7 @@ pub fn htm(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cpu_htm2_new_with_input_distribution, m)?)?;
     m.add_function(wrap_pyfunction!(vote, m)?)?;
     m.add_function(wrap_pyfunction!(vote_conv2d, m)?)?;
+    m.add_function(wrap_pyfunction!(vote_conv2d_transpose, m)?)?;
     m.add_function(wrap_pyfunction!(cpu_htm2_new, m)?)?;
     m.add_function(wrap_pyfunction!(cpu_htm2_new_local_2d, m)?)?;
     m.add_function(wrap_pyfunction!(cpu_htm2_new_with_input_distribution, m)?)?;

@@ -1532,6 +1532,12 @@ impl CpuSDR {
     }
 }
 #[pyfunction]
+#[text_signature = "(output_sdrs,stride,kernel_size,grid_size)"]
+pub fn vote_conv2d_transpose(output_sdrs: Vec<Vec<PyRef<CpuSDR>>>, stride:(u32,u32), kernel_size:(u32,u32), grid_size:(u32,u32)) -> Vec<Vec<CpuSDR>>{
+    let o = htm::CpuSDR::vote_conv2d_transpose_arr(stride,kernel_size,grid_size,&|i0,i1|&output_sdrs[i0 as usize][i1 as usize].sdr);
+    o.into_iter().map(|a|a.into_iter().map(|sdr|CpuSDR{sdr}).collect()).collect()
+}
+#[pyfunction]
 #[text_signature = "(sdrs,n,activity_threshold,stride,kernel_size)"]
 pub fn vote_conv2d(sdrs: Vec<Vec<PyRef<CpuSDR>>>, n: usize,threshold: u32, stride:(u32,u32), kernel_size:(u32,u32)) -> Vec<Vec<CpuSDR>>{
     let grid_size = (sdrs.len() as u32, sdrs[0].len() as u32);
@@ -1769,7 +1775,38 @@ impl CpuInput{
     pub fn set_size(&mut self, size:u32){
         self.inp.set_size(size)
     }
-
+    #[text_signature = "(sdr)"]
+    pub fn set_sparse(&mut self, sdr:&CpuSDR){
+        self.inp.set_sparse_from_slice(sdr.sdr.as_slice())
+    }
+    #[text_signature = "(bitset)"]
+    pub fn set_dense(&mut self, bitset:&CpuBitset){
+        self.inp.set_dense(bitset.bits.clone());
+    }
+    #[text_signature = "()"]
+    pub fn get_dense(&mut self)->CpuBitset{
+        CpuBitset{bits:self.inp.get_dense().clone()}
+    }
+    #[text_signature = "()"]
+    pub fn get_sparse(&mut self)->CpuSDR{
+        CpuSDR{sdr:self.inp.get_sparse().clone()}
+    }
+    #[text_signature = "(neuron_index)"]
+    pub fn contains(&mut self,neuron_index:u32)->bool{
+        self.inp.contains(neuron_index)
+    }
+    #[text_signature = "(neuron_index)"]
+    pub fn push(&mut self,neuron_index:u32){
+        self.inp.push(neuron_index)
+    }
+    #[text_signature = "()"]
+    pub fn clear(&mut self){
+        self.inp.clear()
+    }
+    #[text_signature = "(from,to)"]
+    pub fn clear_range(&mut self, from:u32,to:u32){
+        self.inp.clear_range(from,to)
+    }
 }
 
 

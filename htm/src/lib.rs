@@ -720,4 +720,27 @@ mod tests {
         assert_eq!(out2,out1);
         assert_eq!(htm1,htm2);
     }
+
+    #[test]
+    fn test29() {
+        let sdr_grid = [[
+            CpuSDR::from_slice(&[0]), CpuSDR::from_slice(&[1]), CpuSDR::from_slice(&[2]), ], [
+            CpuSDR::from_slice(&[3]), CpuSDR::from_slice(&[4]), CpuSDR::from_slice(&[5]), ]
+        ];
+        let o = CpuSDR::vote_conv2d_transpose_arr((1,1),(2,2),(3,4),&|out0,out1|&sdr_grid[out0 as usize][out1 as usize]);
+        assert_eq!(o.len(),3);
+        assert_eq!(o[0].len(),4);
+        assert_eq!(o[0][0],CpuSDR::from_slice(&[0]));
+        assert_eq!(o[0][1],CpuSDR::from_slice(&[0,1]));
+        assert_eq!(o[0][2],CpuSDR::from_slice(&[1,2]));
+        assert_eq!(o[0][3],CpuSDR::from_slice(&[2]));
+        assert_eq!(o[1][0],CpuSDR::from_slice(&[0,3]));
+        assert_eq!(o[1][1],CpuSDR::from_slice(&[0,1,3,4]));
+        assert_eq!(o[1][2],CpuSDR::from_slice(&[1,2,4,5]));
+        assert_eq!(o[1][3],CpuSDR::from_slice(&[2,5]));
+        assert_eq!(o[2][0],CpuSDR::from_slice(&[3]));
+        assert_eq!(o[2][1],CpuSDR::from_slice(&[3,4]));
+        assert_eq!(o[2][2],CpuSDR::from_slice(&[4,5]));
+        assert_eq!(o[2][3],CpuSDR::from_slice(&[5]));
+    }
 }

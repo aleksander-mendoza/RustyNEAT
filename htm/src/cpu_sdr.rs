@@ -265,8 +265,32 @@ impl CpuSDR {
             self.0.push(r);
         }
     }
+    /**Iterates over all lower-level columns. For each one looks up all the connected higher-level columns and takes the union of their activities.
+    This union could then be used for training the lower-level columns. The function returns a 2d array of such unions.*/
+    pub fn vote_conv2d_transpose_arr<'a>(stride: (u32, u32), kernel_size: (u32, u32), grid_size: (u32, u32), output_sdr_grid: &'a impl Fn(u32, u32) -> &'a CpuSDR)->Vec<Vec<CpuSDR>> {
+        let out_grid_size = Self::vote_conv2d_out_size(stride, kernel_size, grid_size);
+        let mut apical_feedback_input_grid:Vec<Vec<CpuSDR>> = (0..grid_size.0).map(|_|(0..grid_size.1).map(|_|CpuSDR::new()).collect()).collect();
+        for out0 in 0..out_grid_size.0 {
+            for out1 in 0..out_grid_size.1 {
+                let out_sdr:&CpuSDR = output_sdr_grid(out0, out1);
+                let in_begin = (out0 * stride.0, out1 * stride.1);
+                for in0 in in_begin.0..in_begin.0 + kernel_size.0{
+                    for in1 in in_begin.1..in_begin.1 + kernel_size.1{
+                        let union_sdr = &mut apical_feedback_input_grid[in0 as usize][in1 as usize];
+                        let mut new_union = union_sdr.union(out_sdr);
+                        std::mem::swap(&mut new_union,union_sdr);
+                    }
+                }
+            }
+        }
+        apical_feedback_input_grid
+    }
     pub fn vote_conv2d_out_size(stride: (u32, u32), kernel_size: (u32, u32), grid_size: (u32, u32)) -> (u32, u32) {
-        ((grid_size.0 - kernel_size.0) / stride.0 + 1, (grid_size.1 - kernel_size.1) / stride.1 + 1)
+        assert!(kernel_size.0<=grid_size.0 && kernel_size.1<=grid_size.1,"Kernel size {:?} is larger than the grid {:?} of voting columns",kernel_size,grid_size);
+        let out_grid_size = (grid_size.0 - kernel_size.0, grid_size.1 - kernel_size.1);
+        assert!(out_grid_size.0%stride.0==0 && out_grid_size.1%stride.1==0,"Convolution stride {:?} does not evenly divide the grid {:?} of voting columns",stride,grid_size);
+        (out_grid_size.0 / stride.0 + 1, out_grid_size.1 / stride.1 + 1)
+
     }
     pub fn vote_conv2d_arr<T: Borrow<CpuSDR>>(n: usize, threshold: u32, stride: (u32, u32), kernel_size: (u32, u32), grid_size: (u32, u32), input_sdr_grid: &[impl AsRef<[T]>]) -> Vec<Vec<CpuSDR>> {
         Self::vote_conv2d_arr_with(n, threshold, stride, kernel_size, grid_size, &|c0, c1| input_sdr_grid[c0 as usize].as_ref()[c1 as usize].borrow(), |a| a)

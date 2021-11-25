@@ -99,15 +99,15 @@ def make_layer2_column():
 
 layer2 = [[make_layer2_column() for _ in range(layer2_column_count[1])] for _ in range(layer2_column_count[0])]
 layer2_bitset = htm.CpuBitset2d(layer2_total_shape[0], layer2_total_shape[1])
-layer3 = htm.CpuBitset(layer3_size)
+layer3 = htm.CpuInput(layer3_size)
+map_activity = htm.CpuSDR()
 layer2_to_layer3 = htm.CpuDG2_2d((layer2_total_shape[0], layer2_total_shape[1]), layer3_size, layer3_card,
                                  (layer3_synapse_span[0], layer3_synapse_span[1]), layer2_to_layer3_synapses)
-layer3_to_map = htm.CpuHTM2(layer3_size, map_size, map_card, layer3_to_map_synapses)
+layer3_to_map = htm.CpuBigHTM(layer3_size, map_size, map_card)
 map_to_map = htm.CpuHOM(4, map_size)
 
 
 def agent_moved(self, x_displacement, y_displacement):
-    for
     pass
 
 
@@ -115,7 +115,7 @@ def get_fov(img_src=env):
     return img_src[y - fov_span:y + fov_span, x - fov_span:x + fov_span]
 
 
-def run():
+def run(learn=False):
     fov_img = get_fov(env_grayscale)
     fov_img = fov_img.astype(float) / 255
 
@@ -158,20 +158,39 @@ def run():
             prev_activations = layer2[column_y][column_x]
             prev_activations.randomly_extend_from(new_votes)
 
+    if learn:
+        apical_feedback = htm.vote_conv2d_transpose(cast_votes,
+                                                    (vote_kernel_stride[0], vote_kernel_stride[1]),
+                                                    (vote_kernel_size[0], vote_kernel_size[1]),
+                                                    (layer1_column_count[0], layer1_column_count[1]))
+        assert len(apical_feedback) == layer1_column_count[0]
+        assert len(apical_feedback[0]) == layer1_column_count[1]
+        for column_y in range(layer1_column_count[0]):
+            for column_x in range(layer1_column_count[1]):
+                column_apical_feedback = apical_feedback[column_y][column_x]
+                layer1_column_activity = layer1[column_y][column_x]
+                sensor_column_activity = sensor_layer[column_y][column_x]
+                spacial_pooler = sensor_to_layer1[column_y][column_x]
+                # TODO: perhaps use layer1_column_activity.intersect(column_apical_feedback) ?
+                spacial_pooler.update_permanence(column_apical_feedback, sensor_column_activity)
+
     layer2_bitset.clear()
     for column_y in range(layer2_column_count[0]):
         for column_x in range(layer2_column_count[1]):
             column_y_offset = column_y * layer2_column_size[0]
             column_x_offset = column_x * layer2_column_size[1]
             new_activations = layer2[column_y][column_x]
-            layer2_bitset.set_bits_at(column_y_offset, column_x_offset, layer2_column_size[0], layer2_column_size[1],
+            layer2_bitset.set_bits_at(column_y_offset, column_x_offset,
+                                      layer2_column_size[0], layer2_column_size[1],
                                       new_activations)
-    layer3_sdr = layer2_to_layer3.compute_translation_invariant(layer2_bitset, (layer2_column_size[0], layer2_column_size[1]))
-    layer3.clear()
-    layer3.set_bits_on(layer3_sdr)
+    layer3_sdr = layer2_to_layer3.compute_translation_invariant(layer2_bitset,
+                                                                (layer2_column_size[0], layer2_column_size[1]))
+    layer3.set_sparse(layer3_sdr)
+    if learn:
+        layer3_to_map.update_permanence(layer3, map_activity)
+        
 
-
-run()
+run(learn=True)
 
 fig, axs = plt.subplots(1, 2)
 full_map = axs[0]
