@@ -2,10 +2,10 @@ use crate::{CpuSDR, CpuBitset};
 use std::ops::{RangeBounds, Range};
 use chrono::{DateTime, Utc, TimeZone, Datelike, Timelike, NaiveTime};
 use itertools::Itertools;
-
 pub trait EncoderTarget{
     fn push(&mut self, neuron_index:u32);
     fn clear_range(&mut self, from:u32,to:u32);
+    fn contains(&self, neuron_index:u32) ->bool;
 }
 pub trait EncoderRange{
     fn neuron_range_begin(&self)->u32;

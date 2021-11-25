@@ -56,6 +56,10 @@ pub struct CpuHOM {
     hom: htm::CpuHOM,
 }
 
+#[pyclass]
+pub struct CpuBigHTM {
+    htm: htm::CpuBigHTM,
+}
 
 #[pyclass]
 pub struct CpuHTM2 {
@@ -651,6 +655,132 @@ impl CpuHTM {
     #[text_signature = "( /)"]
     fn clone(&self) -> CpuHTM {
         CpuHTM { htm: self.htm.clone() }
+    }
+}
+
+
+#[pymethods]
+impl CpuBigHTM {
+    #[new]
+    pub fn new(input_size: u32, minicolumns: u32, n: usize, rand_seed:Option<u32>) -> Self {
+        CpuBigHTM { htm: htm::CpuBigHTM::new(input_size, minicolumns, n,rand_seed.unwrap_or_else(auto_gen_seed)) }
+    }
+    #[text_signature = "(minicolumn,segment)"]
+    fn get_synapses(&self,minicolumn:usize,segment:usize) -> Vec<(u32,f32)> {
+        self.htm.minicolumns_as_slice()[minicolumn].segments[segment].synapses.iter().map(|s|(s.input_id,s.permanence)).collect()
+    }
+    #[text_signature = "(minicolumn)"]
+    fn get_segment_count(&self,minicolumn:usize) -> usize{
+        self.htm.minicolumns_as_slice()[minicolumn].segments.len()
+    }
+    #[getter]
+    fn get_minicolumn_count(&self) -> usize {
+        self.htm.minicolumns_as_slice().len()
+    }
+    #[getter]
+    fn get_input_size(&self) -> u32 {
+        self.htm.input_size()
+    }
+    #[getter]
+    fn get_n(&self) -> usize {
+        self.htm.params().n
+    }
+
+    #[setter]
+    fn set_n(&mut self, n: usize) {
+        self.htm.params_mut().n = n
+    }
+
+    #[getter]
+    fn get_permanence_decrement(&self) -> f32 {
+        self.htm.params().permanence_decrement_increment[0]
+    }
+
+    #[setter]
+    fn set_permanence_decrement(&mut self, permanence_decrement: f32) {
+        self.htm.params_mut().permanence_decrement_increment[0] = permanence_decrement
+    }
+
+    #[getter]
+    fn get_permanence_increment(&self) -> f32 {
+        self.htm.params().permanence_decrement_increment[1]
+    }
+
+    #[setter]
+    fn set_permanence_increment(&mut self, permanence_increment: f32) {
+        self.htm.params_mut().permanence_decrement_increment[1] = permanence_increment
+    }
+
+    #[getter]
+    fn get_permanence_threshold(&self) -> f32 {
+        self.htm.params().permanence_threshold
+    }
+
+    #[setter]
+    fn set_permanence_threshold(&mut self, permanence_threshold: f32) {
+        self.htm.params_mut().permanence_threshold = permanence_threshold
+    }
+
+    #[getter]
+    fn get_max_segments_per_minicolumn(&self) -> u32 {
+        self.htm.params().max_segments_per_minicolumn
+    }
+
+    #[setter]
+    fn set_max_segments_per_minicolumn(&mut self, max_segments_per_minicolumn: u32) {
+        self.htm.params_mut().max_segments_per_minicolumn = max_segments_per_minicolumn
+    }
+
+    #[getter]
+    fn get_activation_threshold(&self) -> u32 {
+        self.htm.params().activation_threshold
+    }
+
+    #[setter]
+    fn set_activation_threshold(&mut self, activation_threshold: u32) {
+        self.htm.params_mut().activation_threshold = activation_threshold
+    }
+
+    #[getter]
+    fn get_max_new_synapse_count(&self) -> usize {
+        self.htm.params().max_new_synapse_count
+    }
+
+    #[setter]
+    fn set_max_new_synapse_count(&mut self, max_new_synapse_count: usize) {
+        self.htm.params_mut().max_new_synapse_count = max_new_synapse_count
+    }
+
+    #[getter]
+    fn get_initial_permanence(&self) -> f32 {
+        self.htm.params().initial_permanence
+    }
+
+    #[setter]
+    fn set_initial_permanence(&mut self, initial_permanence: f32) {
+        self.htm.params_mut().initial_permanence = initial_permanence
+    }
+
+    #[call]
+    fn __call__(&mut self, bitset_input: &CpuInput, learn: Option<bool>) -> CpuSDR {
+        self.infer(bitset_input,learn)
+    }
+    #[text_signature = "(input, learn)"]
+    fn infer(&mut self, input: &CpuInput, learn: Option<bool>) -> CpuSDR {
+        CpuSDR{sdr:self.htm.infer(&input.inp, learn.unwrap_or(false))}
+    }
+    #[text_signature = "(input,active_columns)"]
+    fn update_permanence(&mut self, input: &CpuInput, active_columns:&CpuSDR) {
+        self.htm.update_permanence(&input.inp, &active_columns.sdr)
+    }
+    #[text_signature = "(input)"]
+    fn compute(&mut self, input: &CpuInput) -> CpuSDR {
+        self.infer(input,Some(false))
+    }
+
+    #[text_signature = "( /)"]
+    fn clone(&self) -> CpuBigHTM {
+        CpuBigHTM { htm: self.htm.clone() }
     }
 }
 

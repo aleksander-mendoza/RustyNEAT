@@ -107,7 +107,7 @@ map_to_map = htm.CpuHOM(4, map_size)
 
 
 def agent_moved(self, x_displacement, y_displacement):
-    # layer2 = [ [_] for y in range() ]
+    for
     pass
 
 
@@ -169,9 +169,6 @@ def run():
     layer3_sdr = layer2_to_layer3.compute_translation_invariant(layer2_bitset, (layer2_column_size[0], layer2_column_size[1]))
     layer3.clear()
     layer3.set_bits_on(layer3_sdr)
-
-
-
 
 
 run()

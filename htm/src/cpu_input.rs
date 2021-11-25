@@ -20,6 +20,10 @@ impl EncoderTarget for CpuInput{
         self.sdr.clear_range(from,to);
         self.bitset.clear_range(from,to);
     }
+
+    fn contains(&self, neuron_index: u32) -> bool {
+        self.bitset.contains(neuron_index)
+    }
 }
 impl CpuInput{
 

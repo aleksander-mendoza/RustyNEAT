@@ -58,6 +58,11 @@ impl EncoderTarget for CpuSDR {
     fn clear_range(&mut self, from: u32, to: u32) {
         self.0.retain(|&i| i >= to || i < from)
     }
+
+    fn contains(&self, neuron_index: u32) -> bool {
+        debug_assert!(self.is_normalized());
+        self.binary_search(neuron_index)
+    }
 }
 
 impl CpuSDR {

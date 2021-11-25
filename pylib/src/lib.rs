@@ -100,6 +100,7 @@ pub fn htm(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<OclInput>()?;
     m.add_class::<CpuDG2_2d>()?;
     m.add_class::<CpuHTM>()?;
+    m.add_class::<CpuBigHTM>()?;
     m.add_class::<CpuHOM>()?;
     m.add_class::<CpuHTM2>()?;
     m.add_class::<CpuHTM3>()?;

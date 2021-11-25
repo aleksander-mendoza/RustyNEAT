@@ -5,7 +5,6 @@ mod cpu_sdr;
 mod cpu_htm2;
 mod htm2;
 mod cpu_hom;
-mod hom;
 mod encoder;
 mod ocl_sdr;
 mod ocl_htm;
@@ -28,7 +27,9 @@ mod dg2;
 mod cpu_dg2;
 mod cpu_bitset2d;
 mod shape;
+mod cpu_big_htm;
 
+pub use cpu_big_htm::*;
 pub use crate::rand::auto_gen_seed;
 pub use ocl_htm2::OclHTM2;
 pub use ocl_bitset::OclBitset;
@@ -696,5 +697,27 @@ mod tests {
         assert_eq!(o[0].len(),2);
         assert_eq!(o[0][0],CpuSDR::from_slice(&[2,3]));
         assert_eq!(o[0][1],CpuSDR::from_slice(&[3,4]));
+    }
+
+    #[test]
+    fn test27() {
+        let mut htm = CpuBigHTM::new(16, 16, 2,55348);
+        let inp = CpuInput::from_sparse_slice(&[0,8],16);
+        let out = CpuSDR::from_slice(&[4,7]);
+        htm.update_permanence(&inp, &out);
+        let out2 = htm.infer(&inp, false);
+        assert_eq!(out2,out);
+    }
+
+    #[test]
+    fn test28() {
+        let mut htm1 = CpuBigHTM::new(16, 16, 2,55348);
+        let mut htm2 = CpuBigHTM::new(16, 16, 2,55348);
+        let inp = CpuInput::from_sparse_slice(&[0,8],16);
+        let out1 = htm1.infer(&inp, false);
+        htm1.update_permanence(&inp, &out1);
+        let out2 = htm2.infer(&inp, true);
+        assert_eq!(out2,out1);
+        assert_eq!(htm1,htm2);
     }
 }

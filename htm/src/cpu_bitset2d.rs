@@ -53,3 +53,16 @@ impl CpuBitset2d {
     }
 
 }
+impl EncoderTarget for CpuBitset2d{
+    fn push(&mut self, neuron_index: u32) {
+        self.as_bitset_mut().push(neuron_index)
+    }
+
+    fn clear_range(&mut self, from: u32, to: u32) {
+        self.as_bitset_mut().clear_range(from, to)
+    }
+
+    fn contains(&self, neuron_index: u32) ->bool{
+        self.is_bit_on(neuron_index)
+    }
+}

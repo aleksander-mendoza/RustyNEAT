@@ -1,8 +1,8 @@
 
-pub struct Map{
+pub struct Map {
 
 }
 
-impl Map{
+impl Map {
 
 }
