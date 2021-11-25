@@ -2125,3 +2125,13 @@ impl PyObjectProtocol for CpuBitset {
         self.__str__()
     }
 }
+
+#[pyproto]
+impl PyObjectProtocol for CpuInput {
+    fn __str__(&self) -> PyResult<String> {
+        Ok(format!("{:?}", self.inp.get_sparse()))
+    }
+    fn __repr__(&self) -> PyResult<String> {
+        self.__str__()
+    }
+}
