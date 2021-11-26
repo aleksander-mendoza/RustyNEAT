@@ -52,7 +52,7 @@ x, y = 64, 64
 vote_kernel_size = np.array([2, 2])
 vote_kernel_stride = np.array([1, 1])
 vote_num_of_layer1_columns_per_layer2_column = vote_kernel_size.prod()
-vote_threshold = int(vote_num_of_layer1_columns_per_layer2_column * 0.4)
+vote_threshold = int(vote_num_of_layer1_columns_per_layer2_column * 0.75)
 image_patch_width, image_patch_height = 16, 16
 image_patch_overlap = 0.25
 image_patch_kernel = np.array([image_patch_height, image_patch_width])
@@ -80,13 +80,6 @@ sublayer2_total_shape = sublayer2_column_count * layer2_column_size
 layer2_total_shape = layer2_column_count * layer2_column_size
 layer2_total_size = layer2_total_shape.prod()
 sublayer2_total_size = sublayer2_total_shape.prod()
-layer3_size = layer2_total_size # * 4
-layer3_card = int(layer3_size * 0.005)
-layer3_synapse_span = layer2_column_size * 3
-layer2_to_layer3_synapses = int(layer2_total_size * 0.05)
-map_size = 64 * 64
-map_card = int(map_size * 0.02)
-layer3_to_map_synapses = int(layer3_size * 0.8)
 
 
 def make_sensor_to_layer1_column():
@@ -113,15 +106,6 @@ def make_layer2_column():
 
 layer2 = [[make_layer2_column() for _ in range(layer2_column_count[1])] for _ in range(layer2_column_count[0])]
 layer2_bitset = htm.CpuBitset2d(layer2_total_shape[0], layer2_total_shape[1])
-layer3 = htm.CpuInput(layer3_size)
-map_activity = htm.CpuSDR()
-map_activity.add_unique_random(map_card, 0, map_size)
-map_activity.normalize()
-layer2_to_layer3 = htm.CpuDG2_2d((layer2_total_shape[0], layer2_total_shape[1]), layer3_size, layer3_card,
-                                 (layer3_synapse_span[0], layer3_synapse_span[1]), layer2_to_layer3_synapses)
-layer3_to_map = htm.CpuBigHTM(layer3_size, map_size, map_card)
-layer3_to_map.activation_threshold = int(10)
-map_to_map = htm.CpuHOM(4, map_size)
 
 
 def agent_moved(displacement):
@@ -153,7 +137,7 @@ def get_fov(img_src=env):
     return img
 
 
-def run(learn=False, update_map=False):
+def run(learn=False):
     global map_activity
     # ====== 1. get sensory inputs ======
     time1_get_sensory_input = time.time()
@@ -197,6 +181,11 @@ def run(learn=False, update_map=False):
     cast_votes = htm.vote_conv2d(layer1, layer2_column_card, vote_threshold,
                                  (vote_kernel_stride[0], vote_kernel_stride[1]),
                                  (vote_kernel_size[0], vote_kernel_size[1]))
+    print("votes=", cast_votes)
+    for row in layer1:
+        print("l1=", row)
+    for row in layer2[working_memory_span[0]:-working_memory_span[0]]:
+        print("l2=", row[working_memory_span[0]:-working_memory_span[0]])
     assert len(cast_votes) == sublayer2_column_count[0]
     assert len(cast_votes[0]) == sublayer2_column_count[1]
     # ====== 5. update sublayer2 if votes carry enough consensus  ======
@@ -234,38 +223,15 @@ def run(learn=False, update_map=False):
             layer2_bitset.set_bits_at(column_y_offset, column_x_offset,
                                       layer2_column_size[0], layer2_column_size[1],
                                       new_activations)
-    # ====== 7. use layer2 bitset to obtain layer3 sparse fingerprint  ======
-    time7_layer3 = time.time()
-    layer3_sdr = layer2_to_layer3.compute_translation_invariant(layer2_bitset,
-                                                                (layer2_column_size[0], layer2_column_size[1]))
-
-    layer3.set_sparse(layer3_sdr)
-    # ====== 8. update map  ======
-    time8_update_map = time.time()
-    if update_map:
-        map_activity = layer3_to_map.infer(layer3, learn)
-        map_activity.normalize()
-    elif learn:
-        # ====== associate a new fingerprint with current place cells on the map ======
-        layer3_to_map.update_permanence(layer3, map_activity)
     time9_end = time.time()
-    print("get_sensory_input", time2_encode_sensory_input - time1_get_sensory_input,
-          "encode_sensory_input", time3_compute_layer1 - time2_encode_sensory_input,
-          "compute_layer1", time4_vote - time3_compute_layer1,
-          "vote", time5_sublayer2 - time4_vote,
-          "sublayer2", time5_apical_learn - time5_sublayer2,
-          "apical_learn", time6_join_layer2 - time5_apical_learn,
-          "join_layer2", time7_layer3 - time6_join_layer2,
-          "layer3", time8_update_map - time7_layer3,
-          "update_map", time9_end - time8_update_map)
+    # print("get_sensory_input", time2_encode_sensory_input - time1_get_sensory_input,
+    #       "encode_sensory_input", time3_compute_layer1 - time2_encode_sensory_input,
+    #       "compute_layer1", time4_vote - time3_compute_layer1,
+    #       "vote", time5_sublayer2 - time4_vote,
+    #       "sublayer2", time5_apical_learn - time5_sublayer2,
+    #       "apical_learn", time6_join_layer2 - time5_apical_learn,
+    #       "join_layer2", time9_end - time6_join_layer2)
 
-
-def dump():
-    for r, row in enumerate(layer2):
-        for c, cell in enumerate(row):
-            print("l2(" + str(c) + "," + str(r) + ")=", cell)
-    print("l3=", layer3)
-    print("map=", map_activity)
 
 
 fig, axs = plt.subplots(1, 2)
@@ -282,7 +248,7 @@ def draw():
     plt.draw()
 
 
-dump()
+run(learn=True)
 draw()
 
 
@@ -300,9 +266,6 @@ def move(event):
         run()
     elif event.key == 'l':
         run(learn=True)
-    elif event.key == 'u':
-        run(learn=True, update_map=True)
-        dump()
     else:
         return
     draw()

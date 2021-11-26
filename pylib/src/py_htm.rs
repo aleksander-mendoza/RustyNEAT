@@ -1449,7 +1449,7 @@ impl CpuSDR {
         self.sdr.clear()
     }
     #[text_signature = "(neuron_index)"]
-    fn push_active_neuron(&mut self, neuron_index: u32) {
+    fn push(&mut self, neuron_index: u32) {
         self.sdr.push(neuron_index)
     }
     #[text_signature = "(number_of_bits_to_retain)"]
@@ -1476,10 +1476,10 @@ impl CpuSDR {
         self.sdr.add_unique_random(n, range_begin..range_end)
     }
     #[text_signature = "(other_sdr,n)"]
-    pub fn randomly_extend_from(&self, other: &CpuSDR, n: Option<u32>) -> Self {
-        let mut c = self.clone();
-        c.sdr.randomly_extend_from(&other.sdr, n.unwrap_or(self.cardinality()) as usize);
-        c
+    pub fn randomly_extend_from<'py>(mut slf: PyRefMut<'py, Self>, other: &CpuSDR, n: Option<u32>) -> PyRefMut<'py, Self> {
+        let c = slf.cardinality();
+        slf.sdr.randomly_extend_from(&other.sdr, n.unwrap_or(c) as usize);
+        slf
     }
     #[text_signature = "(other_sdr)"]
     pub fn subtract_<'py>(mut slf: PyRefMut<'py, Self>, other: &CpuSDR) -> PyRefMut<'py, Self> {

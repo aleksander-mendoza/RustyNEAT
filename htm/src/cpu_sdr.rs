@@ -341,14 +341,15 @@ impl CpuSDR {
         highest_voted_neurons.sort();
         Self::from(highest_voted_neurons)
     }
-    /**Randomly picks some neurons that a present in self SDR but not in other SDR.
+    /**Randomly picks some neurons that a present in other SDR but not in self SDR.
     Requires that both SDRs are already normalized.
     It will only add so many elements so that self.len() <= n*/
     pub fn randomly_extend_from(&mut self, other: &Self, n: usize) {
         debug_assert!(self.is_normalized());
         debug_assert!(other.is_normalized());
+        assert!(other.len() <= n, "The limit {} is less than the size of SDR {}",n,other.len());
         self.subtract(other);
-        while self.len() + other.len() <= n {
+        while self.len() + other.len() > n {
             let idx = rand::random::<usize>() % self.0.len();
             self.0.swap_remove(idx);
         }

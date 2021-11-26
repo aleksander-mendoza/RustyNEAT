@@ -743,4 +743,54 @@ mod tests {
         assert_eq!(o[2][2],CpuSDR::from_slice(&[4,5]));
         assert_eq!(o[2][3],CpuSDR::from_slice(&[5]));
     }
+
+    // #[test]
+    // fn test30() {
+    //     let sdr_grid = [
+    //         [CpuSDR::from_slice(&[4, 13, 50, 64, 74, 94, 115, 162, 167, 202, 203, 253]), CpuSDR::from_slice(&[4, 5, 105, 112, 117, 188, 193, 202, 212, 217, 252, 255]), CpuSDR::from_slice(&[6, 7, 11, 48, 54, 75, 85, 86, 120, 178, 248, 251]), ],
+    //         [CpuSDR::from_slice(&[11, 17, 20, 26, 77, 78, 88, 105, 128, 156, 173, 187]), CpuSDR::from_slice(&[1, 2, 5, 57, 158, 165, 170, 181, 194, 196, 203, 230]), CpuSDR::from_slice(&[1, 3, 27, 40, 62, 72, 74, 105, 136, 159, 171, 204]), ]
+    //     ];
+    //     let o = CpuSDR::vote_conv2d_arr(12,1,(1,1),(2,2),(2,3),&sdr_grid);
+    //     assert_eq!(o.len(),1);
+    //     assert_eq!(o[0].len(),2);
+    //     let intersection = sdr_grid[0][0]
+    //         .intersection(&sdr_grid[0][1])
+    //         .intersection(&sdr_grid[1][0])
+    //         .intersection(&sdr_grid[1][1]);
+    //     assert!(intersection.subset(&o[0][0]));
+    //     assert_eq!(o[0][1],CpuSDR::from_slice(&[1, 3, 4, 5, 86, 105, 158, 203, 230, 251, 252, 255]));
+    // }
+    #[test]
+    fn test31() {
+        let mut sdr = CpuSDR::from_slice(&[5, 41, 50, 51, 125, 157, 192, 220, 225, 230, 245, 253]);
+        let votes = CpuSDR::new();
+        sdr.randomly_extend_from(&votes, sdr.len());
+        assert_eq!(sdr,CpuSDR::from_slice(&[5, 41, 50, 51, 125, 157, 192, 220, 225, 230, 245, 253]));
+    }
+    #[test]
+    fn test32() {
+        let o = [5, 41, 50, 51, 125, 157, 192, 220, 225, 230, 245, 253];
+        let mut sdr = CpuSDR::from_slice(&o);
+        let votes = CpuSDR::from_slice(&[34]);
+        sdr.randomly_extend_from(&votes, sdr.len());
+        assert_eq!(sdr.len(),o.len());
+        assert!(sdr.contains(34));
+    }
+    #[test]
+    fn test33() {
+        let o = [5, 41, 50, 51, 125, 157, 192, 220, 225, 230, 245, 253];
+        let mut sdr = CpuSDR::from_slice(&o);
+        let votes = CpuSDR::from_slice(&[0,1,2,3,4,6,7,8,9,10,11,12]);
+        sdr.randomly_extend_from(&votes, sdr.len());
+        assert_eq!(sdr, votes);
+    }
+    #[test]
+    fn test34() {
+        let o = [5, 21, 78, 99, 101, 150, 168, 188, 189, 211, 217, 246];
+        let mut sdr = CpuSDR::from_slice(&o);
+        let votes = CpuSDR::from_slice(&[97]);
+        sdr.randomly_extend_from(&votes, sdr.len());
+        assert_eq!(sdr.len(),o.len());
+        assert!(sdr.contains(97));
+    }
 }
