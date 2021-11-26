@@ -190,8 +190,8 @@ impl CpuBigHTM {
         }
         hyperparams.rand_seed = rand_seed;
         if learn{
-            for (&predicted_minicolumn,&best_segment) in predicted_minicolumns.iter().zip(best_segment_per_minicolumn.iter()) {
-                let mut best_segment = best_segment as usize;
+            for &predicted_minicolumn in predicted_minicolumns.iter() {
+                let mut best_segment = best_segment_per_minicolumn[predicted_minicolumn as usize] as usize;
                 let segments = &mut minicolumns[predicted_minicolumn as usize].segments;
                 if best_segment == u16::MAX as usize{
                     if segments.len() < hyperparams.max_segments_per_minicolumn as usize {

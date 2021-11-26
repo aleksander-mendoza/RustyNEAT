@@ -49,8 +49,6 @@ gabor_threshold = 5
 fov_span = 32
 fov_size = np.array([fov_span * 2, fov_span * 2])
 x, y = 64, 64
-speed = 10
-
 vote_kernel_size = np.array([2, 2])
 vote_kernel_stride = np.array([1, 1])
 vote_num_of_layer1_columns_per_layer2_column = vote_kernel_size.prod()
@@ -59,6 +57,7 @@ image_patch_width, image_patch_height = 16, 16
 image_patch_overlap = 0.25
 image_patch_kernel = np.array([image_patch_height, image_patch_width])
 image_patch_stride = (image_patch_kernel * np.sqrt(image_patch_overlap)).astype(int)
+speed = image_patch_stride[1]
 image_patch_total_size = image_patch_kernel.prod()
 assert (image_patch_kernel <= fov_size).all(), "Kernel is larger than field of view"
 assert ((fov_size - image_patch_kernel) % image_patch_stride == 0).all(), "Stride does not divide field of view evenly"
@@ -81,7 +80,7 @@ sublayer2_total_shape = sublayer2_column_count * layer2_column_size
 layer2_total_shape = layer2_column_count * layer2_column_size
 layer2_total_size = layer2_total_shape.prod()
 sublayer2_total_size = sublayer2_total_shape.prod()
-layer3_size = layer2_total_size * 4
+layer3_size = layer2_total_size # * 4
 layer3_card = int(layer3_size * 0.005)
 layer3_synapse_span = layer2_column_size * 3
 layer2_to_layer3_synapses = int(layer2_total_size * 0.05)
@@ -121,6 +120,7 @@ map_activity.normalize()
 layer2_to_layer3 = htm.CpuDG2_2d((layer2_total_shape[0], layer2_total_shape[1]), layer3_size, layer3_card,
                                  (layer3_synapse_span[0], layer3_synapse_span[1]), layer2_to_layer3_synapses)
 layer3_to_map = htm.CpuBigHTM(layer3_size, map_size, map_card)
+layer3_to_map.activation_threshold = int(10)
 map_to_map = htm.CpuHOM(4, map_size)
 
 
@@ -238,6 +238,7 @@ def run(learn=False, update_map=False):
     time7_layer3 = time.time()
     layer3_sdr = layer2_to_layer3.compute_translation_invariant(layer2_bitset,
                                                                 (layer2_column_size[0], layer2_column_size[1]))
+
     layer3.set_sparse(layer3_sdr)
     # ====== 8. update map  ======
     time8_update_map = time.time()
@@ -301,9 +302,9 @@ def move(event):
         run(learn=True)
     elif event.key == 'u':
         run(learn=True, update_map=True)
+        dump()
     else:
         return
-    dump()
     draw()
 
 

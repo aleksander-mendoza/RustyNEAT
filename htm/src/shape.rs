@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Formatter};
 
+#[derive(Clone)]
 pub struct Shape<const dim:usize>{
     stride: [u32;dim],
     shape: [u32;dim],

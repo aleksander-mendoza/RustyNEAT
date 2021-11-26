@@ -4,10 +4,33 @@ use crate::rand::xorshift32;
 use std::ops::{Deref, DerefMut};
 
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct CpuBitset2d {
     bits: CpuBitset,
     shape: Shape<2>
+}
+
+impl Debug for CpuBitset2d{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut all_bits = String::new();
+        let mut col = 0;
+        let mut row = 0;
+        'outer: for &bits in self.bits.as_slice(){
+            for bit in format!("{:032b}", bits).bytes(){
+                all_bits.push(bit as char);
+                col+=1;
+                if col == self.width(){
+                    col = 0;
+                    row +=1;
+                    if row == self.height(){
+                        break 'outer;
+                    }
+                    all_bits.push('\n');
+                }
+            }
+        }
+        write!(f,"{}", all_bits)
+    }
 }
 
 impl Deref for CpuBitset2d{
@@ -23,6 +46,12 @@ impl DerefMut for CpuBitset2d{
     }
 }
 impl CpuBitset2d {
+    pub fn width(&self)->u32{
+        self.shape.width()
+    }
+    pub fn height(&self)->u32{
+        self.shape.height()
+    }
     pub fn as_bitset(&self)->&CpuBitset{
         &self.bits
     }
