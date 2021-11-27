@@ -14,3 +14,4 @@ ndalgebra = {path="../ndalgebra"}
 num-traits = "0.2.14"
 failure = "0.1.8"
 rand = "0.8.4"
+serde = { version = "1.0.130", features = ["derive"] }
