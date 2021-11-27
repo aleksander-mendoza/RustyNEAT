@@ -1,8 +1,9 @@
 use crate::{CpuSDR, EncoderTarget, CpuBitset2d};
 use std::fmt::{Debug, Formatter};
 use crate::rand::xorshift32;
+use serde::{Serialize, Deserialize};
 
-#[derive( Clone, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct CpuBitset {
     bits: Vec<u32>,
 }

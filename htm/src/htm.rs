@@ -1,6 +1,7 @@
 use ocl::OclPrm;
+use serde::{Serialize, Deserialize};
 
-#[derive(Copy, Clone, Debug, Default, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[repr(C)]
 pub struct HtmFeedforwardConnection {
     pub minicolumn_id: u32,
@@ -10,7 +11,7 @@ pub struct HtmFeedforwardConnection {
 
 unsafe impl OclPrm for HtmFeedforwardConnection{}
 
-#[derive(Copy, Clone, Debug, Default, PartialEq)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, Default, PartialEq)]
 #[repr(C)]
 pub struct HtmInput {
     pub connection_offset: u32,
@@ -19,7 +20,7 @@ pub struct HtmInput {
 
 unsafe impl OclPrm for HtmInput{}
 
-#[derive(Copy, Clone, Debug, Default, PartialEq)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, Default, PartialEq)]
 #[repr(C)]
 pub struct HtmMinicolumn {
     pub connection_index_offset: u32,

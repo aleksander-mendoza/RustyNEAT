@@ -10,8 +10,9 @@ use std::cmp::Ordering;
 use itertools::Itertools;
 use crate::EncoderTarget;
 use crate::rand::xorshift32;
+use serde::{Serialize, Deserialize};
 
-#[derive(Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct HomHyperparams{
     cells_per_minicolumn:u32,
     minicolumn_count:u32,
@@ -71,12 +72,12 @@ impl  HomHyperparams{
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct HomDistalSynapse {
     pub cell_id: u32,
     pub permanence: f32,
 }
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct HomSegment {
     pub synapses: Vec<HomDistalSynapse>,
     pub cell_idx:u8, // cell index within the minicolumn
@@ -139,7 +140,7 @@ impl HomSegment{
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct HomMinicolumn {
     pub segments: Vec<HomSegment>,
 }
@@ -279,7 +280,7 @@ impl HomMinicolumn{
         }
     }
 }
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct CpuHOM {
     pub hyp: HomHyperparams,
     pub minicolumns: Vec<HomMinicolumn>,

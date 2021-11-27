@@ -11,8 +11,9 @@ use itertools::Itertools;
 use crate::{EncoderTarget, CpuBitset, CpuInput};
 use crate::rand::xorshift32;
 use std::collections::HashMap;
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct BigHtmHyperparams {
     pub n: usize,
     pub max_synapses_per_segment: usize,
@@ -41,13 +42,13 @@ impl BigHtmHyperparams {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct BigHtmSynapse {
     pub input_id: u32,
     pub permanence: f32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct BigHtmSegment {
     pub synapses: Vec<BigHtmSynapse>,
 }
@@ -58,13 +59,13 @@ impl BigHtmSegment{
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct BigHtmMinicolumn {
     pub segments: Vec<BigHtmSegment>,
 }
 
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct CpuBigHTM {
     hyperparams: BigHtmHyperparams,
     is_connected: Vec<bool>,

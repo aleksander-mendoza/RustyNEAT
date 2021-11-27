@@ -6,13 +6,14 @@ use crate::htm::*;
 use crate::cpu_input::CpuInput;
 use crate::cpu_bitset::CpuBitset;
 use crate::rand::{xorshift32, rand_u32_to_random_f32};
+use serde::{Serialize, Deserialize};
 
 /***This implementation assumes that most of the time very few minicolumns are connected to at least one active
 input. Hence instead of iterating all minicolumns, it's better to iterate the input and then visit only the connected minicolumns.
 If you are confident that your input is so dense than almost all minicolumns will have at least one active
  connection at any time, then use CpuHTM2. It will visit all minicolumns, without wasting time on determining the
  ones with active connections.*/
-#[derive(Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct CpuHTM {
     feedforward_connections: Vec<HtmFeedforwardConnection>,
     connection_indices: Vec<u32>,

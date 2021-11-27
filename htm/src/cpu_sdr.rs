@@ -8,8 +8,9 @@ use crate::htm_program::HtmProgram;
 use crate::{CpuBitset, EncoderTarget};
 use std::collections::{HashMap, HashSet};
 use std::borrow::Borrow;
+use serde::{Serialize, Deserialize};
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct CpuSDR(Vec<u32>);
 
 impl PartialEq<Vec<u32>> for CpuSDR {

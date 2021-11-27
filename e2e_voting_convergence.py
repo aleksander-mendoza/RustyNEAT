@@ -181,20 +181,19 @@ def run(learn=False):
     cast_votes = htm.vote_conv2d(layer1, layer2_column_card, vote_threshold,
                                  (vote_kernel_stride[0], vote_kernel_stride[1]),
                                  (vote_kernel_size[0], vote_kernel_size[1]))
-    print("votes=", cast_votes)
-    for row in layer1:
-        print("l1=", row)
-    for row in layer2[working_memory_span[0]:-working_memory_span[0]]:
-        print("l2=", row[working_memory_span[0]:-working_memory_span[0]])
+
     assert len(cast_votes) == sublayer2_column_count[0]
     assert len(cast_votes[0]) == sublayer2_column_count[1]
     # ====== 5. update sublayer2 if votes carry enough consensus  ======
     time5_sublayer2 = time.time()
+    updated_votes = [[None for _ in range(sublayer2_column_count[1])] for _ in range(sublayer2_column_count[0])]
     for column_y in range(sublayer2_column_count[0]):
         for column_x in range(sublayer2_column_count[1]):
             new_votes = cast_votes[column_y][column_x]
             prev_activations = layer2[working_memory_span[0] + column_y][working_memory_span[1] + column_x]
+            updated_votes[column_y][column_x] = new_votes.subtract(prev_activations)
             prev_activations.randomly_extend_from(new_votes)
+
     # ====== use layer2 as apical labels for training layer1  ======
     time5_apical_learn = time.time()
     if learn:
@@ -210,19 +209,18 @@ def run(learn=False):
                 layer1_column_activity = layer1[column_y][column_x]
                 sensor_column_activity = sensor_layer[column_y][column_x]
                 spacial_pooler = sensor_to_layer1[column_y][column_x]
-                # TODO: perhaps use layer1_column_activity.intersect(column_apical_feedback) ?
+                # column_apical_feedback = column_apical_feedback.intersection(layer1_column_activity)
                 spacial_pooler.update_permanence(column_apical_feedback, sensor_column_activity)
-    # ====== 6. join all layer2 SDRs into a single bitset  ======
-    time6_join_layer2 = time.time()
-    layer2_bitset.clear()
-    for column_y in range(layer2_column_count[0]):
-        for column_x in range(layer2_column_count[1]):
-            column_y_offset = column_y * layer2_column_size[0]
-            column_x_offset = column_x * layer2_column_size[1]
-            new_activations = layer2[column_y][column_x]
-            layer2_bitset.set_bits_at(column_y_offset, column_x_offset,
-                                      layer2_column_size[0], layer2_column_size[1],
-                                      new_activations)
+        for row in apical_feedback:
+            print("apical=", row)
+    for row in cast_votes:
+        print("votes=", row)
+    for row in updated_votes:
+        print("updated_votes=", row)
+    for row in layer1:
+        print("l1=", row)
+    for row in layer2[working_memory_span[0]:-working_memory_span[0]]:
+        print("l2=", row[working_memory_span[0]:-working_memory_span[0]])
     time9_end = time.time()
     # print("get_sensory_input", time2_encode_sensory_input - time1_get_sensory_input,
     #       "encode_sensory_input", time3_compute_layer1 - time2_encode_sensory_input,
@@ -231,7 +229,6 @@ def run(learn=False):
     #       "sublayer2", time5_apical_learn - time5_sublayer2,
     #       "apical_learn", time6_join_layer2 - time5_apical_learn,
     #       "join_layer2", time9_end - time6_join_layer2)
-
 
 
 fig, axs = plt.subplots(1, 2)

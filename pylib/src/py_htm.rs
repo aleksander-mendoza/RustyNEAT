@@ -22,6 +22,10 @@ use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
 use std::borrow::Borrow;
+use std::io::BufWriter;
+use std::fs::{File, OpenOptions};
+use serde_pickle::SerOptions;
+use serde::Serialize;
 
 #[pyclass]
 pub struct CpuSDR {
@@ -537,6 +541,10 @@ impl CpuHOM {
     fn clone(&self) -> CpuHOM {
         CpuHOM { hom: self.hom.clone() }
     }
+    #[text_signature = "(file)"]
+    pub fn pickle(&mut self, file:String) -> PyResult<()>{
+        pickle(&self.hom,file)
+    }
     #[text_signature = "( /)"]
     fn reset(&mut self) {
         self.hom.reset()
@@ -559,6 +567,10 @@ impl CpuHTM {
             return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} inputs in total", inputs_per_minicolumn, input_size)));
         }
         Ok(CpuHTM { htm: htm::CpuHTM::new_globally_uniform_prob(input_size, minicolumns, n, inputs_per_minicolumn, rand_seed.unwrap_or_else(auto_gen_seed)) })
+    }
+    #[text_signature = "(file)"]
+    pub fn pickle(&mut self, file:String) -> PyResult<()>{
+        pickle(&self.htm,file)
     }
     #[text_signature = "()"]
     fn get_synapses(&self) -> Vec<(u32, f32)> {
@@ -660,6 +672,10 @@ impl CpuBigHTM {
     #[new]
     pub fn new(input_size: u32, minicolumns: u32, n: usize, rand_seed: Option<u32>) -> Self {
         CpuBigHTM { htm: htm::CpuBigHTM::new(input_size, minicolumns, n, rand_seed.unwrap_or_else(auto_gen_seed)) }
+    }
+    #[text_signature = "(file)"]
+    pub fn pickle(&mut self, file:String) -> PyResult<()>{
+        pickle(&self.htm,file)
     }
     #[text_signature = "(minicolumn,segment)"]
     fn get_synapses(&self, minicolumn: usize, segment: usize) -> Vec<(u32, f32)> {
@@ -805,6 +821,10 @@ impl CpuDG2_2d {
         dg.add_globally_uniform_prob(minicolumns, inputs_per_granular_cell, rand_seed.unwrap_or_else(auto_gen_seed));
         Ok(CpuDG2_2d { dg })
     }
+    #[text_signature = "(file)"]
+    pub fn pickle(&mut self, file:String) -> PyResult<()>{
+        pickle(&self.dg,file)
+    }
     #[text_signature = "( /)"]
     fn clone(&self) -> CpuDG2_2d {
         CpuDG2_2d { dg: self.dg.clone() }
@@ -883,6 +903,10 @@ impl CpuHTM2 {
         let mut htm = htm::CpuHTM2::new(input_size, n);
         htm.add_globally_uniform_prob(minicolumns, inputs_per_minicolumn, rand_seed.unwrap_or_else(auto_gen_seed));
         Ok(CpuHTM2 { htm })
+    }
+    #[text_signature = "(file)"]
+    pub fn pickle(&mut self, file:String) -> PyResult<()>{
+        pickle(&self.htm,file)
     }
     #[text_signature = "(permenence)"]
     pub fn set_all_permanences(&mut self, val: f32) {
@@ -1437,7 +1461,15 @@ impl OclSDR {
     }
 }
 
-
+pub fn pickle<T:Serialize>(val:&T, file:String) -> PyResult<()>{
+    let o = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(file)
+        .map_err(|e|PyValueError::new_err(e.to_string()))?;
+    serde_pickle::to_writer(&mut BufWriter::new(o),val,SerOptions::new());
+    Ok(())
+}
 #[pymethods]
 impl CpuSDR {
     #[new]
@@ -1470,7 +1502,10 @@ impl CpuSDR {
         c.sdr.subtract(&other.sdr);
         c
     }
-
+    #[text_signature = "(file)"]
+    pub fn pickle(&mut self, file:String) -> PyResult<()>{
+        pickle(&self.sdr,file)
+    }
     #[text_signature = "(n,range_begin_inclusive,range_end_exclusive)"]
     pub fn add_unique_random(&mut self, n: u32, range_begin: u32, range_end: u32) {
         self.sdr.add_unique_random(n, range_begin..range_end)
@@ -1489,6 +1524,20 @@ impl CpuSDR {
     #[text_signature = "(other_sdr)"]
     pub fn union(&self, other: &CpuSDR) -> CpuSDR {
         CpuSDR { sdr: self.sdr.union(&other.sdr) }
+    }
+    #[text_signature = "(other_sdr)"]
+    pub fn union_<'py>(mut slf: PyRefMut<'py, Self>, other: &CpuSDR) -> PyRefMut<'py, Self> {
+        slf.sdr = slf.sdr.union(&other.sdr);
+        slf
+    }
+    #[text_signature = "(other_sdr)"]
+    pub fn intersection(&self, other: &CpuSDR) -> CpuSDR {
+        CpuSDR { sdr: self.sdr.intersection(&other.sdr) }
+    }
+    #[text_signature = "(other_sdr)"]
+    pub fn intersection_<'py>(mut slf: PyRefMut<'py, Self>, other: &CpuSDR) -> PyRefMut<'py, Self> {
+        slf.sdr = slf.sdr.intersection(&other.sdr);
+        slf
     }
     #[text_signature = "()"]
     pub fn normalize(&mut self) {
@@ -1521,6 +1570,10 @@ impl CpuSDR {
     #[text_signature = "(input_size)"]
     pub fn to_bitset(&self, input_size: u32) -> CpuBitset {
         CpuBitset { bits: htm::CpuBitset::from_sdr(&self.sdr, input_size) }
+    }
+    #[text_signature = "(input_size)"]
+    pub fn to_input(&self, input_size:u32) -> CpuInput {
+        CpuInput { inp: htm::CpuInput::from_sparse(self.sdr.clone(),input_size) }
     }
     #[text_signature = "()"]
     pub fn clone(&self) -> Self {
@@ -1624,6 +1677,10 @@ impl CpuBitset2d {
     fn clone(&self) -> CpuBitset2d {
         CpuBitset2d { bits: self.bits.clone() }
     }
+    #[text_signature = "(file)"]
+    pub fn pickle(&mut self, file:String) -> PyResult<()>{
+        pickle(&self.bits,file)
+    }
     #[new]
     pub fn new(height: u32, width: u32, bitset: Option<&CpuBitset>) -> Self {
         let bits = if let Some(b) = bitset {
@@ -1721,7 +1778,10 @@ impl CpuBitset {
     pub fn size(&self) -> u32 {
         self.bits.size()
     }
-
+    #[text_signature = "(file)"]
+    pub fn pickle(&mut self, file:String) -> PyResult<()>{
+        pickle(&self.bits,file)
+    }
     #[text_signature = "(bitset)"]
     pub fn overlap(&self, bitset: PyObject) -> PyResult<u32> {
         encode_err(bitset, ()
@@ -1781,6 +1841,10 @@ impl CpuBitset {
     pub fn to_sdr(&self) -> CpuSDR {
         CpuSDR { sdr: htm::CpuSDR::from(&self.bits) }
     }
+    #[text_signature = "()"]
+    pub fn to_input(&self) -> CpuInput {
+        CpuInput { inp: htm::CpuInput::from_dense(self.bits.clone()) }
+    }
 }
 
 #[pymethods]
@@ -1792,6 +1856,10 @@ impl CpuInput {
     #[getter]
     pub fn size(&self) -> u32 {
         self.inp.size()
+    }
+    #[text_signature = "(file)"]
+    pub fn pickle(&mut self, file:String) -> PyResult<()>{
+        pickle(&self.inp,file)
     }
     #[getter]
     pub fn cardinality(&self) -> u32 {

@@ -3,11 +3,12 @@ use std::fmt::{Debug, Formatter};
 use crate::rand::xorshift32;
 use std::ops::{Deref, DerefMut};
 
+use serde::{Serialize, Deserialize};
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct CpuBitset2d {
     bits: CpuBitset,
-    shape: Shape<2>
+    shape: Shape
 }
 
 impl Debug for CpuBitset2d{
@@ -61,7 +62,7 @@ impl CpuBitset2d {
     pub fn new(bits: CpuBitset, height:u32,width:u32)->Self{
         Self{bits,shape:Shape::new(height,width)}
     }
-    pub fn shape(&self)->&Shape<2>{
+    pub fn shape(&self)->&Shape{
         &self.shape
     }
     pub fn is_bit_at(&self, y:u32,x:u32)->bool{

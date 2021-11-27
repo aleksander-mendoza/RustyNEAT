@@ -12,13 +12,14 @@ use crate::rand::{xorshift32, rand_u32_to_random_f32};
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use crate::cpu_bitset2d::CpuBitset2d;
+use serde::{Serialize, Deserialize};
 
 /***This implementation assumes that most of the time  vast majority of minicolumns are connected to at least one active
 input. Hence instead of iterating the input and then visiting only connected minicolumns, it's better to just iterate all
 minicolumns. If you are confident that your input is so sparse than only a sparse number of minicolumns
 sees some active connections at any time, then use CpuHTM. It will only visit those minicolumns that are connected
 to some active input.*/
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct CpuDG2<Coord: Copy> {
     feedforward_connections: Vec<Coord>,
     minicolumns: Vec<DgMinicolumn2>,

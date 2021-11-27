@@ -21,6 +21,8 @@ numpy = "0.13"
 ndalgebra = {path="../ndalgebra"}
 htm = {path="../htm"}
 chrono = "0.4.19"
+serde = "1.0.130"
+serde-pickle = "1.1.0"
 
 [dependencies.pyo3]
 version = "0.13.2"
