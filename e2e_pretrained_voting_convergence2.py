@@ -240,8 +240,8 @@ def train():
                 column_x_l = column_x_r + 1
                 cast_votes_in_column_l = cast_votes_l[column_y_l][column_x_l]
                 cast_votes_in_column_r = cast_votes_r[column_y_r][column_x_r]
-                layer1_column_activity_l = layer1_l[column_y_l][column_x_l]
-                layer1_column_activity_r = layer1_r[column_y_r][column_x_r]
+                layer1_column_activity_l = layer1_l[column_y_l*2][column_x_l*2]
+                layer1_column_activity_r = layer1_r[column_y_r*2][column_x_r*2]
                 layer1_column_cast_votes_overlap += cast_votes_in_column_l.overlap(cast_votes_in_column_r)
                 layer1_column_activity_overlap += layer1_column_activity_l.overlap(layer1_column_activity_r)
                 layer1_column_activity_max_overlap += layer1_column_activity_l.cardinality
