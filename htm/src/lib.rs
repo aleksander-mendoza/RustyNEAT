@@ -29,6 +29,7 @@ mod cpu_bitset2d;
 mod shape;
 mod cpu_big_htm;
 mod ocl_dg2;
+mod cpu_bitset3d;
 
 pub use cpu_big_htm::*;
 pub use crate::rnd::auto_gen_seed;
@@ -79,6 +80,7 @@ mod tests {
     use crate::encoder::{EncoderBuilder, Encoder};
     use crate::rnd::xorshift32;
     use crate::cpu_htm3::CpuHTM3;
+    use crate::cpu_bitset3d::CpuBitset3d;
 
     #[test]
     fn test1() -> Result<(), String> {
@@ -653,7 +655,7 @@ mod tests {
     #[test]
     fn test23() {
         let sdr_grid = [[CpuSDR::from_slice(&[1,2,3])]];
-        let o = CpuSDR::vote_conv2d_arr(4,0,(1,1),(1,1),(1,1),&sdr_grid);
+        let o = CpuSDR::vote_conv2d_arr(4,0,[1,1],[1,1],[1,1],&sdr_grid);
         assert_eq!(o[0][0],sdr_grid[0][0])
     }
     #[test]
@@ -668,7 +670,7 @@ mod tests {
                 CpuSDR::from_slice(&[1,2,3])
             ]
         ];
-        let o = CpuSDR::vote_conv2d_arr(4,0,(1,1),(2,2),(2,2),&sdr_grid);
+        let o = CpuSDR::vote_conv2d_arr(4,0,[1,1],[2,2],[2,2],&sdr_grid);
         assert_eq!(o.len(),1);
         assert_eq!(o[0].len(),1);
         assert_eq!(o[0][0],sdr_grid[0][0])
@@ -685,7 +687,7 @@ mod tests {
                 CpuSDR::from_slice(&[1,4,3])
             ]
         ];
-        let o = CpuSDR::vote_conv2d_arr(2,0,(1,1),(2,2),(2,2),&sdr_grid);
+        let o = CpuSDR::vote_conv2d_arr(2,0,[1,1],[2,2],[2,2],&sdr_grid);
         assert_eq!(o.len(),1);
         assert_eq!(o[0].len(),1);
         assert_eq!(o[0][0],CpuSDR::from_slice(&[2,3]))
@@ -696,7 +698,7 @@ mod tests {
                 CpuSDR::from_slice(&[1,2,3]), CpuSDR::from_slice(&[0,2,3]), CpuSDR::from_slice(&[0,2,4]), ], [
                 CpuSDR::from_slice(&[0,2,3]), CpuSDR::from_slice(&[1,4,3]), CpuSDR::from_slice(&[1,4,3]), ]
         ];
-        let o = CpuSDR::vote_conv2d_arr(2,0,(1,1),(2,2),(2,3),&sdr_grid);
+        let o = CpuSDR::vote_conv2d_arr(2,0,[1,1],[2,2],[2,3],&sdr_grid);
         assert_eq!(o.len(),1);
         assert_eq!(o[0].len(),2);
         assert_eq!(o[0][0],CpuSDR::from_slice(&[2,3]));
@@ -731,7 +733,7 @@ mod tests {
             CpuSDR::from_slice(&[0]), CpuSDR::from_slice(&[1]), CpuSDR::from_slice(&[2]), ], [
             CpuSDR::from_slice(&[3]), CpuSDR::from_slice(&[4]), CpuSDR::from_slice(&[5]), ]
         ];
-        let o = CpuSDR::vote_conv2d_transpose_arr((1,1),(2,2),(3,4),&|out0,out1|&sdr_grid[out0 as usize][out1 as usize]);
+        let o = CpuSDR::vote_conv2d_transpose_arr([1,1],[2,2],[3,4],&|out0,out1|&sdr_grid[out0 as usize][out1 as usize]);
         assert_eq!(o.len(),3);
         assert_eq!(o[0].len(),4);
         assert_eq!(o[0][0],CpuSDR::from_slice(&[0]));
@@ -820,6 +822,46 @@ mod tests {
             assert!(a1.cardinality() > 0);
             assert!(a1.cardinality() <= dg.n);
             assert_eq!(a1,a2);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test36() -> Result<(),String>{
+        let c = Context::default()?;
+        let p = HtmProgram::new(c.clone())?;
+        let i = [2u32,32,32];
+        let n = 4;
+        let rand_seed = 42354;
+        let mut htm = CpuHTM2::new(i.size(), n);
+        let stride = [4,4];
+        let kernel = [4,4];
+        let mini_per_col = 16;
+        let inp_per_mini = 10;
+        let columns = [i.height(),i.width()].conv_out_size(stride,kernel);
+        htm.add_2d_column_grid_with_3d_input(mini_per_col, inp_per_mini,stride ,kernel,i,rand_seed);
+        let mut rand_seed = rand_seed;
+        let mut htms:Vec<CpuHTM2> = (0..columns.size()).map(|_| CpuHTM2::new(i.size(), n)).collect();
+        for y in 0..columns[0]{
+            for x in 0..columns[1]{
+                let h= &mut htms[columns.index(y,x) as usize];
+                rand_seed = h.add_column_with_3d_input(mini_per_col,inp_per_mini,[0,y*stride[0],x*stride[1]],[i[0],kernel[0],kernel[1]],i,rand_seed);
+            }
+        }
+
+        for trial in 0..8{
+            let mut b = CpuBitset::rand(i.size(),4553466+432*trial);
+            let mut a1 = htm.compute_and_group_into_columns(mini_per_col as usize,&b);
+            let a2:Vec<CpuSDR> = htms.iter_mut().map(|htm|htm.compute(&b)).collect();
+            let mut joined = CpuSDR::new();
+            for (k,a) in a2.iter().enumerate(){
+                assert_eq!(a.len(),n as usize);
+                assert!(a.is_normalized());
+                joined.extend_from_iter(a.as_slice().iter().map(|i|i+mini_per_col*k as u32));
+                assert!(joined.is_normalized(), "joined={:?} a={:?}",joined,a);
+            }
+            a1.sort();
+            assert_eq!(a1,joined);
         }
         Ok(())
     }

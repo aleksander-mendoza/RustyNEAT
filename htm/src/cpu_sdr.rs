@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter, Debug};
 use ocl::core::{MemInfo, MemInfoResult, BufferRegion, Mem, ArgVal};
 use ndalgebra::buffer::Buffer;
 use crate::htm_program::HtmProgram;
-use crate::{CpuBitset, EncoderTarget};
+use crate::{CpuBitset, EncoderTarget, Shape};
 use std::collections::{HashMap, HashSet};
 use std::borrow::Borrow;
 use serde::{Serialize, Deserialize};
@@ -149,6 +149,9 @@ impl CpuSDR {
     pub fn extend(&mut self, other: &CpuSDR) {
         self.0.extend_from_slice(other)
     }
+    pub fn extend_from_iter(&mut self, other: impl IntoIterator<Item = u32>) {
+        self.0.extend(other)
+    }
     pub fn extend_from_slice(&mut self, other: &[u32]) {
         self.0.extend_from_slice(other)
     }
@@ -268,15 +271,15 @@ impl CpuSDR {
     }
     /**Iterates over all lower-level columns. For each one looks up all the connected higher-level columns and takes the union of their activities.
     This union could then be used for training the lower-level columns. The function returns a 2d array of such unions.*/
-    pub fn vote_conv2d_transpose_arr<'a>(stride: (u32, u32), kernel_size: (u32, u32), grid_size: (u32, u32), output_sdr_grid: &'a impl Fn(u32, u32) -> &'a CpuSDR)->Vec<Vec<CpuSDR>> {
-        let out_grid_size = Self::vote_conv2d_out_size(stride, kernel_size, grid_size);
-        let mut apical_feedback_input_grid:Vec<Vec<CpuSDR>> = (0..grid_size.0).map(|_|(0..grid_size.1).map(|_|CpuSDR::new()).collect()).collect();
-        for out0 in 0..out_grid_size.0 {
-            for out1 in 0..out_grid_size.1 {
+    pub fn vote_conv2d_transpose_arr<'a>(stride: [u32;2], kernel_size: [u32;2], grid_size: [u32;2], output_sdr_grid: &'a impl Fn(u32, u32) -> &'a CpuSDR)->Vec<Vec<CpuSDR>> {
+        let out_grid_size = grid_size.conv_out_size(stride, kernel_size);
+        let mut apical_feedback_input_grid:Vec<Vec<CpuSDR>> = (0..grid_size[0]).map(|_|(0..grid_size[1]).map(|_|CpuSDR::new()).collect()).collect();
+        for out0 in 0..out_grid_size[0] {
+            for out1 in 0..out_grid_size[1] {
                 let out_sdr:&CpuSDR = output_sdr_grid(out0, out1);
-                let in_begin = (out0 * stride.0, out1 * stride.1);
-                for in0 in in_begin.0..in_begin.0 + kernel_size.0{
-                    for in1 in in_begin.1..in_begin.1 + kernel_size.1{
+                let in_begin = (out0 * stride[0], out1 * stride[1]);
+                for in0 in in_begin.0..in_begin.0 + kernel_size[0]{
+                    for in1 in in_begin.1..in_begin.1 + kernel_size[1]{
                         let union_sdr = &mut apical_feedback_input_grid[in0 as usize][in1 as usize];
                         let mut new_union = union_sdr.union(out_sdr);
                         std::mem::swap(&mut new_union,union_sdr);
@@ -286,21 +289,15 @@ impl CpuSDR {
         }
         apical_feedback_input_grid
     }
-    pub fn vote_conv2d_out_size(stride: (u32, u32), kernel_size: (u32, u32), grid_size: (u32, u32)) -> (u32, u32) {
-        assert!(kernel_size.0<=grid_size.0 && kernel_size.1<=grid_size.1,"Kernel size {:?} is larger than the grid {:?} of voting columns",kernel_size,grid_size);
-        let out_grid_size = (grid_size.0 - kernel_size.0, grid_size.1 - kernel_size.1);
-        assert!(out_grid_size.0%stride.0==0 && out_grid_size.1%stride.1==0,"Convolution stride {:?} does not evenly divide the grid {:?} of voting columns",stride,grid_size);
-        (out_grid_size.0 / stride.0 + 1, out_grid_size.1 / stride.1 + 1)
 
-    }
-    pub fn vote_conv2d_arr<T: Borrow<CpuSDR>>(n: usize, threshold: u32, stride: (u32, u32), kernel_size: (u32, u32), grid_size: (u32, u32), input_sdr_grid: &[impl AsRef<[T]>]) -> Vec<Vec<CpuSDR>> {
+    pub fn vote_conv2d_arr<T: Borrow<CpuSDR>>(n: usize, threshold: u32, stride: [u32;2], kernel_size: [u32;2], grid_size: [u32;2], input_sdr_grid: &[impl AsRef<[T]>]) -> Vec<Vec<CpuSDR>> {
         Self::vote_conv2d_arr_with(n, threshold, stride, kernel_size, grid_size, &|c0, c1| input_sdr_grid[c0 as usize].as_ref()[c1 as usize].borrow(), |a| a)
     }
-    pub fn vote_conv2d_arr_with<'a, O>(n: usize, threshold: u32, stride: (u32, u32), kernel_size: (u32, u32), grid_size: (u32, u32), input_sdr_grid: &'a impl Fn(u32, u32) -> &'a CpuSDR, out_sdr: impl Fn(CpuSDR) -> O) -> Vec<Vec<O>> {
-        let out_grid_size = Self::vote_conv2d_out_size(stride, kernel_size, grid_size);
-        let mut out_grid: Vec<Vec<O>> = (0..out_grid_size.0).map(|_| {
-            let mut v = Vec::with_capacity(out_grid_size.1 as usize);
-            unsafe { v.set_len(out_grid_size.1 as usize) }
+    pub fn vote_conv2d_arr_with<'a, O>(n: usize, threshold: u32, stride: [u32;2], kernel_size: [u32;2], grid_size: [u32;2], input_sdr_grid: &'a impl Fn(u32, u32) -> &'a CpuSDR, out_sdr: impl Fn(CpuSDR) -> O) -> Vec<Vec<O>> {
+        let out_grid_size = grid_size.conv_out_size(stride, kernel_size);
+        let mut out_grid: Vec<Vec<O>> = (0..out_grid_size[0]).map(|_| {
+            let mut v = Vec::with_capacity(out_grid_size[1] as usize);
+            unsafe { v.set_len(out_grid_size[1] as usize) }
             v
         }).collect();
         Self::vote_conv2d(n, threshold, stride, kernel_size, grid_size, input_sdr_grid, |c0, c1, sdr| {
@@ -310,12 +307,12 @@ impl CpuSDR {
         });
         out_grid
     }
-    pub fn vote_conv2d<'a>(n: usize, threshold: u32, stride: (u32, u32), kernel_size: (u32, u32), grid_size: (u32, u32), input_sdr_grid: &'a impl Fn(u32, u32) -> &'a CpuSDR, mut output_sdr_grid: impl FnMut(u32, u32, CpuSDR)) {
-        let out_grid_size = Self::vote_conv2d_out_size(stride, kernel_size, grid_size);
-        for out0 in 0..out_grid_size.0 {
-            for out1 in 0..out_grid_size.1 {
-                let in_begin = (out0 * stride.0, out1 * stride.1);
-                let sdr = Self::vote_over_iter((in_begin.0..in_begin.0 + kernel_size.0).flat_map(|in0| (in_begin.1..in_begin.1 + kernel_size.1).map(move |in1| input_sdr_grid(in0, in1))), n, threshold);
+    pub fn vote_conv2d<'a>(n: usize, threshold: u32, stride: [u32;2], kernel_size: [u32;2], grid_size: [u32;2], input_sdr_grid: &'a impl Fn(u32, u32) -> &'a CpuSDR, mut output_sdr_grid: impl FnMut(u32, u32, CpuSDR)) {
+        let out_grid_size = grid_size.conv_out_size(stride, kernel_size);
+        for out0 in 0..out_grid_size[0] {
+            for out1 in 0..out_grid_size[1] {
+                let in_begin = stride.mul([out0, out1]);
+                let sdr = Self::vote_over_iter((in_begin[0]..in_begin[0] + kernel_size[0]).flat_map(|in0| (in_begin[1]..in_begin[1] + kernel_size[1]).map(move |in1| input_sdr_grid(in0, in1))), n, threshold);
                 output_sdr_grid(out0, out1, sdr);
             }
         }

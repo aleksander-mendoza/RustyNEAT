@@ -111,7 +111,20 @@ impl CpuBitset {
             rand_seed
         }).collect()}
     }
+    pub fn rand_of_cardinality(bit_count: u32, cardinality:u32,mut rand_seed:u32) -> Self {
+        let mut slf = Self::new(bit_count);
+        slf.set_bits_on_rand(0,bit_count,cardinality,rand_seed);
+        slf
+    }
 
+    pub fn set_bits_on_rand(&mut self,from:u32,to:u32,bit_count: u32, mut rand_seed:u32) -> u32 {
+        let len = to-from;
+        for _ in 0..bit_count{
+            rand_seed = xorshift32(rand_seed);
+            self.set_bit_on(from + rand_seed%len);
+        }
+        rand_seed
+    }
 
     pub fn set_bits_on(&mut self, sdr: &[u32]) {
         for &index in sdr.iter() {
