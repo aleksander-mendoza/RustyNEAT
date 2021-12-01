@@ -18,7 +18,7 @@ impl OclBitset {
     pub fn queue(&self)->&Queue{
         &self.prog.queue()
     }
-    pub fn input_size(&self)->usize{
+    pub fn size(&self) ->usize{
         self.bits.len()*32
     }
     pub fn to_cpu(&self)->Result<CpuBitset,Error>{
@@ -56,6 +56,15 @@ impl OclBitset {
             add_buff(bits)?.// __global uint * bitset_input
             enq(self.prog.queue(),&[sdr.cardinality() as usize,1,1]).
             map_err(Error::from)
+    }
+    pub fn clear_all(&mut self) -> Result<(), Error> {
+        let Self{ prog, bits } = self;
+        bits.fill(prog.queue(),0)
+    }
+    pub fn copy_from(&mut self, bitset:&CpuBitset) -> Result<(), Error> {
+        assert_eq!(bitset.size(),self.size() as u32);
+        let Self{ prog, bits } = self;
+        bits.write(prog.queue(),0,bitset.as_slice())
     }
 
 }

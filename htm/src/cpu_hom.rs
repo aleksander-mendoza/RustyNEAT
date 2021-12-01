@@ -9,7 +9,7 @@ use ndalgebra::buffer::Buffer;
 use std::cmp::Ordering;
 use itertools::Itertools;
 use crate::EncoderTarget;
-use crate::rand::xorshift32;
+use crate::rnd::xorshift32;
 use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

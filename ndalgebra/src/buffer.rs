@@ -9,6 +9,7 @@ use ocl::{Context, Queue, FutureMemMap, MemMap, Event, RwVec, FutureReadGuard, F
 use ocl::error::{Error as OclError, Result as OclResult};
 use ocl::builders::{ClWaitListPtrEnum, ClNullEventPtrEnum};
 use std::any::TypeId;
+use std::mem::MaybeUninit;
 
 
 /// A chunk of memory physically located on a device, such as a GPU.
@@ -56,7 +57,13 @@ impl<T: OclPrm> Buffer<T> {
             ocl::core::enqueue_read_buffer(&queue, &self.obj_core, true, offset, dst, None::<core::Event>, None::<&mut core::Event>)
         }.map_err(OclError::from)
     }
-
+    pub fn get(&self, queue:&Queue, index:usize)->Result<T,OclError>{
+        assert!(index<self.len());
+        let mut element= unsafe{MaybeUninit::uninit().assume_init()};
+        let mut_ref = std::slice::from_mut(&mut element);
+        self.read(queue,index,mut_ref)?;
+        Ok(element)
+    }
     pub fn write(&self, queue:&Queue, offset:usize, data:&[T]) -> Result<(),OclError>{
         if offset+data.len() > self.len(){
             return Err(OclError::from(format!("Buffer has length {} is less that data length {} plus offset {}",self.len(),data.len(),offset)));

@@ -5,7 +5,7 @@ use crate::cpu_sdr::CpuSDR;
 use crate::htm::*;
 use crate::cpu_input::CpuInput;
 use crate::cpu_bitset::CpuBitset;
-use crate::rand::{xorshift32, rand_u32_to_random_f32};
+use crate::rnd::{xorshift32, rand_u32_to_random_f32};
 use serde::{Serialize, Deserialize};
 
 /***This implementation assumes that most of the time very few minicolumns are connected to at least one active

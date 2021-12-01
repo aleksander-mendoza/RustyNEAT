@@ -100,8 +100,7 @@ impl OclHTM2{
         let top_n_minicolumns = unsafe{self.prog.buffer_empty(MemFlags::READ_WRITE,self.n as usize)?};
         let current_top_n_minicolumn_idx = self.prog.buffer_filled(MemFlags::READ_WRITE,1,0)?;
         self.htm_find_top_minicolumns(&number_of_minicolumns_per_overlap, smallest_overlap_that_made_it_to_top_n, &top_n_minicolumns, &current_top_n_minicolumn_idx);
-        let mut top_minicolumn_count = 0;
-        current_top_n_minicolumn_idx.read(self.prog.queue(),0,&mut [top_minicolumn_count])?;
+        let top_minicolumn_count = current_top_n_minicolumn_idx.get(self.prog.queue(),0)?;
         if learn {
             self.htm_update_permanence(&top_n_minicolumns,bitset_input, top_minicolumn_count)?
         }

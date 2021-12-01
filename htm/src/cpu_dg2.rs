@@ -8,11 +8,12 @@ use crate::htm_program::HtmProgram;
 use ndalgebra::buffer::Buffer;
 use crate::dg2::*;
 use crate::cpu_bitset::CpuBitset;
-use crate::rand::{xorshift32, rand_u32_to_random_f32};
+use crate::rnd::{xorshift32, rand_u32_to_random_f32};
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use crate::cpu_bitset2d::CpuBitset2d;
 use serde::{Serialize, Deserialize};
+use crate::DgCoord2d;
 
 /***This implementation assumes that most of the time  vast majority of minicolumns are connected to at least one active
 input. Hence instead of iterating the input and then visiting only connected minicolumns, it's better to just iterate all
@@ -151,19 +152,15 @@ impl<Coord: Copy> CpuDG2<Coord> {
     }
 }
 
-impl CpuDG2<(u32, u32)> {
-    pub fn new_2d(input_size: (u32, u32), span: (u32, u32), n: u32) -> Self {
-        let (input_h, input_w) = input_size;
-        let (span_h, span_w) = span;
-        assert!(span_w <= input_w, "Span has width {} but total input is of width {}", span_w, input_w);
-        assert!(span_h <= input_h, "Span has height  {} but total input is of height {}", span_h, input_h);
+impl CpuDG2<DgCoord2d> {
+    pub fn new_2d(input_size: DgCoord2d, span: DgCoord2d, n: u32) -> Self {
+        assert!(span.x <= input_size.x, "Span has width {} but total input is of width {}", span.x, input_size.x);
+        assert!(span.y <= input_size.y, "Span has height  {} but total input is of height {}", span.y, input_size.y);
         Self::new(input_size, span, n)
     }
     pub fn compute_translation_invariant(&mut self, bitset_input: &CpuBitset2d, stride: (u32, u32)) -> CpuSDR {
-        let (input_h, input_w) = self.input_size;
-        let (input_h, input_w) = (input_h as i32, input_w as i32);
-        let (span_h, span_w) = self.span;
-        let (span_h, span_w) = (span_h as i32, span_w as i32);
+        let (input_h, input_w) = (self.input_size.y as i32, self.input_size.x as i32);
+        let (span_h, span_w) = (self.span.y as i32, self.span.x as i32);
         assert!(bitset_input.size() as i32 >= input_w * input_h, "Expected input of size {}x{}={} but bitset has length {}", input_w, input_h, input_w * input_h, bitset_input.size());
         let (s_y, s_x) = stride;
         let (s_y, s_x) = (s_y as i32, s_x as i32);
@@ -172,7 +169,7 @@ impl CpuDG2<(u32, u32)> {
             for offset_x in (s_x-span_w..input_w).step_by(s_x as usize) {
                 for offset_y in (s_y-span_h..input_h).step_by(s_y as usize) {
                     let mut overlap = 0;
-                    for &(x, y) in coords {
+                    for &DgCoord2d{x, y} in coords {
                         let y = offset_y + y as i32;
                         let x = offset_x + x as i32;
                         if 0 <= y && y < input_h && 0 <= x && x < input_w && bitset_input.is_bit_at(y as u32, x as u32) {
@@ -188,10 +185,10 @@ impl CpuDG2<(u32, u32)> {
         })
     }
     pub fn add_globally_uniform_prob(&mut self, minicolumns: u32, inputs_per_granular_cell: u32, mut rand_seed: u32) {
-        let (input_h, input_w) = self.input_size;
-        let (span_h, span_w) = self.span;
+        let DgCoord2d{y:input_h, x:input_w} = self.input_size;
+        let DgCoord2d{y:span_h, x:span_w} = self.span;
         assert!(inputs_per_granular_cell <= span_w * span_h, "Column can't have {} inputs if there are only {} inputs in span of {}x{}", inputs_per_granular_cell, span_w * span_h, span_w, span_h);
-        let mut set = HashSet::<(u32, u32)>::new();
+        let mut set = HashSet::<DgCoord2d>::new();
         let mut prev_minicolumn_id = u32::MAX;
         self.add_minicolumns(minicolumns, |minicolumn_id| {
             if minicolumn_id != prev_minicolumn_id {
@@ -202,17 +199,17 @@ impl CpuDG2<(u32, u32)> {
             let mut x = rand_seed % span_w;
             rand_seed = xorshift32(rand_seed);
             let mut y = rand_seed % span_h;
-            while !set.insert((y, x)) {
+            while !set.insert(DgCoord2d::new_yx(y, x)) {
                 x = (x + 1) % span_w;
                 if x == 0 {
                     y = (y + 1) % span_h;
                 }
             }
-            (y, x)
+            DgCoord2d::new_yx(y, x)
         }, |minicolumn_id| inputs_per_granular_cell)
     }
     pub fn make_bitset(&self) -> CpuBitset2d {
-        let (h, w) = self.input_size;
+        let DgCoord2d{y:h, x:w} = self.input_size;
         CpuBitset2d::new(CpuBitset::new(w * h), h, w)
     }
 }
@@ -223,22 +220,22 @@ mod tests {
 
     #[test]
     fn test1() {
-        let mut dg = CpuDG2::new_2d((8, 8), (4, 4), 8);
+        let mut dg = CpuDG2::new_2d(DgCoord2d::new_yx(32, 32), DgCoord2d::new_yx(4, 4), 8);
         dg.add_globally_uniform_prob(64, 8, 42354);
         let mut b = dg.make_bitset();
         fn set_pattern(b: &mut CpuBitset2d, offset_x: u32, offset_y: u32) {
-            b.set_bit_at(0, 1);
-            b.set_bit_at(0, 3);
-            b.set_bit_at(0, 6);
-            b.set_bit_at(1, 0);
-            b.set_bit_at(1, 2);
-            b.set_bit_at(1, 6);
-            b.set_bit_at(6, 0);
-            b.set_bit_at(6, 5);
-            b.set_bit_at(6, 6);
+            b.set_bit_at(offset_y+0, offset_x+1);
+            b.set_bit_at(offset_y+0, offset_x+3);
+            b.set_bit_at(offset_y+0, offset_x+6);
+            b.set_bit_at(offset_y+1, offset_x+0);
+            b.set_bit_at(offset_y+1, offset_x+2);
+            b.set_bit_at(offset_y+1, offset_x+6);
+            b.set_bit_at(offset_y+6, offset_x+0);
+            b.set_bit_at(offset_y+6, offset_x+5);
+            b.set_bit_at(offset_y+6, offset_x+6);
         }
         set_pattern(&mut b, 10, 10);
-        assert!(dg.n < dg.input_size.0 * dg.input_size.1);
+        assert!(dg.n < dg.input_size.y * dg.input_size.x);
         let a1 = dg.compute_translation_invariant(&b, (1, 1));
         assert!(a1.cardinality() > 0);
         assert!(a1.cardinality() <= dg.n);

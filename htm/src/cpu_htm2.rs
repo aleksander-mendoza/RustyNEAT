@@ -9,7 +9,7 @@ use ndalgebra::buffer::Buffer;
 use crate::htm2::*;
 use crate::cpu_htm::CpuHTM;
 use crate::cpu_bitset::CpuBitset;
-use crate::rand::{xorshift32, rand_u32_to_random_f32};
+use crate::rnd::{xorshift32, rand_u32_to_random_f32};
 use std::cmp::Ordering;
 use serde::{Serialize, Deserialize};
 

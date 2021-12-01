@@ -56,7 +56,7 @@ impl OclSDR {
             add_buff(&cardinality_buffer)?. //__global uint * sdr_cardinality
             add_buff(buffer)?. // __global uint * sdr_input
             add_buff(bits.buffer())?. //__global uint * bitset_input
-            enq(prog.queue(),&[bits.input_size(),1,1]).
+            enq(prog.queue(),&[bits.size(),1,1]).
             map_err(Error::from)?;
         cardinality_buffer.read(prog.queue(),0,std::slice::from_mut(cardinality))?;
         Ok(())

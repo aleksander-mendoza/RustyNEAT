@@ -1,6 +1,6 @@
 use crate::{CpuSDR, EncoderTarget, CpuBitset2d};
 use std::fmt::{Debug, Formatter};
-use crate::rand::xorshift32;
+use crate::rnd::xorshift32;
 use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize, Clone, Eq, PartialEq)]

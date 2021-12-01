@@ -7,8 +7,14 @@
 //////////////////////////////////////////////////////////////////////////////////////////
 bool is_input_active(__global uint * inputs, uint input_id);
 
+bool is_input_active_at(__global uint * inputs, uint input_y, uint input_x, uint input_w);
+
 bool is_input_active(__global uint * inputs, uint input_id){
     return ( inputs[input_id>>5] & (2147483648 >> (input_id & 31)) ) != 0;
+}
+
+bool is_input_active_at(__global uint * inputs, uint input_y, uint input_x, uint input_w){
+    return is_input_active(inputs, input_y*input_w+input_x);
 }
 
 __kernel void bitset_to_sdr(
@@ -269,15 +275,74 @@ __kernel void htm_update_permanence2(
 
 
 
-
-
-
-
 //////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////
-////// HTM3
+////// DG2
 //////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////
 
 
+typedef struct _DgMinicolumn2{
+    uint connection_offset;
+    uint connection_len;
+    uint overlap;
+} DgMinicolumn2;
 
+typedef struct _DgCoord2d{
+    uint y;
+    uint x;
+} DgCoord2d;
+
+__kernel void dg_calculate_overlap2(
+                  int input_h,
+                  int input_w,
+                  int span_h,
+                  int span_w,
+                  int stride_y,
+                  int stride_x,
+                  __global DgMinicolumn2 * minicolumns,
+                  __global uint * bitset_input,
+                  __global DgCoord2d * feedforward_connections,
+                  __global int * number_of_minicolumns_per_overlap
+){
+    const size_t minicolumn_idx = get_global_id(0);
+    const uint connection_offset = minicolumns[minicolumn_idx].connection_offset;
+    const uint connection_len = minicolumns[minicolumn_idx].connection_len;
+    uint max_overlap = 0;
+    for(int offset_x=stride_x-span_w; offset_x<input_w; offset_x+=stride_x) {
+        for(int offset_y = stride_y-span_h; offset_y<input_h; offset_y+=stride_y) {
+            uint overlap = 0;
+            for(uint feedforward_connection_idx = connection_offset;feedforward_connection_idx<connection_offset+connection_len;feedforward_connection_idx++){
+                const DgCoord2d coord = feedforward_connections[feedforward_connection_idx];
+                const int y = offset_y + (int)coord.y;
+                const int x = offset_x + (int)coord.x;
+                if(0 <= y && y < input_h && 0 <= x && x < input_w){
+                    overlap += (uint)is_input_active_at(bitset_input, y, x, input_w);
+                }
+            }
+            if(overlap > max_overlap){
+                max_overlap = overlap;
+            }
+        }
+    }
+    if(max_overlap > 0){
+        atomic_add(&number_of_minicolumns_per_overlap[max_overlap], 1);
+    }
+    minicolumns[minicolumn_idx].overlap = max_overlap;
+}
+
+__kernel void dg_find_top_minicolumns2(
+                  __global DgMinicolumn2  * minicolumns,
+                  __global int * number_of_minicolumns_per_overlap_that_made_it_to_top_n,
+                  uint smallest_overlap_that_made_it_to_top_n,
+                  __global uint * top_n_minicolumns,
+                  __global uint * current_top_n_minicolumn_idx // precodntion: equals 0 ; postcondition: less than or equal n
+){
+    const size_t minicolumn_idx = get_global_id(0);
+    const int overlap = minicolumns[minicolumn_idx].overlap;
+    if(overlap>=(int)smallest_overlap_that_made_it_to_top_n){ // the array number_of_minicolumns_per_overlap_that_made_it_to_top_n holds rubbish for any overlap lower than smallest_overlap_that_made_it_to_top_n
+        if(atomic_add(&number_of_minicolumns_per_overlap_that_made_it_to_top_n[overlap],-1)>0){ // only add those columns that made it to top n
+            top_n_minicolumns[atomic_add(current_top_n_minicolumn_idx,1)] = minicolumn_idx;
+        }
+    }
+}

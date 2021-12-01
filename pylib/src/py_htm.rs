@@ -17,7 +17,7 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{Encoder, HomSegment, auto_gen_seed, EncoderTarget, EncoderRange};
+use htm::{Encoder, HomSegment, auto_gen_seed, EncoderTarget, EncoderRange, DgCoord2d};
 use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
@@ -54,7 +54,12 @@ pub struct CpuHTM {
 
 #[pyclass]
 pub struct CpuDG2_2d {
-    dg: htm::CpuDG2<(u32, u32)>,
+    dg: htm::CpuDG2<DgCoord2d>,
+}
+
+#[pyclass]
+pub struct OclDG2_2d {
+    dg: htm::OclDG2,
 }
 
 #[pyclass]
@@ -659,7 +664,10 @@ impl CpuHTM {
     fn to_htm2(&self) -> CpuHTM2 {
         CpuHTM2 { htm: htm::CpuHTM2::from(&self.htm) }
     }
-
+    #[text_signature = "(context)"]
+    fn to_ocl(&self, context:&mut Context) -> PyResult<OclHTM>{
+        OclHTM::new(context,self)
+    }
     #[text_signature = "( /)"]
     fn clone(&self) -> CpuHTM {
         CpuHTM { htm: self.htm.clone() }
@@ -817,7 +825,7 @@ impl CpuDG2_2d {
         if inputs_per_granular_cell > span_w * span_h {
             return Err(PyValueError::new_err(format!("Column can't have {} inputs if there are only {} inputs in span of {}x{}", inputs_per_granular_cell, span_w * span_h, span_w, span_h)));
         }
-        let mut dg = htm::CpuDG2::new_2d(input_size, span, n);
+        let mut dg = htm::CpuDG2::new_2d(DgCoord2d::new_yx(input_height,input_width), DgCoord2d::new_yx(span_h,span_w), n);
         dg.add_globally_uniform_prob(minicolumns, inputs_per_granular_cell, rand_seed.unwrap_or_else(auto_gen_seed));
         Ok(CpuDG2_2d { dg })
     }
@@ -831,7 +839,7 @@ impl CpuDG2_2d {
     }
     #[getter]
     fn get_input_size(&self) -> (u32, u32) {
-        self.dg.input_size()
+        self.dg.input_size().as_yx()
     }
     #[getter]
     fn get_minicolumn_count(&self) -> u32 {
@@ -878,13 +886,64 @@ impl CpuDG2_2d {
 
     #[text_signature = "(synapse_id)"]
     fn get_synapse_input(&self, synapse_id: u32) -> (u32, u32) {
-        self.dg.feedforward_connections_as_slice()[synapse_id as usize]
+        self.dg.feedforward_connections_as_slice()[synapse_id as usize].as_yx()
     }
 
     #[text_signature = "(synapse_id, input_coords)"]
     fn set_synapse_input(&mut self, synapse_id: u32, input_coords: (u32, u32)) {
-        self.dg.feedforward_connections_as_mut_slice()[synapse_id as usize] = input_coords;
+        self.dg.feedforward_connections_as_mut_slice()[synapse_id as usize] = DgCoord2d::new_yx(input_coords.0,input_coords.1);
     }
+    #[text_signature = "(context)"]
+    fn to_ocl(&self, context:&mut Context) -> PyResult<OclDG2_2d>{
+        OclDG2_2d::new(context,self)
+    }
+
+}
+
+
+#[pymethods]
+impl OclDG2_2d {
+    /// new(input_width,input_height, minicolumns, inputs_per_minicolumn, n, rand_seed)
+    /// --
+    ///
+    /// Randomly generate a new Dentate Gyrus. You can provide a random seed manually.
+    /// Otherwise the millisecond part of system time is used as a seed. Seed is a 32-bit number.
+    ///
+    #[new]
+    pub fn new(context:&mut Context, dg:&CpuDG2_2d) -> PyResult<Self> {
+        let htm = context.compile_htm_program()?;
+        let dg = htm::OclDG2::new(&dg.dg,htm.clone()).map_err(ocl_err_to_py_ex)?;
+        Ok(OclDG2_2d{dg})
+    }
+    #[getter]
+    fn get_input_size(&self) -> (u32, u32) {
+        self.dg.input_size().as_yx()
+    }
+
+    #[getter]
+    fn get_n(&self) -> u32 {
+        self.dg.n
+    }
+    #[setter]
+    fn set_n(&mut self, n: u32) {
+        self.dg.n = n
+    }
+    #[getter]
+    fn get_max_overlap(&self) -> u32 {
+        self.dg.max_overlap
+    }
+
+    #[setter]
+    fn set_max_overlap(&mut self, max_overlap: u32) {
+        self.dg.max_overlap = max_overlap
+    }
+
+    #[text_signature = "(bitset_input,stride)"]
+    fn compute_translation_invariant(&mut self, bitset_input: &OclBitset, stride: (u32, u32)) -> PyResult<OclSDR> {
+        let sdr = self.dg.compute_translation_invariant(&bitset_input.bits, stride).map_err(ocl_err_to_py_ex)?;
+        Ok(OclSDR { sdr })
+    }
+
 }
 
 #[pymethods]
@@ -1063,6 +1122,10 @@ impl CpuHTM2 {
     #[text_signature = "(synapse_id, permanence)"]
     fn set_synapse_permanence(&mut self, synapse_id: u32, permanence: f32) {
         self.htm.feedforward_connections_as_mut_slice()[synapse_id as usize].permanence = permanence;
+    }
+    #[text_signature = "(context)"]
+    fn to_ocl(&self, context:&mut Context) -> PyResult<OclHTM2>{
+        OclHTM2::new(context,self)
     }
 }
 
@@ -1579,6 +1642,12 @@ impl CpuSDR {
     pub fn clone(&self) -> Self {
         CpuSDR { sdr: self.sdr.clone() }
     }
+    #[text_signature = "(context, max_cardinality)"]
+    fn to_ocl(&self, context:&mut Context, max_cardinality:u32) -> PyResult<OclSDR>{
+        let ctx = context.compile_htm_program()?;
+        let sdr = htm::OclSDR::from_cpu(ctx.clone(),&self.sdr,max_cardinality).map_err(ocl_err_to_py_ex)?;
+        Ok(OclSDR { sdr })
+    }
 }
 
 #[pyfunction]
@@ -1844,6 +1913,47 @@ impl CpuBitset {
     #[text_signature = "()"]
     pub fn to_input(&self) -> CpuInput {
         CpuInput { inp: htm::CpuInput::from_dense(self.bits.clone()) }
+    }
+    #[text_signature = "(context)"]
+    fn to_ocl(&self, context:&mut Context) -> PyResult<OclBitset>{
+        let ctx = context.compile_htm_program()?;
+        let bits = htm::OclBitset::from_cpu(&self.bits, ctx.clone()).map_err(ocl_err_to_py_ex)?;
+        Ok(OclBitset { bits })
+    }
+}
+
+
+#[pymethods]
+impl OclBitset {
+    #[new]
+    pub fn new(bit_count: u32, context:&mut Context) -> PyResult<Self> {
+        let ctx = context.compile_htm_program()?;
+        let bits = htm::OclBitset::new(bit_count, ctx.clone()).map_err(ocl_err_to_py_ex)?;
+        Ok(OclBitset { bits })
+    }
+    #[getter]
+    pub fn size(&self) -> usize {
+        self.bits.size()
+    }
+    #[text_signature = "(sdr)"]
+    pub fn clear(&mut self, sdr: Option<&OclSDR>) -> PyResult<()>{
+        if let Some(sdr) = sdr {
+            self.bits.clear(&sdr.sdr)
+        } else {
+            self.bits.clear_all()
+        }.map_err(ocl_err_to_py_ex)
+    }
+    #[text_signature = "(sdr)"]
+    pub fn set_bits_on(&mut self, sdr: &OclSDR) -> PyResult<()>{
+        self.bits.set_bits_on(&sdr.sdr).map_err(ocl_err_to_py_ex)
+    }
+    #[text_signature = "(sdr)"]
+    pub fn copy_from(&mut self, bits: &CpuBitset) -> PyResult<()>{
+        self.bits.copy_from(&bits.bits).map_err(ocl_err_to_py_ex)
+    }
+    #[text_signature = "(sdr)"]
+    pub fn to_cpu(&self) -> PyResult<CpuBitset> {
+        self.bits.to_cpu().map(|bits|CpuBitset { bits }).map_err(ocl_err_to_py_ex)
     }
 }
 

@@ -17,7 +17,7 @@ mod ocl_bitset;
 mod cpu_bitset;
 mod cpu_input;
 mod ocl_input;
-mod rand;
+mod rnd;
 mod htm3;
 mod cpu_htm3;
 mod cpu_htm5;
@@ -28,14 +28,16 @@ mod cpu_dg2;
 mod cpu_bitset2d;
 mod shape;
 mod cpu_big_htm;
+mod ocl_dg2;
 
 pub use cpu_big_htm::*;
-pub use crate::rand::auto_gen_seed;
+pub use crate::rnd::auto_gen_seed;
 pub use ocl_htm2::OclHTM2;
 pub use ocl_bitset::OclBitset;
 pub use ocl_input::OclInput;
 pub use ocl_sdr::OclSDR;
 pub use ocl_htm::OclHTM;
+pub use ocl_dg2::OclDG2;
 pub use htm_program::HtmProgram;
 pub use dg2::*;
 pub use shape::*;
@@ -75,7 +77,7 @@ mod tests {
     use crate::ocl_htm2::OclHTM2;
     use ndalgebra::context::Context;
     use crate::encoder::{EncoderBuilder, Encoder};
-    use crate::rand::xorshift32;
+    use crate::rnd::xorshift32;
     use crate::cpu_htm3::CpuHTM3;
 
     #[test]
@@ -89,7 +91,7 @@ mod tests {
         let output_sdr2 = htm2.infer(sdr.get_dense(), false);
 
         let mut ocl_sdr = OclInput::new(p.clone(), 16,16)?;
-        ocl_sdr.set_sparse_from_slice(&[4, 6, 14, 3]);
+        ocl_sdr.set_sparse_from_slice(&[4, 6, 14, 3])?;
         let mut ocl_htm2 = OclHTM2::new(&htm2, p.clone())?;
         let output_sdr4 = ocl_htm2.infer(ocl_sdr.get_dense(), false)?;
         let mut ocl_htm = OclHTM::new(&htm, p.clone())?;
@@ -362,6 +364,7 @@ mod tests {
         let p = HtmProgram::default()?;
         let input = CpuInput::from_sparse_slice(&[1,2,4,7,15], 16);
         let ocl_input = OclInput::from_cpu(&input,p.clone(),16)?;
+        assert_eq!(input.cardinality(),ocl_input.cardinality(),"cardinality");
         let input2 = ocl_input.to_cpu()?;
         assert_eq!(input.get_sparse(),input2.get_sparse(),"sparse");
         assert_eq!(input.get_dense(),input2.get_dense(),"dense");
@@ -373,6 +376,7 @@ mod tests {
         let p = HtmProgram::default()?;
         let input = CpuInput::from_dense_bools(&[true,false,false,true,true,false,false,true]);
         let ocl_input = OclInput::from_cpu(&input,p.clone(),16)?;
+        assert_eq!(input.cardinality(),ocl_input.cardinality(),"cardinality");
         let input2 = ocl_input.to_cpu()?;
         assert_eq!(input.get_sparse(),input2.get_sparse(),"sparse");
         assert_eq!(input.get_dense(),input2.get_dense(),"dense");
@@ -792,5 +796,31 @@ mod tests {
         sdr.randomly_extend_from(&votes, sdr.len());
         assert_eq!(sdr.len(),o.len());
         assert!(sdr.contains(97));
+    }
+
+    #[test]
+    fn test35() -> Result<(),String>{
+        let c = Context::default()?;
+        let p = HtmProgram::new(c.clone())?;
+        let mut dg = CpuDG2::new_2d(DgCoord2d::new_yx(32, 32), DgCoord2d::new_yx(4, 4), 8);
+        dg.add_globally_uniform_prob(64, 8, 42354);
+        let mut b = dg.make_bitset();
+        let mut ocl_b = OclBitset::from_cpu(&b,p.clone())?;
+        let mut ocl_dg = OclDG2::new(&dg,p)?;
+        for trial in 0..8{
+            b.clear_all();
+            for _ in 0..32{
+                let i = rand::random::<u32>() % b.size();
+                b.set_bit_on(i);
+            }
+            ocl_b.copy_from(&b);
+            let a1 = dg.compute_translation_invariant(&b, (1, 1));
+            let ocl_a = ocl_dg.compute_translation_invariant(&ocl_b, (1, 1))?;
+            let a2 = ocl_a.to_cpu()?;
+            assert!(a1.cardinality() > 0);
+            assert!(a1.cardinality() <= dg.n);
+            assert_eq!(a1,a2);
+        }
+        Ok(())
     }
 }

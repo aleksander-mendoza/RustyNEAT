@@ -63,11 +63,11 @@ impl OclInput{
         let bitset = bitset.to_cpu()?;
         Ok(unsafe{CpuInput::new_unchecked(sdr,bitset)})
     }
-    pub fn cardinality(&mut self)->u32{
+    pub fn cardinality(&self)->u32{
         self.sdr.cardinality()
     }
     pub fn size(&mut self)->usize{
-        self.bitset.input_size() * 32
+        self.bitset.size() * 32
     }
     pub fn clear(&mut self){
         let Self{ sdr, bitset } = self;

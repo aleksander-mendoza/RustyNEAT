@@ -43,6 +43,9 @@ impl KernelBuilder {
             let mut tmp:[usize;3] = [1;3];
             for (i,&d) in global_work_dimensions.iter().enumerate(){
                 tmp[i] = d;
+                if d == 0{
+                    return Ok(());
+                }
             }
             ocl::core::enqueue_kernel(queue.as_core(), &self.kernel, global_work_dimensions.len() as u32, None, &tmp, None, None::<ocl::core::Event>, None::<&mut ocl::core::Event>)
         }
