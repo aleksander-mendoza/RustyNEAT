@@ -450,6 +450,7 @@ impl CpuHTM2 {
         CpuSDR::from(top_n_minicolumns)
     }
     pub fn compute_and_group_into_columns(&mut self, minicolumns_per_column:usize,bitset_input: &CpuBitset) -> CpuSDR {
+        assert!(minicolumns_per_column>=self.n as usize,"Each column activates n={} winners but there are only {} minicolumns per column",self.n,minicolumns_per_column);
         assert_eq!(self.minicolumns_as_slice().len()%minicolumns_per_column,0,"The number of minicolumns cannot be evenly divided into columns");
         let column_count = self.minicolumns_as_slice().len()/minicolumns_per_column;
         assert!(self.input_size() <= bitset_input.size(), "HTM expects input of size {} but got {}", self.input_size(), bitset_input.size());

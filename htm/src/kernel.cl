@@ -201,15 +201,17 @@ typedef struct _HtmMinicolumn2{
     int overlap;
 } HtmMinicolumn2;
 
+uint htm_calculate_overlap_for_minicolumn2(const size_t minicolumn_idx,
+                                          const float permanence_threshold,
+                                          __global HtmMinicolumn2  * minicolumns,
+                                          __global uint * inputs,
+                                          __global HtmFeedforwardConnection2 * feedforward_connections);
 
-__kernel void htm_calculate_overlap2(
-                  float permanence_threshold,
-                  __global HtmMinicolumn2  * minicolumns,
-                  __global uint * inputs,
-                  __global HtmFeedforwardConnection2 * feedforward_connections,
-                  __global int * number_of_minicolumns_per_overlap
-){
-    const size_t minicolumn_idx = get_global_id(0);
+uint htm_calculate_overlap_for_minicolumn2(const size_t minicolumn_idx,
+                                          const float permanence_threshold,
+                                          __global HtmMinicolumn2  * minicolumns,
+                                          __global uint * inputs,
+                                          __global HtmFeedforwardConnection2 * feedforward_connections){
     const uint connection_offset = minicolumns[minicolumn_idx].connection_offset;
     const uint connection_len = minicolumns[minicolumn_idx].connection_len;
     uint overlap = 0;
@@ -219,12 +221,67 @@ __kernel void htm_calculate_overlap2(
             overlap+=(uint)is_input_active(inputs,input_id);
         }
     }
+    minicolumns[minicolumn_idx].overlap = overlap;
+    return overlap;
+}
+
+__kernel void htm_calculate_overlap2(
+                  float permanence_threshold,
+                  __global HtmMinicolumn2  * minicolumns,
+                  __global uint * inputs,
+                  __global HtmFeedforwardConnection2 * feedforward_connections,
+                  __global int * number_of_minicolumns_per_overlap
+){
+    const size_t minicolumn_idx = get_global_id(0);
+    uint overlap = htm_calculate_overlap_for_minicolumn2(minicolumn_idx,
+       permanence_threshold,
+       minicolumns,inputs,
+       feedforward_connections);
     if(overlap > 0){
         atomic_add(&number_of_minicolumns_per_overlap[overlap], 1);
     }
-    minicolumns[minicolumn_idx].overlap = overlap;
 }
 
+__kernel void htm_calculate_overlap_and_group_into_columns2(
+                  size_t max_overlap, size_t minicolumns_per_column,
+                  float permanence_threshold,
+                  __global HtmMinicolumn2  * minicolumns,
+                  __global uint * inputs,
+                  __global HtmFeedforwardConnection2 * feedforward_connections,
+                  __global int * number_of_minicolumns_per_overlap
+){
+    const size_t minicolumn_idx = get_global_id(0);
+    const size_t column_idx = minicolumn_idx / minicolumns_per_column;
+    const size_t offset = (max_overlap+1)*column_idx;
+    uint overlap = htm_calculate_overlap_for_minicolumn2(minicolumn_idx,
+           permanence_threshold,
+           minicolumns,inputs,
+           feedforward_connections);
+    atomic_add(&number_of_minicolumns_per_overlap[offset+overlap], 1);
+}
+__kernel void htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n_and_group_into_columns2(
+    const size_t n,
+    const size_t max_overlap,
+    __global int * number_of_minicolumns_per_overlap
+){
+    const size_t column_idx = get_global_id(0);
+    const size_t offset = column_idx*(max_overlap+1);
+    int total_minicolumns = 0;
+    number_of_minicolumns_per_overlap = number_of_minicolumns_per_overlap+offset;
+    int overlap=max_overlap;
+    for(;overlap>=0;overlap--) {
+        int number_of_minicolumns = number_of_minicolumns_per_overlap[overlap];
+        total_minicolumns += number_of_minicolumns;
+        if(total_minicolumns > (int)n){
+            number_of_minicolumns_per_overlap[overlap] = n - (total_minicolumns - number_of_minicolumns);
+            overlap--;
+            break;
+        }
+    }
+    for(;overlap>=0;overlap--) {
+        number_of_minicolumns_per_overlap[overlap] = 0;
+    }
+}
 
 /**This function does the exact same thing as htm_find_top_minicolumns, but that function works
 optimally when the input is so sparse that only a tiny fraction of minicolumns has even a single
@@ -232,7 +289,6 @@ connection to some active input. In cases where vast majority minicolumns is exp
 at least one connection to some active input, then htm_find_top_minicolumns2 will be much more optimal.
 */
 __kernel void htm_find_top_minicolumns2(
-                  float permanence_threshold,
                   __global HtmMinicolumn2  * minicolumns,
                   __global int * number_of_minicolumns_per_overlap_that_made_it_to_top_n,
                   uint smallest_overlap_that_made_it_to_top_n,
@@ -246,6 +302,20 @@ __kernel void htm_find_top_minicolumns2(
         if(atomic_add(&number_of_minicolumns_per_overlap_that_made_it_to_top_n[overlap],-1)>0){ // only add those columns that made it to top n
             top_n_minicolumns[atomic_add(current_top_n_minicolumn_idx,1)] = minicolumn_idx;
         }
+    }
+}
+__kernel void htm_find_top_minicolumns_and_group_into_columns2(size_t n, size_t max_overlap, size_t minicolumns_per_column,
+                      __global HtmMinicolumn2  * minicolumns,
+                      __global int * number_of_minicolumns_per_overlap_that_made_it_to_top_n,
+                      __global uint * top_n_minicolumns,
+                      __global uint * current_top_n_minicolumn_idx // precodntion: equals 0 ; postcondition: equals n
+){
+    const size_t minicolumn_idx = get_global_id(0);
+    const size_t column_idx = minicolumn_idx / minicolumns_per_column;
+    size_t overlap_offset = (max_overlap+1)*column_idx;
+    const int overlap = minicolumns[minicolumn_idx].overlap;
+    if(atomic_add(&number_of_minicolumns_per_overlap_that_made_it_to_top_n[overlap_offset + overlap],-1)>0){ // only add those columns that made it to top n
+        top_n_minicolumns[column_idx*n + atomic_add(current_top_n_minicolumn_idx + column_idx,1)] = minicolumn_idx;
     }
 }
 

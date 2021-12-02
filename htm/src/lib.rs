@@ -848,12 +848,16 @@ mod tests {
                 rand_seed = h.add_column_with_3d_input(mini_per_col,inp_per_mini,[0,y*stride[0],x*stride[1]],[i[0],kernel[0],kernel[1]],i,rand_seed);
             }
         }
-
+        let mut ocl_htm = OclHTM2::new(&htm,p.clone())?;
         for trial in 0..8{
             let mut b = CpuBitset::rand(i.size(),4553466+432*trial);
             let mut a1 = htm.compute_and_group_into_columns(mini_per_col as usize,&b);
             let a2:Vec<CpuSDR> = htms.iter_mut().map(|htm|htm.compute(&b)).collect();
             let mut joined = CpuSDR::new();
+            let ocl_b = OclBitset::from_cpu(&b,p.clone())?;
+            let ocl_a = ocl_htm.compute_and_group_into_columns(mini_per_col as usize,&ocl_b)?;
+            let mut a3 = ocl_a.to_cpu()?;
+            a3.sort();
             for (k,a) in a2.iter().enumerate(){
                 assert_eq!(a.len(),n as usize);
                 assert!(a.is_normalized());
@@ -862,6 +866,7 @@ mod tests {
             }
             a1.sort();
             assert_eq!(a1,joined);
+            assert_eq!(a1,a3);
         }
         Ok(())
     }
