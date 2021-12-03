@@ -469,5 +469,12 @@ impl CpuHTM2 {
         }
         top_n_minicolumns
     }
+    pub fn infer_and_group_into_columns(&mut self, minicolumns_per_column:usize,bitset_input: &CpuBitset, learn: bool) -> CpuSDR {
+        let top_n_minicolumns = self.compute_and_group_into_columns(minicolumns_per_column,bitset_input);
+        if learn {
+            self.update_permanence(&top_n_minicolumns, bitset_input)
+        }
+        top_n_minicolumns
+    }
 }
 

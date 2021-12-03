@@ -93,15 +93,15 @@ impl OclHTM2{
 
 
 
-    fn htm_update_permanence(&mut self, top_n_minicolumns: &Buffer<u32>, bitset_input:&OclBitset, current_top_n_minicolumn_idx: u32) -> Result<(), Error> {
+    pub fn update_permanence(&mut self, active_minicolumns: &OclSDR, bitset_input:&OclBitset) -> Result<(), Error> {
         self.prog.kernel_builder("htm_update_permanence2")?.
             add_num(self.permanence_decrement_increment[1])?. // float permanence_increment,
             add_num(self.permanence_decrement_increment[0])?. // float permanence_decrement,
             add_buff(&self.minicolumns)?.// __global HtmMinicolumn2 * minicolumns,
             add_buff(bitset_input.buffer())?.// __global uint * inputs,
-            add_buff(top_n_minicolumns)?.    // __global uint * top_n_minicolumns,
+            add_buff(active_minicolumns.buffer())?.    // __global uint * top_n_minicolumns,
             add_buff(&self.feedforward_connections)?. // __global HtmFeedforwardConnection2 * feedforward_connections
-            enq(self.prog.queue(),&[current_top_n_minicolumn_idx as usize,1,1]).
+            enq(self.prog.queue(),&[active_minicolumns.cardinality() as usize,1,1]).
             map_err(Error::from)
     }
 
@@ -143,7 +143,7 @@ impl OclHTM2{
     pub fn infer(&mut self, bitset_input: &OclBitset, learn: bool) -> Result<OclSDR, Error> {
         let top_n_minicolumns = self.compute(bitset_input)?;
         if learn {
-            self.htm_update_permanence(&top_n_minicolumns.buffer(),bitset_input, top_n_minicolumns.cardinality())?
+            self.update_permanence(&top_n_minicolumns, bitset_input)?
         }
         Ok(top_n_minicolumns)
     }
@@ -160,6 +160,13 @@ impl OclHTM2{
         let current_top_n_minicolumn_idx = self.prog.buffer_filled(MemFlags::READ_WRITE,column_count,0)?;
         self.htm_find_top_minicolumns_and_group_into_columns(minicolumns_per_column,&number_of_minicolumns_per_overlap,&top_n_minicolumns, &current_top_n_minicolumn_idx);
         Ok(OclSDR::from_buff(self.prog.clone(),top_n_minicolumns,self.n*column_count as u32))
+    }
+    pub fn infer_and_group_into_columns(&mut self, minicolumns_per_column:usize,bitset_input: &OclBitset, learn: bool) -> Result<OclSDR,Error> {
+        let top_n_minicolumns = self.compute_and_group_into_columns(minicolumns_per_column,bitset_input)?;
+        if learn {
+            self.update_permanence(&top_n_minicolumns, bitset_input)?
+        }
+        Ok(top_n_minicolumns)
     }
 }
 
