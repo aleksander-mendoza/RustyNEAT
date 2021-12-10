@@ -29,9 +29,9 @@ assert encoder_builder.input_size == 4*8  # categories are entirely independent.
 number_of_minicolumns = 100
 htm = rusty_neat.htm.CpuHTM2(
     encoder_builder.input_size,  # number of input neurons (input SDR size)
+    16,  # how many minicolumns to activate. Here we take top 16 minicolumns with maximum overlap
     number_of_minicolumns,  # number of minicolumns
-    int(encoder_builder.input_size*0.8),  # the size of potential pool of each minicolumn (how many inputs should each minicolumn be connected to)
-    16  # how many minicolumns to activate. Here we take top 16 minicolumns with maximum overlap
+    int(encoder_builder.input_size*0.8)  # the size of potential pool of each minicolumn (how many inputs should each minicolumn be connected to)
 )
 
 # Finally we create HOM. Initially the network is completely empty and has no connections.

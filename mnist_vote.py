@@ -34,7 +34,7 @@ def generate_htm():
     global htm1
     global htm2
     htm1 = rusty_neat.htm.CpuHTM4(htm_enc.input_size, out_columns, 28 * 4, 28 * 4, 0.2)
-    htm2 = rusty_neat.htm.CpuHTM2(out_columns, lbl_enc.len, 28 * 8, int(out_columns * 0.8))
+    htm2 = rusty_neat.htm.CpuHTM2(out_columns, int(out_columns * 0.8), lbl_enc.len, 28 * 8)
 
 
 def encode_img(img):

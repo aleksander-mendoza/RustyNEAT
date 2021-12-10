@@ -1,28 +1,43 @@
-use crate::{CpuSDR, EncoderTarget, CpuBitset2d};
+use crate::{CpuSDR, EncoderTarget, Shape3, Shape, resolve_range};
 use std::fmt::{Debug, Formatter};
 use crate::rnd::xorshift32;
 use serde::{Serialize, Deserialize};
+use crate::vector_field::{VectorFieldOne, VectorFieldAdd, VectorFieldPartialOrd};
+use std::ops::RangeBounds;
+use std::collections::Bound;
 
 #[derive(Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct CpuBitset {
     bits: Vec<u32>,
+    shape: [u32;3]
 }
+
 impl Debug for CpuBitset{
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f,"[")?;
-        let mut i = self.bits.iter();
-        if let Some(&first) = i.next() {
-            write!(f,"{:032b}", first)?;
-            for &u in i {
-                write!(f," {:032b}", u)?;
+        let mut all_bits = String::new();
+        let mut col = 0;
+        let mut row = 0;
+        let mut slice = 0;
+        'outer: for &bits in self.bits.as_slice(){
+            for bit in format!("{:032b}", bits).bytes(){
+                all_bits.push(bit as char);
+                col+=1;
+                if col == self.width(){
+                    col = 0;
+                    row +=1;
+                    if row == self.height(){
+                        row = 0;
+                        slice += 1;
+                        if slice == self.depth() {
+                            break 'outer;
+                        }
+                        all_bits.push('\n');
+                    }
+                    all_bits.push('\n');
+                }
             }
         }
-        write!(f,"]")
-    }
-}
-impl From<Vec<u32>> for CpuBitset {
-    fn from(bits: Vec<u32>) -> Self {
-        Self{bits}
+        write!(f,"{}", all_bits)
     }
 }
 pub fn bit_count_to_vec_size(bit_count:u32)->usize{
@@ -55,6 +70,19 @@ impl EncoderTarget for CpuBitset{
     }
 }
 impl CpuBitset {
+    pub fn from_raw(bits: Vec<u32>, shape:[u32;3]) -> Self {
+        assert!(bits.len() as u32 * 32 >= shape.product(),"Shape {:?} has size {} but raw bitset holds only {} bits",shape,shape.product(),bits.len()*32);
+        Self{bits,shape}
+    }
+    pub fn width(&self)->u32{
+        self.shape.width()
+    }
+    pub fn height(&self)->u32{
+        self.shape.height()
+    }
+    pub fn depth(&self)->u32{
+        self.shape.depth()
+    }
     pub fn cardinality_in_range(&self, from: u32, to: u32) -> u32 {
         assert!(from<=to,"Range's left bound {} is greater than right bound {}", from,to);
         let from_u32 = (from/32) as usize;
@@ -78,38 +106,57 @@ impl CpuBitset {
         bitset
     }
     pub fn from_sdr(sdr: &[u32], input_size:u32) -> Self {
-        let mut bitset = Self::new(input_size);
+        Self::from_sdr2d(sdr,1,input_size)
+    }
+    pub fn from_sdr2d(sdr: &[u32], height:u32,width:u32) -> Self {
+        Self::from_sdr3d(sdr,1,height,width)
+    }
+    pub fn from_sdr3d(sdr: &[u32], depth:u32,height:u32,width:u32) -> Self {
+        let mut bitset = Self::new3d(depth,height,width);
         bitset.set_bits_on(sdr);
         bitset
     }
     pub fn size(&self)->u32{
-        self.bits.len() as u32* 32
+        self.shape.product()
     }
     pub fn as_slice(&self)->&[u32]{
         self.bits.as_slice()
     }
-    pub fn empty() -> Self {
-        Self { bits: vec![] }
-    }
 
-    pub fn set_size(&mut self, bit_count:u32){
-        self.bits.resize(bit_count_to_vec_size(bit_count),0)
-    }
-    pub fn ensure_size(&mut self, min_size:u32) {
-        let new_size = bit_count_to_vec_size(min_size);
-        if new_size > self.bits.len(){
-            self.bits.resize(new_size,0)
-        }
-    }
+
     pub fn new(bit_count: u32) -> Self {
-        Self { bits: vec![0; bit_count_to_vec_size(bit_count)]}
+        Self::new2d(1,bit_count)
     }
-    pub fn rand(bit_count: u32, mut rand_seed:u32) -> Self {
+    pub fn new2d(height:u32,width:u32)->Self{
+        Self::new3d(1,height, width)
+    }
+    pub fn new3d(depth:u32, height:u32,width:u32)->Self{
+        let shape = [depth, height, width];
+        Self{ bits: vec![0; bit_count_to_vec_size(shape.product())], shape}
+    }
+    pub fn rand(width:u32, mut rand_seed:u32) -> Self {
+        Self::rand2d(1,width,rand_seed)
+    }
+    pub fn rand2d(height:u32,width:u32, mut rand_seed:u32) -> Self {
+        Self::rand3d(1,height,width,rand_seed)
+    }
+    pub fn rand3d(depth:u32, height:u32,width:u32, mut rand_seed:u32) -> Self {
+        let shape = [depth, height, width];
+        let bit_count = shape.product();
         let u32_count = bit_count_to_vec_size(bit_count);
         Self { bits: (0..u32_count).map(|_|{
             rand_seed = xorshift32(rand_seed);
             rand_seed
-        }).collect()}
+        }).collect(), shape}
+    }
+    pub fn empty(width:u32) -> Self {
+        Self::empty2d(1,width)
+    }
+    pub fn empty2d( height:u32,width:u32) -> Self {
+        Self::empty3d(1,height,width)
+    }
+    pub fn empty3d(depth:u32, height:u32,width:u32) -> Self {
+        Self { bits: vec![] ,shape:[depth,height,width]}
     }
     pub fn rand_of_cardinality(bit_count: u32, cardinality:u32,mut rand_seed:u32) -> Self {
         let mut slf = Self::new(bit_count);
@@ -126,11 +173,7 @@ impl CpuBitset {
         rand_seed
     }
 
-    pub fn set_bits_on(&mut self, sdr: &[u32]) {
-        for &index in sdr.iter() {
-            self.set_bit_on(index);
-        }
-    }
+
 
     pub fn set_bits_off(&mut self, sdr: &[u32]) {
         for &index in sdr.iter() {
@@ -150,6 +193,7 @@ impl CpuBitset {
     }
 
     pub fn set_bit_on(&mut self, index: u32) {
+        assert!(index<self.size(),"Index {} out of bounds for bitset of {:?}={} bits", index, self.shape(),self.size());
         // u32 has 32 bits
         // self.inputs stores one bit per input in form of u32 integers
         // index/32 gives index of the u32 integer that contains index-th bit
@@ -158,7 +202,6 @@ impl CpuBitset {
         // index%32 == index&31
         // we might either do  1<<(index&31) or 2147483648>>(index&31) . Both are equivalent. It only changes the order in which we store bits within each u32
         let i = (index >> 5) as usize;
-        assert!(i<self.bits.len(),"Index {} out of bounds for bitset of {} bits", index, self.size());
         self.bits[i] |= 2147483648>>(index&31);
     }
 
@@ -199,6 +242,78 @@ impl CpuBitset {
         assert!(!(offset1 <= offset2 && offset2 < offset1+size), "the two regions overlap");
         for i in 0..size{
             self.bits.swap((offset1+i) as usize,(offset2+i) as usize)
+        }
+    }
+
+    pub fn shape(&self)->&[u32;3] {
+        &self.shape
+    }
+    pub fn reshape(&mut self){
+        self.reshape3d(1,1,self.shape.product())
+    }
+    pub fn reshape2d(&mut self,height:u32,width:u32){
+        self.reshape3d(1,height,width)
+    }
+    pub fn reshape3d(&mut self,depth:u32, height:u32,width:u32){
+        let new_shape = [depth,height,width];
+        assert_eq!(new_shape.product(),self.shape.product(),"New shape {:?} is incompatible with old {:?}",new_shape,self.shape());
+        self.shape = new_shape
+    }
+    pub fn resize(&mut self,width:u32){
+        self.resize2d(1,width);
+    }
+    pub fn resize2d(&mut self, height:u32,width:u32){
+        self.resize3d(1,height,width);
+    }
+    pub fn resize3d(&mut self,depth:u32, height:u32,width:u32){
+        let new_shape = [depth,height,width].product();
+        self.bits.resize(bit_count_to_vec_size(new_shape),0);
+    }
+    pub fn is_bit_on2d(&self, y:u32,x:u32)->bool{
+        self.is_bit_on3d(0,y,x)
+    }
+    pub fn is_bit_on3d(&self,z:u32, y:u32,x:u32)->bool{
+        self.is_bit_on(self.shape.index(z,y,x))
+    }
+    pub fn set_bit_on2d(&mut self, y:u32,x:u32){
+        self.set_bit_on3d(0,y,x)
+    }
+    pub fn set_bit_on3d(&mut self, z:u32,y:u32,x:u32){
+        self.set_bit_on(self.shape.index(z,y,x))
+    }
+    pub fn set_bits_on(&mut self, sdr: &[u32]) {
+        for &index in sdr.iter() {
+            self.set_bit_on(index);
+        }
+    }
+    pub fn set_bits_on_in_range(&mut self, input_range:impl RangeBounds<u32>,sdr: &[u32]) {
+        let range = resolve_range(self.size(),input_range);
+        for &index in sdr.iter() {
+            let i = range.start + index;
+            assert!(i<range.end,"Index {} is out of range {:?} size",index,range);
+            self.set_bit_on(i);
+        }
+    }
+    pub fn set_bits_off_in_range(&mut self, input_range:impl RangeBounds<u32>,sdr: &[u32]) {
+        let range = resolve_range(self.size(),input_range);
+        for &index in sdr.iter() {
+            let i = range.start + index;
+            assert!(i<range.end,"Index {} is out of range {:?} size",index,range);
+            self.set_bit_off(i);
+        }
+    }
+    pub fn set_bits_on3d(&mut self,offset:[u32;3],size:[u32;3],sdr:&[u32]){
+        assert!(offset.add(&size).all_le(&self.shape), "The subregion {:?}..{:?} is out of bounds {:?}",offset,size,self.shape);
+        for &neuron in sdr{
+            self.set_bit_on(self.shape.idx(offset.add(&size.pos(neuron))));
+        }
+    }
+    pub fn set_bits_on2d(&mut self,offset:[u32;2],size:[u32;2],sdr:&[u32]){
+        assert_eq!(self.depth(),1, "This bitset has depth dimension! Use set_bits_on3d instead");
+        let sub_shape = [self.height(),self.width()];
+        assert!(offset.add(&size).all_le(&sub_shape), "The subregion {:?}..{:?} is out of bounds {:?}",offset,size,self.shape);
+        for &neuron in sdr{
+            self.set_bit_on(sub_shape.idx(offset.add(&size.pos(neuron))));
         }
     }
 

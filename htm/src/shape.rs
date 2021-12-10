@@ -1,14 +1,14 @@
 use std::fmt::{Debug, Formatter};
 
 use serde::{Serialize, Deserialize};
-use std::ops::{Add, Sub, Div, Mul, Rem, Index, IndexMut};
+use std::ops::{Add, Sub, Div, Mul, Rem, Index, IndexMut, RangeBounds, Range};
 use std::mem::MaybeUninit;
 use crate::rnd::xorshift32;
+use crate::vector_field::{VectorField, VectorFieldNum};
+use std::collections::Bound;
 
-pub trait Shape<const DIM: usize>: Eq + PartialEq + Copy + Clone + Debug {
+pub trait Shape<const DIM: usize>: Eq + PartialEq + Copy + Clone + Debug + VectorFieldNum<u32> {
 
-    fn zip(&self, other: &Self, f: impl FnMut(u32, u32) -> u32) -> Self;
-    fn map(&self, f: impl FnMut(u32) -> u32) -> Self;
     fn pos(&self, index: u32) -> [u32; DIM];
     fn idx(&self, pos: [u32; DIM]) -> u32;
     fn dim(&self, dim:usize) -> u32;
@@ -20,54 +20,15 @@ pub trait Shape<const DIM: usize>: Eq + PartialEq + Copy + Clone + Debug {
         }
         rand_seed
     }
-    fn add(self, rhs: Self) -> Self {
-        self.zip(&rhs, |a, b| a + b)
-    }
-    fn add_u32(self, rhs: u32) -> Self {
-        self.map( |a| a + rhs)
-    }
-    fn le(self, rhs: Self) -> bool {
-        (0..DIM).map(|i|self.dim(i)<=rhs.dim(i)).all(|a|a)
-    }
-    fn lt(self, rhs: Self) -> bool {
-        (0..DIM).map(|i|self.dim(i)<rhs.dim(i)).all(|a|a)
-    }
-    fn gt(self, rhs: Self) -> bool {
-        (0..DIM).map(|i|self.dim(i)>rhs.dim(i)).all(|a|a)
-    }
-    fn ge(self, rhs: Self) -> bool {
-        (0..DIM).map(|i|self.dim(i)>=rhs.dim(i)).all(|a|a)
-    }
-    fn eq(self, rhs: Self) -> bool {
-        (0..DIM).map(|i|self.dim(i)==rhs.dim(i)).all(|a|a)
-    }
-    fn eq_u32(self, rhs: u32) -> bool {
-        (0..DIM).map(|i|self.dim(i)==rhs).all(|a|a)
-    }
-    fn neq(self, rhs: Self) -> bool {
-        (0..DIM).map(|i|self.dim(i)!=rhs.dim(i)).all(|a|a)
-    }
-    fn sub(self, rhs: Self) -> Self {
-        self.zip(&rhs, |a, b| a - b)
-    }
-    fn div(self, rhs: Self) -> Self {
-        self.zip(&rhs, |a, b| a / b)
-    }
-    fn mul(self, rhs: Self) -> Self {
-        self.zip(&rhs, |a, b| a * b)
-    }
-    fn rem(self, rhs: Self) -> Self {
-        self.zip(&rhs, |a, b| a % b)
-    }
     fn size(&self) -> u32 {
         (0..DIM).map(|i| self.dim(i)).product()
     }
-    fn conv_out_size(&self, stride: Self, kernel_size: Self) -> Self {
-        let grid_size = self.clone();
-        assert!(kernel_size.le(grid_size),"Kernel size {:?} is larger than the grid {:?} of voting columns",kernel_size,grid_size);
+    fn conv_out_size(&self, stride: &Self, kernel_size: &Self) -> Self {
+        let grid_size = self;
+        assert!(kernel_size.all_le(grid_size),"Kernel size {:?} is larger than the grid {:?} of voting columns",kernel_size,grid_size);
         let out_grid_size = grid_size.sub(kernel_size);
-        assert!(out_grid_size.rem(stride).eq_u32(0),"Convolution stride {:?} does not evenly divide the grid {:?} of voting columns",stride,grid_size);
-        out_grid_size.div(stride).add_u32(1)
+        assert!(out_grid_size.rem(stride).all_eq_scalar(0),"Convolution stride {:?} does not evenly divide the grid {:?} of voting columns",stride,grid_size);
+        out_grid_size.div(stride).add_scalar(1)
     }
 }
 pub trait Shape2{
@@ -82,12 +43,7 @@ pub trait Shape3{
     fn index(&self, z:u32, y: u32, x:u32) -> u32;
 }
 impl Shape<2> for [u32; 2] {
-    fn zip(&self, other: &Self, mut f: impl FnMut(u32, u32) -> u32) -> Self {
-        [f(self[0], other[0]), f(self[1], other[1])]
-    }
-    fn map(&self, mut f: impl FnMut(u32) -> u32) -> Self{
-        [f(self[0]),f(self[1])]
-    }
+
     fn pos(&self, index: u32) -> [u32; 2] {
         assert!(index < self.size());
         let y = index / self.width();
@@ -123,12 +79,6 @@ impl Shape2 for [u32;2]{
 }
 
 impl Shape<3> for [u32; 3] {
-    fn zip(&self, other: &Self, mut f: impl FnMut(u32, u32) -> u32) -> Self {
-        [f(self[0], other[0]), f(self[1], other[1]), f(self[2], other[2])]
-    }
-    fn map(&self, mut f: impl FnMut(u32) -> u32) -> Self{
-        [f(self[0]),f(self[1]),f(self[2])]
-    }
     fn pos(&self, index: u32) -> [u32; 3] {
         assert!(index < self.size());
         let x = index % self.width();
@@ -231,4 +181,19 @@ mod tests {
             }
         }
     }
+}
+pub fn resolve_range(input_size:u32,input_range:impl RangeBounds<u32>)->Range<u32>{
+    let b = match input_range.start_bound(){
+        Bound::Included(&x) => x,
+        Bound::Excluded(&x) => x+1,
+        Bound::Unbounded => 0
+    };
+    let e = match input_range.end_bound(){
+        Bound::Included(&x) => x+1,
+        Bound::Excluded(&x) => x,
+        Bound::Unbounded => input_size
+    };
+    assert!(b <= e, "Input range {}..{} starts later than it ends", b,e);
+    assert!(e <= input_size, "Input range {}..{} exceeds input size {}", b,e,input_size);
+    b..e
 }

@@ -25,12 +25,12 @@ mod htm5;
 mod map;
 mod dg2;
 mod cpu_dg2;
-mod cpu_bitset2d;
 mod shape;
 mod cpu_big_htm;
 mod ocl_dg2;
-mod cpu_bitset3d;
+mod vector_field;
 
+pub use vector_field::*;
 pub use cpu_big_htm::*;
 pub use crate::rnd::auto_gen_seed;
 pub use ocl_htm2::OclHTM2;
@@ -52,8 +52,6 @@ pub use map::*;
 pub use encoder::*;
 pub use cpu_hom::*;
 pub use cpu_bitset::CpuBitset;
-pub use cpu_bitset2d::CpuBitset2d;
-pub use cpu_bitset3d::CpuBitset3d;
 pub use cpu_input::CpuInput;
 pub use cpu_htm5::CpuHTM5;
 pub use cpu_htm4::CpuHTM4;
@@ -81,7 +79,6 @@ mod tests {
     use crate::encoder::{EncoderBuilder, Encoder};
     use crate::rnd::xorshift32;
     use crate::cpu_htm3::CpuHTM3;
-    use crate::cpu_bitset3d::CpuBitset3d;
 
     #[test]
     fn test1() -> Result<(), String> {
@@ -536,7 +533,7 @@ mod tests {
 
     #[test]
     fn test17() {
-        let h = CpuHTM2::new_local_2d((4,4),(2,2),4,4,2.1, 64747);
+        let h = CpuHTM2::new_local_2d([4,4],[2,2],4,4,2.1, 64747);
 
     }
 
@@ -819,7 +816,8 @@ mod tests {
             ocl_b.copy_from(&b);
             let a1 = dg.compute_translation_invariant(&b, (1, 1));
             let ocl_a = ocl_dg.compute_translation_invariant(&ocl_b, (1, 1))?;
-            let a2 = ocl_a.to_cpu()?;
+            let mut a2 = ocl_a.to_cpu()?;
+            a2.sort();
             assert!(a1.cardinality() > 0);
             assert!(a1.cardinality() <= dg.n);
             assert_eq!(a1,a2);
@@ -839,14 +837,14 @@ mod tests {
         let kernel = [4,4];
         let mini_per_col = 16;
         let inp_per_mini = 10;
-        let columns = [i.height(),i.width()].conv_out_size(stride,kernel);
-        htm.add_2d_column_grid_with_3d_input(mini_per_col, inp_per_mini,stride ,kernel,i,rand_seed);
+        let columns = [i.height(),i.width()].conv_out_size(&stride,&kernel);
+        htm.add_2d_column_grid_with_3d_input(..,mini_per_col, inp_per_mini,stride ,kernel,i,rand_seed);
         let mut rand_seed = rand_seed;
         let mut htms:Vec<CpuHTM2> = (0..columns.size()).map(|_| CpuHTM2::new(i.size(), n)).collect();
         for y in 0..columns[0]{
             for x in 0..columns[1]{
                 let h= &mut htms[columns.index(y,x) as usize];
-                rand_seed = h.add_column_with_3d_input(mini_per_col,inp_per_mini,[0,y*stride[0],x*stride[1]],[i[0],kernel[0],kernel[1]],i,rand_seed);
+                rand_seed = h.add_column_with_3d_input(..,mini_per_col,inp_per_mini,[0,y*stride[0],x*stride[1]],[i[0],kernel[0],kernel[1]],i,rand_seed);
             }
         }
         let mut ocl_htm = OclHTM2::new(&htm,p.clone())?;

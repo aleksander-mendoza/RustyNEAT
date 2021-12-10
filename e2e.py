@@ -91,8 +91,8 @@ layer3_to_map_synapses = int(layer3_size * 0.8)
 
 def make_sensor_to_layer1_column():
     return htm.CpuHTM2(sensor_column_size.prod(),
-                       layer1_column_size.prod(),
                        layer1_column_card,
+                       layer1_column_size.prod(),
                        sensor_to_layer1_synapses)
 
 

@@ -65,7 +65,7 @@ def encode_img_gabor(img, targets, filters, encoders, threshold=5.):
 
 def htm_for_code(inp_size, card, out_size, syn_per_col, code: str):
     if code.startswith('2'):
-        htm = rusty_neat.htm.CpuHTM2(inp_size, out_size, card, syn_per_col)
+        htm = rusty_neat.htm.CpuHTM2(card, inp_size, out_size, syn_per_col)
     elif code.startswith('3'):
         htm = rusty_neat.htm.CpuHTM3(inp_size, out_size, card, syn_per_col)
     elif code.startswith('4'):

@@ -31,16 +31,8 @@ def visualize_gabor(img, filters, threshold):
     plt.show()
 
 
-def visualize_img_list(original, filtered, filters):
-    fig, axs = plt.subplots(len(filters) + 1, 2)
-    axs[0, 0].imshow(original)
-    for k, (img, kernel) in enumerate(zip(filtered, filters)):
-        axs[1 + k, 0].imshow(img)
-        axs[1 + k, 1].imshow(kernel)
-    plt.show()
-
-
 env = Image.open('map.jpeg')
+env = env.crop((0,0,512,512))
 env_grayscale = env.convert('L')
 env = np.array(env)
 env_grayscale = np.array(env_grayscale)
@@ -84,8 +76,8 @@ sublayer2_total_size = sublayer2_total_shape.prod()
 
 def make_sensor_to_layer1_column():
     return htm.CpuHTM2(sensor_column_size.prod(),
-                       layer1_column_size.prod(),
                        layer1_column_card,
+                       layer1_column_size.prod(),
                        sensor_to_layer1_synapses)
 
 

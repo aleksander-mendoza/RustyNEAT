@@ -11,7 +11,6 @@ use crate::cpu_bitset::CpuBitset;
 use crate::rnd::{xorshift32, rand_u32_to_random_f32};
 use std::cmp::Ordering;
 use std::collections::HashSet;
-use crate::cpu_bitset2d::CpuBitset2d;
 use serde::{Serialize, Deserialize};
 use crate::DgCoord2d;
 
@@ -158,7 +157,7 @@ impl CpuDG2<DgCoord2d> {
         assert!(span.y <= input_size.y, "Span has height  {} but total input is of height {}", span.y, input_size.y);
         Self::new(input_size, span, n)
     }
-    pub fn compute_translation_invariant(&mut self, bitset_input: &CpuBitset2d, stride: (u32, u32)) -> CpuSDR {
+    pub fn compute_translation_invariant(&mut self, bitset_input: &CpuBitset, stride: (u32, u32)) -> CpuSDR {
         let (input_h, input_w) = (self.input_size.y as i32, self.input_size.x as i32);
         let (span_h, span_w) = (self.span.y as i32, self.span.x as i32);
         assert!(bitset_input.size() as i32 >= input_w * input_h, "Expected input of size {}x{}={} but bitset has length {}", input_w, input_h, input_w * input_h, bitset_input.size());
@@ -172,7 +171,7 @@ impl CpuDG2<DgCoord2d> {
                     for &DgCoord2d{x, y} in coords {
                         let y = offset_y + y as i32;
                         let x = offset_x + x as i32;
-                        if 0 <= y && y < input_h && 0 <= x && x < input_w && bitset_input.is_bit_at(y as u32, x as u32) {
+                        if 0 <= y && y < input_h && 0 <= x && x < input_w && bitset_input.is_bit_on2d(y as u32, x as u32) {
                             overlap += 1;
                         }
                     }
@@ -208,9 +207,9 @@ impl CpuDG2<DgCoord2d> {
             DgCoord2d::new_yx(y, x)
         }, |minicolumn_id| inputs_per_granular_cell)
     }
-    pub fn make_bitset(&self) -> CpuBitset2d {
+    pub fn make_bitset(&self) -> CpuBitset {
         let DgCoord2d{y:h, x:w} = self.input_size;
-        CpuBitset2d::new(CpuBitset::new(w * h), h, w)
+        CpuBitset::new2d( h, w)
     }
 }
 
@@ -223,16 +222,16 @@ mod tests {
         let mut dg = CpuDG2::new_2d(DgCoord2d::new_yx(32, 32), DgCoord2d::new_yx(4, 4), 8);
         dg.add_globally_uniform_prob(64, 8, 42354);
         let mut b = dg.make_bitset();
-        fn set_pattern(b: &mut CpuBitset2d, offset_x: u32, offset_y: u32) {
-            b.set_bit_at(offset_y+0, offset_x+1);
-            b.set_bit_at(offset_y+0, offset_x+3);
-            b.set_bit_at(offset_y+0, offset_x+6);
-            b.set_bit_at(offset_y+1, offset_x+0);
-            b.set_bit_at(offset_y+1, offset_x+2);
-            b.set_bit_at(offset_y+1, offset_x+6);
-            b.set_bit_at(offset_y+6, offset_x+0);
-            b.set_bit_at(offset_y+6, offset_x+5);
-            b.set_bit_at(offset_y+6, offset_x+6);
+        fn set_pattern(b: &mut CpuBitset, offset_x: u32, offset_y: u32) {
+            b.set_bit_on2d(offset_y+0, offset_x+1);
+            b.set_bit_on2d(offset_y+0, offset_x+3);
+            b.set_bit_on2d(offset_y+0, offset_x+6);
+            b.set_bit_on2d(offset_y+1, offset_x+0);
+            b.set_bit_on2d(offset_y+1, offset_x+2);
+            b.set_bit_on2d(offset_y+1, offset_x+6);
+            b.set_bit_on2d(offset_y+6, offset_x+0);
+            b.set_bit_on2d(offset_y+6, offset_x+5);
+            b.set_bit_on2d(offset_y+6, offset_x+6);
         }
         set_pattern(&mut b, 10, 10);
         assert!(dg.n < dg.input_size.y * dg.input_size.x);

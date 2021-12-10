@@ -1,6 +1,6 @@
 use ocl::{ProQue, SpatialDims, flags, Platform, Device, Error, Queue, MemFlags};
 use std::mem::MaybeUninit;
-use std::ops::{Index, IndexMut, Mul, Add, Range, Sub, Div, AddAssign, DivAssign, SubAssign, MulAssign, RangeFull, RangeFrom, RangeTo, RangeToInclusive, RangeInclusive, Neg};
+use std::ops::{Index, IndexMut, Mul, Add, Range, Sub, Div, AddAssign, DivAssign, SubAssign, MulAssign, RangeFull, RangeFrom, RangeTo, RangeToInclusive, RangeInclusive, Neg, RangeBounds};
 use std::fmt::{Display, Formatter, Debug};
 use ocl::core::{MemInfo, MemInfoResult, BufferRegion, Mem, ArgVal};
 use crate::cpu_sdr::CpuSDR;
@@ -12,7 +12,9 @@ use crate::cpu_bitset::CpuBitset;
 use crate::rnd::{xorshift32, rand_u32_to_random_f32};
 use std::cmp::Ordering;
 use serde::{Serialize, Deserialize};
-use crate::{Shape, Shape3, Shape2};
+use crate::{Shape, Shape3, Shape2, resolve_range};
+use std::collections::Bound;
+use crate::vector_field::{VectorFieldOne, VectorFieldDiv, VectorFieldAdd, VectorFieldMul, ArrayCast, VectorFieldSub, VectorFieldPartialOrd};
 
 /***This implementation assumes that most of the time  vast majority of minicolumns are connected to at least one active
 input. Hence instead of iterating the input and then visiting only connected minicolumns, it's better to just iterate all
@@ -108,33 +110,37 @@ impl CpuHTM2 {
     pub fn minicolumns_as_slice(&self) -> &[HtmMinicolumn2] {
         self.minicolumns.as_slice()
     }
-    pub fn new_local_2d(input_size: (u32, u32), minicolumns: (u32, u32), n: u32, inputs_per_minicolumn: u32, radius: f32, mut rand_seed: u32) -> Self {
-        let mut slf = Self::new(input_size.0 * input_size.1, n);
-        slf.add_local_2d(input_size, minicolumns, inputs_per_minicolumn, radius, rand_seed);
+    pub fn new_local_2d(input_size: [u32;2], minicolumns: [u32;2], n: u32, inputs_per_minicolumn: u32, radius: f32, mut rand_seed: u32) -> Self {
+        let mut slf = Self::new(input_size.product(), n);
+        slf.add_local_2d(..,input_size, minicolumns, inputs_per_minicolumn, radius, rand_seed);
         slf
     }
-    pub fn add_local_2d(&mut self, input_size: (u32,u32), minicolumns: (u32,u32), inputs_per_minicolumn: u32, radius: f32, mut rand_seed: u32) -> u32{
-        assert_eq!(input_size.0 * input_size.1, self.input_size, "There are {} inputs, but requested dimensions is {}x{}=={}", self.input_size, input_size.0, input_size.1, input_size.0 * input_size.1);
-        let stride = (input_size.0 as f32 / minicolumns.0 as f32, input_size.1 as f32 / minicolumns.1 as f32);
-        let margin = (stride.0 / 2f32, stride.1 / 2f32);
+    pub fn add_local_2d(&mut self,input_range:impl RangeBounds<u32>, input_size: [u32;2], minicolumns: [u32;2], inputs_per_minicolumn: u32, radius: f32, mut rand_seed: u32) -> u32 {
+        let input_range = resolve_range(self.input_size,input_range);
+        assert_eq!(input_size.product(),input_range.len() as u32,"The range {:?} has size {} but requested dimensions is {}x{}=={}", input_range,input_range.len(), input_size[0], input_size[1], input_size.product());
+        assert!(input_range.len() as u32 <= self.input_size, "The range {:?} has size {} which exceeds {}", input_range,input_range.len(), self.input_size);
+        let stride = input_size.as_scalar::<f32>().div(&minicolumns.as_scalar::<f32>());
+        let margin = stride.div_scalar(2f32);
 
         const EPSILON: f32 = 0.0001;
-        self.add_minicolumns(minicolumns.0 * minicolumns.1, |minicolumn_id| {
-            let minicolumn_pos = (minicolumn_id % minicolumns.0, minicolumn_id / minicolumns.0);
-            let minicolumn_pos = (margin.0 + stride.0 * minicolumn_pos.0 as f32, margin.1 + stride.1 * minicolumn_pos.1 as f32);
-            let min_bounds = ((minicolumn_pos.0 - radius).max(0.), (minicolumn_pos.1 - radius).max(0.));
-            let max_bounds = ((minicolumn_pos.0 + radius).min(input_size.0 as f32 - EPSILON), (minicolumn_pos.1 + radius).min(input_size.1 as f32 - EPSILON));
+        self.add_minicolumns(minicolumns.product(), |minicolumn_id| {
+            let minicolumn_pos = [minicolumn_id % minicolumns[0], minicolumn_id / minicolumns[0]];
+            let minicolumn_pos = margin.add(&stride.mul(&minicolumn_pos.as_scalar::<f32>()));
+            let min_bounds = minicolumn_pos.sub_scalar(radius).max_scalar(0f32);
+            let max_bounds = minicolumn_pos.add_scalar(radius).min(&input_size.as_scalar::<f32>().sub_scalar(EPSILON));
             rand_seed = xorshift32(rand_seed);
             let offset_0 = rand_u32_to_random_f32(rand_seed) - 0.5f32;
             rand_seed = xorshift32(rand_seed);
             let offset_1 = rand_u32_to_random_f32(rand_seed) - 0.5f32;
-            let offset = (offset_0 * radius, offset_1 * radius);
-            let input_pos = (minicolumn_pos.0 + offset.0 + 0.5f32, minicolumn_pos.1 + offset.1 + 0.5f32);
-            let input_pos = (mod_clamp(input_pos.0, min_bounds.0, max_bounds.0), mod_clamp(input_pos.1, min_bounds.1, max_bounds.1));
-            let input_pos = (input_pos.0 as u32, input_pos.1 as u32);
-            let input_idx = input_pos.0 + input_pos.1 * input_size.0;
+            let offset = [offset_0 , offset_1].mul_scalar(radius);
+            let input_pos = minicolumn_pos.add(&offset.add_scalar(0.5));
+            let input_pos = [mod_clamp(input_pos[0], min_bounds[0], max_bounds[0]), mod_clamp(input_pos[1], min_bounds[1], max_bounds[1])];
+            let input_pos = input_pos.as_scalar::<u32>();
+            let input_idx = input_pos[0] + input_pos[1] * input_size[0];
             rand_seed = xorshift32(rand_seed);
             let permanence = rand_u32_to_random_f32(rand_seed);
+            let input_idx = input_range.start+input_idx;
+            assert!(input_idx<input_range.end);
             (input_idx, permanence)
         }, |minicolumn_id| inputs_per_minicolumn);
         rand_seed
@@ -151,8 +157,51 @@ impl CpuHTM2 {
         }, |minicolumn_id| inputs_per_minicolumn);
         rand_seed
     }
-    pub fn add_with_input_distribution(&mut self, input_densities: &[u32], minicolumns: u32, inputs_per_minicolumn: u32, mut rand_seed: u32) -> u32{
-        assert!(input_densities.len() <= self.input_size as usize, "Input densities has length {} but there are only {} inputs", input_densities.len(), self.input_size);
+    /** intervals holds a vector of intervals. Each interval is defined as a triple (f,c,t),
+    where f is the (inclusive) beginning of the input interval, c is the number of neurons that will be chosen from this particular interval,
+    t is the (exclusive) end of the input interval. Each connection will be randomly chosen from any of the provided intervals.
+    The probabilities of intervals do not actually need to sum up to 1. This function will sum them up and normalize all the values anyway.
+    While each interval will be randomly chosen with its own probability, the exact neuron is then randomly chosen from within the interval with a uniform distribution. */
+    pub fn add_interval_uniform_prob(&mut self, minicolumns: u32, intervals: &[(u32, u32, u32)], mut rand_seed: u32) -> u32 {
+        let input_size = self.input_size;
+        let mut ranges: Vec<(u32, u32)> = intervals.iter().map(|&(f, c, t)| {
+            assert!(f<=t, "Beginning of input interval {}-{} is larger than its end",f,t);
+            assert!(c<=t-f,"Input interval {}-{} has size {} but requested {} connections from it",f,t,t-f,c);
+            (f, t)
+        }).collect();
+        ranges.sort_by_key(|(f, t)| *f);
+        let last = ranges.into_iter().fold(0, |prev_t, (f, t)| {
+            assert!(prev_t <= f);
+            t
+        });
+        assert!(last<=input_size,"The HTM receives input of size {} but some interval exceeds this and ends at {}",input_size,last);
+        let inputs_per_minicolumn:u32 = intervals.iter().map(|(_,p,_)|p).cloned().sum();
+        let mut interval_idx = 0;
+        let mut neuron_from_current_interval = 0;
+        self.add_minicolumns(minicolumns, |minicolumn_id| {
+            while neuron_from_current_interval == intervals[interval_idx].1{
+                neuron_from_current_interval = 0;
+                if interval_idx == intervals.len() {
+                    interval_idx = 0;
+                } else {
+                    interval_idx += 1;
+                }
+            }
+            neuron_from_current_interval += 1;
+            let interval = &intervals[interval_idx];
+            let interval_size = interval.2 - interval.0;
+            rand_seed = xorshift32(rand_seed);
+            let input_idx = interval.0 + rand_seed % interval_size;
+            rand_seed = xorshift32(rand_seed);
+            let permanence = rand_u32_to_random_f32(rand_seed);
+            (input_idx, permanence)
+        }, |minicolumn_id| inputs_per_minicolumn);
+        rand_seed
+    }
+
+    pub fn add_with_input_distribution(&mut self, input_range:impl RangeBounds<u32>, input_densities: &[u32], minicolumns: u32, inputs_per_minicolumn: u32, mut rand_seed: u32) -> u32 {
+        let input_range = resolve_range(self.input_size,input_range);
+        assert_eq!(input_densities.len(),input_range.len(), "Input densities has length {} but the input range {:?} has size {}", input_densities.len(), input_range, input_range.len());
         let total: u64 = input_densities.iter().map(|&x| x as u64).sum();
         let mut pdf = Vec::<f64>::with_capacity(input_densities.len());
         let mut sum = 0u64;
@@ -170,7 +219,7 @@ impl CpuHTM2 {
             debug_assert!(input_idx < input_densities.len(), "Last element in pdf is total/total==1. The max value returned by rand_u32_to_random_f32 is less than 1.");
             rand_seed = xorshift32(rand_seed);
             let permanence = rand_u32_to_random_f32(rand_seed);
-            (input_idx as u32, permanence)
+            (input_range.start + input_idx as u32, permanence)
         }, |minicolumn_id| inputs_per_minicolumn);
         rand_seed
     }
@@ -186,24 +235,29 @@ impl CpuHTM2 {
             input_size,
         }
     }
-    pub fn add_2d_column_grid_with_3d_input(&mut self, minicolumns_per_column:u32, inputs_per_minicolumn: u32, input_stride: [u32;2], input_kernel: [u32;2], input_size: [u32;3], mut rand_seed: u32) -> u32{
-        let column_grid = [input_size.height(),input_size.width()].conv_out_size(input_stride,input_kernel);
-        let input_subregion_size = [input_size[0],input_kernel[0],input_kernel[1]];
-        for col0 in 0..column_grid[0]{
-            for col1 in 0..column_grid[1]{
-                let input_offset = [0,col0*input_stride[0],col1*input_stride[1]];
-                rand_seed = self.add_column_with_3d_input(minicolumns_per_column,inputs_per_minicolumn,input_offset,input_subregion_size,input_size,rand_seed)
+    pub fn add_2d_column_grid_with_3d_input(&mut self,  input_range:impl RangeBounds<u32>, minicolumns_per_column: u32, inputs_per_minicolumn: u32, input_stride: [u32; 2], input_kernel: [u32; 2], input_size: [u32; 3], mut rand_seed: u32) -> u32 {
+        let column_grid = [input_size.height(), input_size.width()].conv_out_size(&input_stride, &input_kernel);
+        let input_range = resolve_range(self.input_size,input_range);
+        let input_subregion_size = [input_size[0], input_kernel[0], input_kernel[1]];
+        for col0 in 0..column_grid[0] {
+            for col1 in 0..column_grid[1] {
+                let input_offset = [0, col0 * input_stride[0], col1 * input_stride[1]];
+                debug_assert!(input_offset.all_lt(&input_size));
+                rand_seed = self.add_column_with_3d_input(input_range.clone(),minicolumns_per_column, inputs_per_minicolumn, input_offset, input_subregion_size, input_size, rand_seed)
             }
         }
         rand_seed
     }
-    pub fn add_column_with_3d_input(&mut self, minicolumns_count: u32, inputs_per_minicolumn: u32, input_offset: [u32;3], input_subregion_size: [u32;3], input_size: [u32;3], mut rand_seed: u32) -> u32{
-        assert_eq!(input_size.size(), self.input_size);
+    pub fn add_column_with_3d_input(&mut self, input_range:impl RangeBounds<u32>, minicolumns_count: u32, inputs_per_minicolumn: u32, input_offset: [u32; 3], input_subregion_size: [u32; 3], input_size: [u32; 3], mut rand_seed: u32) -> u32 {
+        let input_range = resolve_range(self.input_size,input_range);
+        assert!(input_range.end <= self.input_size,"Input range {:?} exceeds {}",input_range, self.input_size);
         self.add_minicolumns(minicolumns_count, |minicolumn_id| {
-            let mut input_pos = [0u32;3];
-            rand_seed = input_pos.rand(&input_subregion_size,rand_seed);
+            let mut input_pos = [0u32; 3];
+            rand_seed = input_pos.rand(&input_subregion_size, rand_seed);
             let permanence = rand_u32_to_random_f32(rand_seed);
-            let input_idx = input_size.idx(input_pos.add(input_offset));
+            let input_idx = input_size.idx(input_pos.add(&input_offset));
+            let input_idx = input_range.start + input_idx;
+            assert!(input_idx<input_range.end);
             (input_idx, permanence)
         }, |minicolumn_id| inputs_per_minicolumn);
         rand_seed
@@ -245,7 +299,7 @@ impl CpuHTM2 {
     }
 
 
-    fn htm_calculate_overlap_for_minicolumn(&mut self, minicolumn_idx:usize, bitset_input: &CpuBitset, number_of_minicolumns_per_overlap: &mut [i32]) -> i32{
+    fn htm_calculate_overlap_for_minicolumn(&mut self, minicolumn_idx: usize, bitset_input: &CpuBitset, number_of_minicolumns_per_overlap: &mut [i32]) -> i32 {
         let connection_offset = self.minicolumns[minicolumn_idx].connection_offset;
         let connection_len = self.minicolumns[minicolumn_idx].connection_len;
         let mut overlap = 0;
@@ -262,16 +316,16 @@ impl CpuHTM2 {
         }
         overlap
     }
-    fn htm_calculate_overlap_and_group_into_columns(&mut self, max_overlap:usize, minicolumns_per_column:usize, bitset_input: &CpuBitset, number_of_minicolumns_per_overlap: &mut [i32]) {
+    fn htm_calculate_overlap_and_group_into_columns(&mut self, max_overlap: usize, minicolumns_per_column: usize, bitset_input: &CpuBitset, number_of_minicolumns_per_overlap: &mut [i32]) {
         for minicolumn_idx in 0..self.minicolumns.len() {
             let column_idx = minicolumn_idx / minicolumns_per_column;
-            let offset = (max_overlap+1)*column_idx;
-            self.minicolumns[minicolumn_idx].overlap = self.htm_calculate_overlap_for_minicolumn(minicolumn_idx,bitset_input,&mut number_of_minicolumns_per_overlap[offset..offset+max_overlap+1]);
+            let offset = (max_overlap + 1) * column_idx;
+            self.minicolumns[minicolumn_idx].overlap = self.htm_calculate_overlap_for_minicolumn(minicolumn_idx, bitset_input, &mut number_of_minicolumns_per_overlap[offset..offset + max_overlap + 1]);
         }
     }
     fn htm_calculate_overlap(&mut self, bitset_input: &CpuBitset, number_of_minicolumns_per_overlap: &mut [i32]) {
         for minicolumn_idx in 0..self.minicolumns.len() {
-            self.minicolumns[minicolumn_idx].overlap = self.htm_calculate_overlap_for_minicolumn(minicolumn_idx,bitset_input,number_of_minicolumns_per_overlap);
+            self.minicolumns[minicolumn_idx].overlap = self.htm_calculate_overlap_for_minicolumn(minicolumn_idx, bitset_input, number_of_minicolumns_per_overlap);
         }
     }
 
@@ -293,10 +347,10 @@ impl CpuHTM2 {
         0
     }
     fn htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n_and_group_into_columns
-    (&self, max_overlap:usize, column_count:usize, number_of_minicolumns_per_overlap: &mut [i32]) {
-        for column_idx in 0..column_count{
-            let offset = column_idx*(max_overlap+1);
-            let smallest_overlap_that_made_it_to_top_n = self.htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n(&mut number_of_minicolumns_per_overlap[offset..offset+max_overlap+1]);
+    (&self, max_overlap: usize, column_count: usize, number_of_minicolumns_per_overlap: &mut [i32]) {
+        for column_idx in 0..column_count {
+            let offset = column_idx * (max_overlap + 1);
+            let smallest_overlap_that_made_it_to_top_n = self.htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n(&mut number_of_minicolumns_per_overlap[offset..offset + max_overlap + 1]);
             number_of_minicolumns_per_overlap[offset] = smallest_overlap_that_made_it_to_top_n as i32;
         }
     }
@@ -400,17 +454,17 @@ impl CpuHTM2 {
         }
     }
     fn htm_find_top_minicolumns_and_group_into_columns(&mut self,
-                                                       n:usize, max_overlap:usize, column_count:usize, minicolumns_per_column:usize,
+                                                       n: usize, max_overlap: usize, column_count: usize, minicolumns_per_column: usize,
                                                        number_of_minicolumns_per_overlap_that_made_it_to_top_n: &mut [i32],
-                                                       top_n_minicolumns: &mut [u32]){
+                                                       top_n_minicolumns: &mut [u32]) {
         let mut current_top_n_minicolumn_idx = 0;
         for column_idx in 0..column_count {
-            let minicolumn_offset = column_idx*minicolumns_per_column;
-            let overlap_offset = (max_overlap+1)*column_idx;
+            let minicolumn_offset = column_idx * minicolumns_per_column;
+            let overlap_offset = (max_overlap + 1) * column_idx;
             let smallest_overlap_that_made_it_to_top_n = number_of_minicolumns_per_overlap_that_made_it_to_top_n[overlap_offset];
 
-            let number_of_minicolumns_per_overlap = &mut number_of_minicolumns_per_overlap_that_made_it_to_top_n[overlap_offset..overlap_offset+max_overlap+1];
-            for minicolumn_idx in minicolumn_offset..minicolumn_offset+minicolumns_per_column{
+            let number_of_minicolumns_per_overlap = &mut number_of_minicolumns_per_overlap_that_made_it_to_top_n[overlap_offset..overlap_offset + max_overlap + 1];
+            for minicolumn_idx in minicolumn_offset..minicolumn_offset + minicolumns_per_column {
                 let overlap = self.minicolumns[minicolumn_idx].overlap;
                 if overlap >= smallest_overlap_that_made_it_to_top_n as i32 { // the array number_of_minicolumns_per_overlap_that_made_it_to_top_n holds rubbish for any overlap lower than smallest_overlap_that_made_it_to_top_n
                     if number_of_minicolumns_per_overlap[overlap as usize] > 0 { // only add those columns that made it to top n
@@ -420,14 +474,14 @@ impl CpuHTM2 {
                     }
                 }
             }
-            let final_idx = (column_idx+1)*n;
-            if current_top_n_minicolumn_idx < final_idx{
-                for minicolumn_idx in minicolumn_offset..minicolumn_offset+minicolumns_per_column {
+            let final_idx = (column_idx + 1) * n;
+            if current_top_n_minicolumn_idx < final_idx {
+                for minicolumn_idx in minicolumn_offset..minicolumn_offset + minicolumns_per_column {
                     let overlap = self.minicolumns[minicolumn_idx].overlap;
-                    if overlap == 0{
+                    if overlap == 0 {
                         top_n_minicolumns[current_top_n_minicolumn_idx] = minicolumn_idx as u32;
                         current_top_n_minicolumn_idx += 1;
-                        if current_top_n_minicolumn_idx >= final_idx{
+                        if current_top_n_minicolumn_idx >= final_idx {
                             return;
                         }
                     }
@@ -449,17 +503,17 @@ impl CpuHTM2 {
         unsafe { top_n_minicolumns.set_len(top_minicolumn_count as usize) }
         CpuSDR::from(top_n_minicolumns)
     }
-    pub fn compute_and_group_into_columns(&mut self, minicolumns_per_column:usize,bitset_input: &CpuBitset) -> CpuSDR {
-        assert!(minicolumns_per_column>=self.n as usize,"Each column activates n={} winners but there are only {} minicolumns per column",self.n,minicolumns_per_column);
-        assert_eq!(self.minicolumns_as_slice().len()%minicolumns_per_column,0,"The number of minicolumns cannot be evenly divided into columns");
-        let column_count = self.minicolumns_as_slice().len()/minicolumns_per_column;
+    pub fn compute_and_group_into_columns(&mut self, minicolumns_per_column: usize, bitset_input: &CpuBitset) -> CpuSDR {
+        assert!(minicolumns_per_column >= self.n as usize, "Each column activates n={} winners but there are only {} minicolumns per column", self.n, minicolumns_per_column);
+        assert_eq!(self.minicolumns_as_slice().len() % minicolumns_per_column, 0, "The number of minicolumns cannot be evenly divided into columns");
+        let column_count = self.minicolumns_as_slice().len() / minicolumns_per_column;
         assert!(self.input_size() <= bitset_input.size(), "HTM expects input of size {} but got {}", self.input_size(), bitset_input.size());
-        let mut number_of_minicolumns_per_overlap = vec![0; (self.max_overlap as usize + 1)*column_count];
-        self.htm_calculate_overlap_and_group_into_columns(self.max_overlap as usize,minicolumns_per_column,bitset_input, &mut number_of_minicolumns_per_overlap);
-        self.htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n_and_group_into_columns(self.max_overlap as usize,column_count,&mut number_of_minicolumns_per_overlap);
-        let mut top_n_minicolumns = Vec::with_capacity((self.n as usize)*column_count);
-        unsafe { top_n_minicolumns.set_len((self.n as usize)*column_count) }
-        self.htm_find_top_minicolumns_and_group_into_columns(self.n as usize, self.max_overlap as usize,column_count,minicolumns_per_column,&mut number_of_minicolumns_per_overlap, &mut top_n_minicolumns);
+        let mut number_of_minicolumns_per_overlap = vec![0; (self.max_overlap as usize + 1) * column_count];
+        self.htm_calculate_overlap_and_group_into_columns(self.max_overlap as usize, minicolumns_per_column, bitset_input, &mut number_of_minicolumns_per_overlap);
+        self.htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n_and_group_into_columns(self.max_overlap as usize, column_count, &mut number_of_minicolumns_per_overlap);
+        let mut top_n_minicolumns = Vec::with_capacity((self.n as usize) * column_count);
+        unsafe { top_n_minicolumns.set_len((self.n as usize) * column_count) }
+        self.htm_find_top_minicolumns_and_group_into_columns(self.n as usize, self.max_overlap as usize, column_count, minicolumns_per_column, &mut number_of_minicolumns_per_overlap, &mut top_n_minicolumns);
         CpuSDR::from(top_n_minicolumns)
     }
     pub fn infer(&mut self, bitset_input: &CpuBitset, learn: bool) -> CpuSDR {
@@ -469,8 +523,8 @@ impl CpuHTM2 {
         }
         top_n_minicolumns
     }
-    pub fn infer_and_group_into_columns(&mut self, minicolumns_per_column:usize,bitset_input: &CpuBitset, learn: bool) -> CpuSDR {
-        let top_n_minicolumns = self.compute_and_group_into_columns(minicolumns_per_column,bitset_input);
+    pub fn infer_and_group_into_columns(&mut self, minicolumns_per_column: usize, bitset_input: &CpuBitset, learn: bool) -> CpuSDR {
+        let top_n_minicolumns = self.compute_and_group_into_columns(minicolumns_per_column, bitset_input);
         if learn {
             self.update_permanence(&top_n_minicolumns, bitset_input)
         }

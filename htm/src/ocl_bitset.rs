@@ -6,6 +6,7 @@ use ocl::{MemFlags, Error, Queue};
 pub struct OclBitset {
     prog: HtmProgram,
     bits: Buffer<u32>,
+    shape: [u32;3]
 }
 
 impl OclBitset {
@@ -21,11 +22,14 @@ impl OclBitset {
     pub fn size(&self) ->usize{
         self.bits.len()*32
     }
+    pub fn shape(&self) -> &[u32;3]{
+        &self.shape
+    }
     pub fn to_cpu(&self)->Result<CpuBitset,Error>{
         let mut v = Vec::with_capacity(self.bits.len());
         unsafe{v.set_len(self.bits.len())}
         self.bits.read(self.queue(), 0, v.as_mut_slice())?;
-        Ok(CpuBitset::from(v))
+        Ok(CpuBitset::from_raw(v,self.shape))
     }
     pub fn from_sdr(sdr: &OclSDR, input_size:u32) -> Result<Self,Error> {
         let mut bitset = Self::new(input_size, sdr.prog().clone())?;
@@ -34,14 +38,14 @@ impl OclBitset {
     }
     pub fn from_cpu(bitset: &CpuBitset, prog: HtmProgram) -> Result<OclBitset, Error> {
         prog.buffer_from_slice(MemFlags::READ_WRITE,bitset.as_slice())
-            .map(|bits|Self{ prog, bits })
+            .map(|bits|Self{ prog, bits, shape:bitset.shape().clone() })
     }
     pub fn new(input_size: u32, prog: HtmProgram) -> Result<OclBitset, Error> {
-        prog.buffer_filled(MemFlags::READ_WRITE,bit_count_to_vec_size(input_size), 0).map(|bits|Self { prog, bits })
+        prog.buffer_filled(MemFlags::READ_WRITE,bit_count_to_vec_size(input_size), 0).map(|bits|Self { prog, bits,shape:[1,1,input_size] })
     }
 
     pub fn set_bits_on(&mut self, sdr: &OclSDR) -> Result<(), Error> {
-        let Self{ prog, bits } = self;
+        let Self{ prog, bits,.. } = self;
         prog.kernel_builder("bitset_set_active_inputs")?.
             add_buff(sdr.buffer())?.//__global uint * sdr_input,
             add_buff(bits)?.// __global uint * bitset_input
@@ -50,7 +54,7 @@ impl OclBitset {
     }
 
     pub fn clear(&mut self, sdr: &OclSDR) -> Result<(), Error> {
-        let Self{ prog, bits } = self;
+        let Self{ prog, bits,.. } = self;
         prog.kernel_builder("bitset_clean_up_active_inputs")?.
             add_buff(sdr.buffer())?.//__global uint * sdr_input,
             add_buff(bits)?.// __global uint * bitset_input
@@ -58,12 +62,12 @@ impl OclBitset {
             map_err(Error::from)
     }
     pub fn clear_all(&mut self) -> Result<(), Error> {
-        let Self{ prog, bits } = self;
+        let Self{ prog, bits,.. } = self;
         bits.fill(prog.queue(),0)
     }
     pub fn copy_from(&mut self, bitset:&CpuBitset) -> Result<(), Error> {
         assert_eq!(bitset.size(),self.size() as u32);
-        let Self{ prog, bits } = self;
+        let Self{ prog, bits,.. } = self;
         bits.write(prog.queue(),0,bitset.as_slice())
     }
 

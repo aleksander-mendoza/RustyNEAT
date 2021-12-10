@@ -28,13 +28,14 @@ impl EncoderTarget for CpuInput{
     }
 }
 impl CpuInput{
-
-    pub fn new(size:u32)->Self{
-        Self{sdr:CpuSDR::new(),bitset:CpuBitset::new(size)}
+    pub fn new( size:u32)->Self{
+        Self::new2d(1,size)
     }
-    /**You will need to call set_size before being able to use this CpuInput*/
-    pub fn empty()->Self{
-        Self{ sdr: CpuSDR::new(), bitset: CpuBitset::empty() }
+    pub fn new2d( height:u32,width:u32)->Self{
+        Self::new3d(1,height,width)
+    }
+    pub fn new3d(depth:u32, height:u32,width:u32)->Self{
+        Self{sdr:CpuSDR::new(),bitset:CpuBitset::new3d(depth,height,width)}
     }
     pub unsafe fn new_unchecked(sdr:CpuSDR,bitset:CpuBitset)->Self{
         Self{sdr,bitset}
@@ -76,9 +77,6 @@ impl CpuInput{
         std::mem::swap(&mut self.bitset,&mut bitset);
         bitset
     }
-    pub fn set_size(&mut self, input_size:u32){
-        self.bitset.set_size(input_size)
-    }
     pub fn set_sparse_from_slice(&mut self, sdr:&[u32]){
         self.bitset.clear(&self.sdr);
         self.bitset.set_bits_on(sdr);
@@ -93,6 +91,18 @@ impl CpuInput{
     }
     pub fn size(&self)->u32{
         self.bitset.size()
+    }
+    pub fn shape(&self) -> &[u32; 3] {
+        self.bitset.shape()
+    }
+    pub fn reshape2d(&mut self,height:u32,width:u32) {
+        self.bitset.reshape2d(height,width)
+    }
+    pub fn reshape(&mut self) {
+        self.bitset.reshape()
+    }
+    pub fn reshape3d(&mut self,depth:u32, height:u32,width:u32) {
+        self.bitset.reshape3d(depth,height,width)
     }
     pub fn clear(&mut self){
         let Self{ sdr, bitset } = self;

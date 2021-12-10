@@ -84,8 +84,8 @@ sublayer2_total_size = sublayer2_total_shape.prod()
 
 def make_sensor_to_layer1_column():
     return htm.CpuHTM2(sensor_column_size.prod(),
-                       layer1_column_size.prod(),
                        layer1_column_card,
+                       layer1_column_size.prod(),
                        sensor_to_layer1_synapses)
 
 

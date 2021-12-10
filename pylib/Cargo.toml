@@ -20,6 +20,7 @@ rusty_neat_core = {path= "../neat" }
 numpy = "0.13"
 ndalgebra = {path="../ndalgebra"}
 htm = {path="../htm"}
+htm-vis = {path="../htm_vis"}
 chrono = "0.4.19"
 serde = "1.0.130"
 serde-pickle = "1.1.0"

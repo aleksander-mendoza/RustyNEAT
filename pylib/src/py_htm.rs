@@ -26,6 +26,7 @@ use std::io::BufWriter;
 use std::fs::{File, OpenOptions};
 use serde_pickle::SerOptions;
 use serde::Serialize;
+use htm_vis::visualise_cpu_htm2;
 
 #[pyclass]
 pub struct CpuSDR {
@@ -37,26 +38,41 @@ pub struct CpuBitset {
     bits: htm::CpuBitset,
 }
 
-#[pyclass]
-pub struct CpuBitset2d {
-    bits: htm::CpuBitset2d,
-}
-
-#[pyclass]
-pub struct CpuBitset3d {
-    bits: htm::CpuBitset3d,
-}
 
 #[pyclass]
 pub struct CpuInput {
     inp: htm::CpuInput,
 }
 
+///
+/// CpuHTM(input_size, minicolumns, n, inputs_per_minicolumn, rand_seed)
+///
+///
+/// The standard implementation of spacial pooler. It is especially optimised for
+/// extremely sparse input, such that at any point in time only very few minicolumns
+/// have any synapse that connects to any active input. If your encoding of input
+/// is not that sparse, and most minicolumns will usually have at least one synapse
+/// that connects to some ative input at any time, then you're better off using CpuHTM2
+/// implementation. The difference bewteen CpuHTM and CpuHTM2 is that this one
+/// takes as input a CpuSDR and iterates only over active inputs, whereas CpuHTM2
+/// receives CpuBitset and iterates over minicolumns.
+///
 #[pyclass]
 pub struct CpuHTM {
     htm: htm::CpuHTM,
 }
 
+///
+/// new(input_width,input_height, minicolumns, inputs_per_minicolumn, n, rand_seed)
+///
+///
+/// Randomly generate a new Dentate Gyrus. You can provide a random seed manually.
+/// Otherwise the millisecond part of system time is used as a seed. Seed is a 32-bit number.
+/// This implementation is just like CpuHTM2, except that it stores synapses as 2D-coordinates
+/// and then evaluates every synapse for every translation (with some stride). This is equivalent to
+/// having a spacial pooler with multiple feed-forward segments and each segment being exactly
+/// the same, except that the synapses are translated by some 2D displacement.
+///
 #[pyclass]
 pub struct CpuDG2_2d {
     dg: htm::CpuDG2<DgCoord2d>,
@@ -77,6 +93,15 @@ pub struct CpuBigHTM {
     htm: htm::CpuBigHTM,
 }
 
+///
+/// CpuHTM2(input_size:int, n:int, minicolumns:Optional[int], inputs_per_minicolumn:Optional[int], rand_seed:Optional[int])
+///
+///
+/// The standard implementation of spacial pooler.
+///  Randomly generate a new Spacial Pooler. You can provide a random seed manually.
+///  Otherwise the millisecond part of system time is used as a seed. Seed is a 32-bit number.
+///
+///
 #[pyclass]
 pub struct CpuHTM2 {
     htm: htm::CpuHTM2,
@@ -248,10 +273,6 @@ fn encode_err<T, U>(sdr: PyObject, scalar: T, f1: impl FnOnce(&mut htm::CpuSDR, 
         f2(&mut sdr.bits, scalar)
     } else if let Ok(mut sdr) = sdr.extract::<PyRefMut<CpuInput>>(py) {
         f3(&mut sdr.inp, scalar)
-    } else if let Ok(mut sdr) = sdr.extract::<PyRefMut<CpuBitset2d>>(py) {
-        f2(sdr.bits.as_bitset_mut(), scalar)
-    } else if let Ok(mut sdr) = sdr.extract::<PyRefMut<CpuBitset3d>>(py) {
-        f2(sdr.bits.as_bitset_mut(), scalar)
     } else {
         let mut sdr = sdr.extract::<PyRefMut<CpuSDR>>(py)?;
         f1(&mut sdr.sdr, scalar)
@@ -827,12 +848,6 @@ impl CpuBigHTM {
 
 #[pymethods]
 impl CpuDG2_2d {
-    /// new(input_width,input_height, minicolumns, inputs_per_minicolumn, n, rand_seed)
-    /// --
-    ///
-    /// Randomly generate a new Dentate Gyrus. You can provide a random seed manually.
-    /// Otherwise the millisecond part of system time is used as a seed. Seed is a 32-bit number.
-    ///
     #[new]
     pub fn new(input_size: (u32, u32), minicolumns: u32, n: u32, span: (u32, u32), inputs_per_granular_cell: u32, rand_seed: Option<u32>) -> PyResult<Self> {
         let (input_height, input_width) = input_size;
@@ -872,8 +887,8 @@ impl CpuDG2_2d {
         self.dg.n
     }
     #[getter]
-    fn make_bitset(&self) -> CpuBitset2d {
-        CpuBitset2d { bits: self.dg.make_bitset() }
+    fn make_bitset(&self) -> CpuBitset {
+        CpuBitset { bits: self.dg.make_bitset() }
     }
     #[setter]
     fn set_n(&mut self, n: u32) {
@@ -890,7 +905,7 @@ impl CpuDG2_2d {
     }
 
     #[text_signature = "(bitset_input,stride)"]
-    fn compute_translation_invariant(&mut self, bitset_input: &CpuBitset2d, stride: (u32, u32)) -> CpuSDR {
+    fn compute_translation_invariant(&mut self, bitset_input: &CpuBitset, stride: (u32, u32)) -> CpuSDR {
         CpuSDR { sdr: self.dg.compute_translation_invariant(&bitset_input.bits, stride) }
     }
 
@@ -977,6 +992,33 @@ fn arr3(py: Python, t: PyObject) -> PyResult<[u32; 3]> {
     })
 }
 
+fn arrX(py: Python, t: PyObject, default0: u32, default1: u32, default2: u32) -> PyResult<[u32; 3]> {
+    Ok(if t.is_none(py) {
+        [default0, default1, default2]
+    } else if let Ok(t) = t.extract::<u32>(py) {
+        [default0, default1, t]
+    } else if let Ok(t) = t.extract::<(u32, u32)>(py) {
+        [default0, t.0, t.1]
+    } else if let Ok(t) = t.extract::<(u32, u32, u32)>(py) {
+        [t.0, t.1, t.2]
+    } else {
+        let d = [default0, default1, default2];
+        fn to3(arr: &[u32], mut d: [u32; 3]) -> [u32; 3] {
+            for i in 0..arr.len().min(3) {
+                d[3 - arr.len() + i] = arr[i];
+            }
+            d
+        }
+        if let Ok(t) = t.extract::<Vec<u32>>(py) {
+            to3(&t, d)
+        } else {
+            let array = py_any_as_numpy_u32(t.as_ref(py))?;
+            let t = unsafe { array.as_slice()? };
+            to3(&t, d)
+        }
+    })
+}
+
 fn arr2(py: Python, t: PyObject) -> PyResult<[u32; 2]> {
     Ok(if let Ok(t) = t.extract::<(u32, u32)>(py) {
         [t.0, t.1]
@@ -991,20 +1033,27 @@ fn arr2(py: Python, t: PyObject) -> PyResult<[u32; 2]> {
 
 #[pymethods]
 impl CpuHTM2 {
-    /// new(input_size, minicolumns, inputs_per_minicolumn, n, rand_seed)
-    /// --
-    ///
-    /// Randomly generate a new Spacial Pooler. You can provide a random seed manually.
-    /// Otherwise the millisecond part of system time is used as a seed. Seed is a 32-bit number.
-    ///
     #[new]
-    pub fn new(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, rand_seed: Option<u32>) -> PyResult<Self> {
-        if inputs_per_minicolumn > input_size {
-            return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} inputs in total", inputs_per_minicolumn, input_size)));
-        }
+    pub fn new(input_size: u32, n: u32, minicolumns: Option<u32>, inputs_per_minicolumn: Option<u32>, rand_seed: Option<u32>) -> PyResult<Self> {
         let mut htm = htm::CpuHTM2::new(input_size, n);
-        htm.add_globally_uniform_prob(minicolumns, inputs_per_minicolumn, rand_seed.unwrap_or_else(auto_gen_seed));
+        if let Some(inputs_per_minicolumn) = inputs_per_minicolumn {
+            let minicolumns = minicolumns.unwrap_or(0);
+            if inputs_per_minicolumn > input_size {
+                return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} inputs in total", inputs_per_minicolumn, input_size)));
+            }
+            htm.add_globally_uniform_prob(minicolumns, inputs_per_minicolumn, rand_seed.unwrap_or_else(auto_gen_seed));
+        }else if minicolumns.is_some() {
+            return Err(PyValueError::new_err(format!("inputs_per_minicolumn argument is missing")));
+        }
         Ok(CpuHTM2 { htm })
+    }
+    #[text_signature = "(input,input_shapes,output,output_shapes)"]
+    pub fn visualise(&mut self, input:&CpuSDR, input_shapes:Vec<PyObject>, output:&CpuSDR, output_shapes:Vec<PyObject>) -> PyResult<()> {
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let input_shapes:PyResult<Vec<[u32;3]>> = input_shapes.into_iter().map(|o|arrX(py,o,1,1,self.htm.input_size())).collect();
+        let output_shapes:PyResult<Vec<[u32;3]>> = output_shapes.into_iter().map(|o|arrX(py,o,1,1,self.htm.minicolumns_as_slice().len() as u32)).collect();
+        Ok(visualise_cpu_htm2(&self.htm, input.sdr.as_slice(),&input_shapes?,output.sdr.as_slice(),&output_shapes?))
     }
     #[text_signature = "(file)"]
     pub fn pickle(&mut self, file: String) -> PyResult<()> {
@@ -1026,29 +1075,44 @@ impl CpuHTM2 {
         let rand_seed = self.htm.add_globally_uniform_prob(minicolumns, inputs_per_minicolumn, rand_seed.unwrap_or_else(auto_gen_seed));
         Ok(rand_seed)
     }
-    #[text_signature = "(minicolumns_count,inputs_per_minicolumn,input_offset,input_subregion_size,input_size,rand_seed)"]
-    pub fn add_column_with_3d_input(&mut self, minicolumns_count: u32, inputs_per_minicolumn: u32, input_offset: PyObject, input_subregion_size: PyObject, input_size: PyObject, rand_seed: Option<u32>) -> PyResult<u32> {
+    ///
+    /// Intervals holds a vector of intervals. Each interval is defined as a triple (f,c,t),
+    /// where f is the (inclusive) beginning of the input interval, c is the number of neurons that will be chosen from this particular interval,
+    /// t is the (exclusive) end of the input interval. Each connection will be randomly chosen from any of the provided intervals.
+    /// The probabilities of intervals do not actually need to sum up to 1. This function will sum them up and normalize all the values anyway.
+    /// While each interval will be randomly chosen with its own probability, the exact neuron is then randomly chosen from within the interval with a uniform distribution.
+    ///
+    #[text_signature = "(minicolumns_count,intervals,rand_seed)"]
+    pub fn add_interval_uniform_prob(&mut self, minicolumns: u32, intervals: Vec<(u32, u32, u32)>, rand_seed: Option<u32>) -> u32 {
+        self.htm.add_interval_uniform_prob(minicolumns, &intervals, rand_seed.unwrap_or_else(auto_gen_seed))
+    }
+    #[text_signature = "(minicolumns_count,inputs_per_minicolumn,input_offset,input_subregion_size,input_size,input_range,rand_seed)"]
+    pub fn add_column_with_3d_input(&mut self, minicolumns_count: u32, inputs_per_minicolumn: u32, input_offset: PyObject, input_subregion_size: PyObject, input_size: PyObject, input_range: Option<(u32, u32)>, rand_seed: Option<u32>) -> PyResult<u32> {
         let gil = Python::acquire_gil();
         let py = gil.python();
-        let rand_seed = self.htm.add_column_with_3d_input(minicolumns_count, inputs_per_minicolumn, arr3(py, input_offset)?, arr3(py, input_subregion_size)?, arr3(py, input_size)?, rand_seed.unwrap_or_else(auto_gen_seed));
+        let input_range = input_range.map(|(a, b)| a..b).unwrap_or(0..self.htm.input_size());
+        let rand_seed = self.htm.add_column_with_3d_input(input_range, minicolumns_count, inputs_per_minicolumn, arr3(py, input_offset)?, arr3(py, input_subregion_size)?, arr3(py, input_size)?, rand_seed.unwrap_or_else(auto_gen_seed));
         Ok(rand_seed)
     }
-    #[text_signature = "(minicolumns_per_column,inputs_per_minicolumn,input_stride,input_kernel,input_size,rand_seed)"]
-    pub fn add_2d_column_grid_with_3d_input(&mut self, minicolumns_per_column: u32, inputs_per_minicolumn: u32, input_stride: PyObject, input_kernel: PyObject, input_size: PyObject, rand_seed: Option<u32>) -> PyResult<u32> {
+    #[text_signature = "(minicolumns_per_column,inputs_per_minicolumn,input_stride,input_kernel,input_size,input_range,rand_seed)"]
+    pub fn add_2d_column_grid_with_3d_input(&mut self, minicolumns_per_column: u32, inputs_per_minicolumn: u32, input_stride: PyObject, input_kernel: PyObject, input_size: PyObject, input_range: Option<(u32, u32)>, rand_seed: Option<u32>) -> PyResult<u32> {
         let gil = Python::acquire_gil();
         let py = gil.python();
-        let rand_seed = self.htm.add_2d_column_grid_with_3d_input(minicolumns_per_column, inputs_per_minicolumn, arr2(py, input_stride)?, arr2(py, input_kernel)?, arr3(py, input_size)?, rand_seed.unwrap_or_else(auto_gen_seed));
+        let input_range = input_range.map(|(a, b)| a..b).unwrap_or(0..self.htm.input_size());
+        let rand_seed = self.htm.add_2d_column_grid_with_3d_input(input_range, minicolumns_per_column, inputs_per_minicolumn, arr2(py, input_stride)?, arr2(py, input_kernel)?, arr3(py, input_size)?, rand_seed.unwrap_or_else(auto_gen_seed));
         Ok(rand_seed)
     }
-    #[text_signature = "(input_size,minicolumns,inputs_per_minicolumn,radius,rand_seed)"]
-    pub fn add_local_2d(mut slf: PyRefMut<Self>, input_size: (u32, u32), minicolumns: (u32, u32), inputs_per_minicolumn: u32, radius: f32, rand_seed: Option<u32>) -> PyRefMut<Self> {
-        slf.htm.add_local_2d(input_size, minicolumns, inputs_per_minicolumn, radius, rand_seed.unwrap_or_else(auto_gen_seed));
-        slf
+    #[text_signature = "(input_size,minicolumns,inputs_per_minicolumn,radius,input_range,rand_seed)"]
+    pub fn add_local_2d(&mut self, input_size: PyObject, minicolumns: PyObject, inputs_per_minicolumn: u32, radius: f32, input_range: Option<(u32, u32)>, rand_seed: Option<u32>) -> PyResult<u32> {
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let input_range = input_range.map(|(a, b)| a..b).unwrap_or(0..self.htm.input_size());
+        Ok(self.htm.add_local_2d(input_range, arr2(py, input_size)?, arr2(py, minicolumns)?, inputs_per_minicolumn, radius, rand_seed.unwrap_or_else(auto_gen_seed)))
     }
-    #[text_signature = "(input_densities,minicolumns,inputs_per_minicolumn,rand_seed)"]
-    pub fn add_with_input_distribution(mut slf: PyRefMut<Self>, input_densities: Vec<u32>, minicolumns: u32, inputs_per_minicolumn: u32, rand_seed: Option<u32>) -> PyRefMut<Self> {
-        slf.htm.add_with_input_distribution(&input_densities, minicolumns, inputs_per_minicolumn, rand_seed.unwrap_or_else(auto_gen_seed));
-        slf
+    #[text_signature = "(input_densities,minicolumns,inputs_per_minicolumn,input_range,rand_seed)"]
+    pub fn add_with_input_distribution(&mut self, input_densities: Vec<u32>, minicolumns: u32, inputs_per_minicolumn: u32, input_range: Option<(u32, u32)>, rand_seed: Option<u32>) -> u32 {
+        let input_range = input_range.map(|(a, b)| a..b).unwrap_or(0..self.htm.input_size());
+        self.htm.add_with_input_distribution(input_range, &input_densities, minicolumns, inputs_per_minicolumn, rand_seed.unwrap_or_else(auto_gen_seed))
     }
     #[getter]
     fn get_synapse_count(&self) -> u32 {
@@ -1722,7 +1786,7 @@ impl CpuSDR {
 pub fn vote_conv2d_transpose(output_sdrs: Vec<Vec<PyRef<CpuSDR>>>, stride: PyObject, kernel_size: PyObject, grid_size: PyObject) -> PyResult<Vec<Vec<CpuSDR>>> {
     let gil = Python::acquire_gil();
     let py = gil.python();
-    let o = htm::CpuSDR::vote_conv2d_transpose_arr(arr2(py,stride)?, arr2(py,kernel_size)?, arr2(py,grid_size)?, &|i0, i1| &output_sdrs[i0 as usize][i1 as usize].sdr);
+    let o = htm::CpuSDR::vote_conv2d_transpose_arr(arr2(py, stride)?, arr2(py, kernel_size)?, arr2(py, grid_size)?, &|i0, i1| &output_sdrs[i0 as usize][i1 as usize].sdr);
     Ok(o.into_iter().map(|a| a.into_iter().map(|sdr| CpuSDR { sdr }).collect()).collect())
 }
 
@@ -1771,33 +1835,15 @@ pub fn cpu_htm4_new_globally_uniform_prob_without_inhibitory(input_size: u32, mi
     htm
 }
 
-#[pyfunction]
-#[text_signature = "(input_size,n)"]
-pub fn cpu_htm2_new(input_size: u32, n: u32) -> CpuHTM2 {
-    CpuHTM2 { htm: htm::CpuHTM2::new(input_size, n) }
-}
-
-#[pyfunction]
-#[text_signature = "(input_size,minicolumns,n,inputs_per_minicolumn,radius,rand_seed)"]
-pub fn cpu_htm2_new_local_2d(input_size: (u32, u32), minicolumns: (u32, u32), n: u32, inputs_per_minicolumn: u32, radius: f32, mut rand_seed: Option<u32>) -> CpuHTM2 {
-    CpuHTM2 { htm: htm::CpuHTM2::new_local_2d(input_size, minicolumns, n, inputs_per_minicolumn, radius, rand_seed.unwrap_or_else(auto_gen_seed)) }
-}
-
-#[pyfunction]
-#[text_signature = "(input_densities,minicolumns,n,inputs_per_minicolumn,max_permanence,rand_seed)"]
-pub fn cpu_htm2_new_with_input_distribution(input_densities: Vec<u32>, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, rand_seed: Option<u32>) -> CpuHTM2 {
-    let mut n = cpu_htm2_new(input_densities.len() as u32, n);
-    n.htm.add_with_input_distribution(&input_densities, minicolumns, inputs_per_minicolumn, rand_seed.unwrap_or_else(auto_gen_seed));
-    n
-}
-
 fn py_any_as_numpy_bool(input: &PyAny) -> Result<&PyArrayDyn<bool>, PyErr> {
     py_any_as_numpy(input, DataType::Bool)
 }
+
 fn py_any_as_numpy_u32(input: &PyAny) -> Result<&PyArrayDyn<u32>, PyErr> {
     py_any_as_numpy(input, DataType::Uint32)
 }
-fn py_any_as_numpy<T>(input: &PyAny, dtype:DataType) -> Result<&PyArrayDyn<T>, PyErr> {
+
+fn py_any_as_numpy<T>(input: &PyAny, dtype: DataType) -> Result<&PyArrayDyn<T>, PyErr> {
     let array = unsafe {
         if npyffi::PyArray_Check(input.as_ptr()) == 0 {
             return Err(PyDowncastError::new(input, "PyArray<T, D>").into());
@@ -1815,7 +1861,7 @@ fn py_any_as_numpy<T>(input: &PyAny, dtype:DataType) -> Result<&PyArrayDyn<T>, P
 
 #[pyfunction]
 #[text_signature = "(numpy_array/)"]
-pub fn bitset_from_numpy(input: &PyAny) -> Result<PyObject, PyErr> {
+pub fn bitset_from_numpy(input: &PyAny) -> Result<CpuBitset, PyErr> {
     let array = py_any_as_numpy_bool(input)?;
     let shape = array.shape();
     if shape.len() > 3 {
@@ -1823,18 +1869,13 @@ pub fn bitset_from_numpy(input: &PyAny) -> Result<PyObject, PyErr> {
     }
     let array = unsafe { array.as_slice()? };
     let mut bitset = htm::CpuBitset::from_bools(array);
-    let gil = Python::acquire_gil();
-    let py = gil.python();
-    if shape.len() == 1 {
-        let pyref = Py::new(py, CpuBitset { bits: bitset })?;
-        Ok(pyref.to_object(py))
-    } else if shape.len() == 2 {
-        let pyref = Py::new(py, CpuBitset2d { bits: htm::CpuBitset2d::new(bitset, shape[0] as u32, shape[1] as u32) })?;
-        Ok(pyref.to_object(py))
-    } else {
-        let pyref = Py::new(py, CpuBitset3d { bits: htm::CpuBitset3d::new(bitset, shape[0] as u32, shape[1] as u32, shape[2] as u32) })?;
-        Ok(pyref.to_object(py))
+    if shape.len() == 2 {
+        bitset.reshape2d(shape[0] as u32, shape[1] as u32)
+    } else if shape.len() == 3 {
+        bitset.reshape3d(shape[0] as u32, shape[1] as u32, shape[2] as u32)
     }
+
+    Ok(CpuBitset { bits: bitset })
 }
 
 #[pyfunction]
@@ -1849,117 +1890,9 @@ pub fn bitset_from_indices(bit_indices: Vec<u32>, input_size: u32) -> CpuBitset 
     CpuBitset { bits: htm::CpuBitset::from_sdr(&bit_indices, input_size) }
 }
 
-#[pymethods]
-impl CpuBitset2d {
-    #[getter]
-    pub fn width(&self) -> u32 {
-        self.bits.width()
-    }
-    #[getter]
-    pub fn height(&self) -> u32 {
-        self.bits.height()
-    }
-    #[text_signature = "( /)"]
-    fn clone(&self) -> CpuBitset2d {
-        CpuBitset2d { bits: self.bits.clone() }
-    }
-    #[text_signature = "(file)"]
-    pub fn pickle(&mut self, file: String) -> PyResult<()> {
-        pickle(&self.bits, file)
-    }
-    #[text_signature = "(from,to,bit_count)"]
-    pub fn set_bits_on_rand(&mut self, from: u32, to: u32, bit_count: u32, rand_seed: Option<u32>) -> u32 {
-        self.bits.set_bits_on_rand(from, to, bit_count, rand_seed.unwrap_or_else(auto_gen_seed))
-    }
-    #[new]
-    pub fn new(height: u32, width: u32, bitset: Option<&CpuBitset>) -> Self {
-        let bits = if let Some(b) = bitset {
-            let CpuBitset { bits } = b;
-            bits.clone()
-        } else {
-            htm::CpuBitset::new(width * height)
-        };
-        CpuBitset2d { bits: htm::CpuBitset2d::new(bits, height, width) }
-    }
-    #[getter]
-    pub fn size(&self) -> u32 {
-        self.bits.size()
-    }
-    #[text_signature = "(bitset)"]
-    pub fn overlap(&self, bitset: PyObject) -> PyResult<u32> {
-        encode_err(bitset, ()
-                   , |sdr, _| Err(PyValueError::new_err("Cannot compare SDR with bitset"))
-                   , |sdr, _| Ok(self.bits.overlap(sdr))
-                   , |sdr, _| Ok(self.bits.overlap(sdr.get_dense())))
-    }
-    #[text_signature = "(offset1,offset2,size)"]
-    pub fn swap_u32(&mut self, offset1: u32, offset2: u32, size: u32) {
-        self.bits.swap_u32(offset1, offset2, size)
-    }
-    #[text_signature = "(bit_index)"]
-    pub fn is_bit_on(&self, bit_index: u32) -> bool {
-        self.bits.is_bit_on(bit_index)
-    }
-    #[text_signature = "(y,x)"]
-    pub fn is_bit_at(&self, y: u32, x: u32) -> bool {
-        self.bits.is_bit_at(y, x)
-    }
-    #[text_signature = "(sdr)"]
-    pub fn append_to_sdr(&self, sdr: &mut CpuSDR) {
-        self.bits.append_to_sdr(&mut sdr.sdr)
-    }
-    #[getter]
-    pub fn cardinality(&self) -> u32 {
-        self.bits.cardinality()
-    }
-    #[text_signature = "(sdr)"]
-    pub fn clear(&mut self, sdr: Option<&CpuSDR>) {
-        if let Some(sdr) = sdr {
-            self.bits.clear(&sdr.sdr)
-        } else {
-            self.bits.clear_all()
-        }
-    }
-    #[text_signature = "(min_size)"]
-    pub fn ensure_size(&mut self, min_size: u32) {
-        self.bits.ensure_size(min_size)
-    }
-    #[text_signature = "(size)"]
-    pub fn set_size(&mut self, size: u32) {
-        self.bits.set_size(size)
-    }
-    #[text_signature = "(bit_idx)"]
-    pub fn set_bit_on(&mut self, bit_idx: u32) {
-        self.bits.set_bit_on(bit_idx)
-    }
-    #[text_signature = "(y,x)"]
-    pub fn set_bit_at(&mut self, y: u32, x: u32) {
-        self.bits.set_bit_at(y, x)
-    }
-    #[text_signature = "(y,x,height,width,sdr)"]
-    pub fn set_bits_at(&mut self, y: u32, x: u32, height: u32, width: u32, sdr: &CpuSDR) {
-        self.bits.set_bits_at(y, x, height, width, &sdr.sdr)
-    }
-    #[text_signature = "(sdr)"]
-    pub fn set_bit_off(&mut self, bit_idx: u32) {
-        self.bits.set_bit_off(bit_idx)
-    }
-    #[text_signature = "(sdr)"]
-    pub fn set_bits_on(&mut self, sdr: &CpuSDR) {
-        self.bits.set_bits_on(&sdr.sdr)
-    }
-    #[text_signature = "(sdr)"]
-    pub fn set_bits_off(&mut self, sdr: &CpuSDR) {
-        self.bits.set_bits_off(&sdr.sdr)
-    }
-    #[text_signature = "(sdr)"]
-    pub fn to_sdr(&self) -> CpuSDR {
-        CpuSDR { sdr: htm::CpuSDR::from(self.bits.as_bitset()) }
-    }
-}
 
 #[pymethods]
-impl CpuBitset3d {
+impl CpuBitset {
     #[getter]
     pub fn width(&self) -> u32 {
         self.bits.width()
@@ -1972,107 +1905,10 @@ impl CpuBitset3d {
     pub fn height(&self) -> u32 {
         self.bits.height()
     }
-    #[text_signature = "( /)"]
-    fn clone(&self) -> CpuBitset3d {
-        CpuBitset3d { bits: self.bits.clone() }
-    }
-    #[text_signature = "(file)"]
-    pub fn pickle(&mut self, file: String) -> PyResult<()> {
-        pickle(&self.bits, file)
-    }
-    #[text_signature = "(from,to,bit_count)"]
-    pub fn set_bits_on_rand(&mut self, from: u32, to: u32, bit_count: u32, rand_seed: Option<u32>) -> u32 {
-        self.bits.set_bits_on_rand(from, to, bit_count, rand_seed.unwrap_or_else(auto_gen_seed))
-    }
-    #[new]
-    pub fn new(depth: u32, height: u32, width: u32, bitset: Option<&CpuBitset>) -> Self {
-        let bits = if let Some(b) = bitset {
-            let CpuBitset { bits } = b;
-            bits.clone()
-        } else {
-            htm::CpuBitset::new(depth * width * height)
-        };
-        CpuBitset3d { bits: htm::CpuBitset3d::new(bits, depth, height, width) }
-    }
     #[getter]
-    pub fn size(&self) -> u32 {
-        self.bits.size()
+    pub fn shape(&self) -> Vec<u32> {
+        self.bits.shape().to_vec()
     }
-    #[text_signature = "(bitset)"]
-    pub fn overlap(&self, bitset: PyObject) -> PyResult<u32> {
-        encode_err(bitset, ()
-                   , |sdr, _| Err(PyValueError::new_err("Cannot compare SDR with bitset"))
-                   , |sdr, _| Ok(self.bits.overlap(sdr))
-                   , |sdr, _| Ok(self.bits.overlap(sdr.get_dense())))
-    }
-    #[text_signature = "(offset1,offset2,size)"]
-    pub fn swap_u32(&mut self, offset1: u32, offset2: u32, size: u32) {
-        self.bits.swap_u32(offset1, offset2, size)
-    }
-    #[text_signature = "(bit_index)"]
-    pub fn is_bit_on(&self, bit_index: u32) -> bool {
-        self.bits.is_bit_on(bit_index)
-    }
-    #[text_signature = "(z,y,x)"]
-    pub fn is_bit_at(&self, z: u32, y: u32, x: u32) -> bool {
-        self.bits.is_bit_at(z, y, x)
-    }
-    #[text_signature = "(sdr)"]
-    pub fn append_to_sdr(&self, sdr: &mut CpuSDR) {
-        self.bits.append_to_sdr(&mut sdr.sdr)
-    }
-    #[getter]
-    pub fn cardinality(&self) -> u32 {
-        self.bits.cardinality()
-    }
-    #[text_signature = "(sdr)"]
-    pub fn clear(&mut self, sdr: Option<&CpuSDR>) {
-        if let Some(sdr) = sdr {
-            self.bits.clear(&sdr.sdr)
-        } else {
-            self.bits.clear_all()
-        }
-    }
-    #[text_signature = "(min_size)"]
-    pub fn ensure_size(&mut self, min_size: u32) {
-        self.bits.ensure_size(min_size)
-    }
-    #[text_signature = "(size)"]
-    pub fn set_size(&mut self, size: u32) {
-        self.bits.set_size(size)
-    }
-    #[text_signature = "(bit_idx)"]
-    pub fn set_bit_on(&mut self, bit_idx: u32) {
-        self.bits.set_bit_on(bit_idx)
-    }
-    #[text_signature = "(z,y,x)"]
-    pub fn set_bit_at(&mut self, z: u32, y: u32, x: u32) {
-        self.bits.set_bit_at(z, y, x)
-    }
-    #[text_signature = "(z,y,x,depth,height,width,sdr)"]
-    pub fn set_bits_at(&mut self, z: u32, y: u32, x: u32, depth: u32, height: u32, width: u32, sdr: &CpuSDR) {
-        self.bits.set_bits_at(z, y, x, depth, height, width, &sdr.sdr)
-    }
-    #[text_signature = "(sdr)"]
-    pub fn set_bit_off(&mut self, bit_idx: u32) {
-        self.bits.set_bit_off(bit_idx)
-    }
-    #[text_signature = "(sdr)"]
-    pub fn set_bits_on(&mut self, sdr: &CpuSDR) {
-        self.bits.set_bits_on(&sdr.sdr)
-    }
-    #[text_signature = "(sdr)"]
-    pub fn set_bits_off(&mut self, sdr: &CpuSDR) {
-        self.bits.set_bits_off(&sdr.sdr)
-    }
-    #[text_signature = "(sdr)"]
-    pub fn to_sdr(&self) -> CpuSDR {
-        CpuSDR { sdr: htm::CpuSDR::from(self.bits.as_bitset()) }
-    }
-}
-
-#[pymethods]
-impl CpuBitset {
     #[new]
     pub fn new(bit_count: u32) -> Self {
         CpuBitset { bits: htm::CpuBitset::new(bit_count) }
@@ -2081,6 +1917,20 @@ impl CpuBitset {
     pub fn size(&self) -> u32 {
         self.bits.size()
     }
+    #[text_signature = "(shape)"]
+    pub fn resize(&mut self, shape: PyObject) -> PyResult<()> {
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let [z, y, x] = arrX(py, shape, 1, 1, self.bits.size())?;
+        Ok(self.bits.resize3d(z, y, x))
+    }
+    #[text_signature = "(shape)"]
+    pub fn reshape(&mut self, shape: PyObject) -> PyResult<()> {
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let [z, y, x] = arrX(py, shape, 1, 1, self.bits.size())?;
+        Ok(self.bits.reshape3d(z, y, x))
+    }
     #[text_signature = "(file)"]
     pub fn pickle(&mut self, file: String) -> PyResult<()> {
         pickle(&self.bits, file)
@@ -2104,6 +1954,14 @@ impl CpuBitset {
     pub fn is_bit_on(&self, bit_index: u32) -> bool {
         self.bits.is_bit_on(bit_index)
     }
+    #[text_signature = "(y,x)"]
+    pub fn is_bit_on2d(&self, y: u32, x: u32) -> bool {
+        self.bits.is_bit_on2d(y, x)
+    }
+    #[text_signature = "(z,y,x)"]
+    pub fn is_bit_on3d(&self, z: u32, y: u32, x: u32) -> bool {
+        self.bits.is_bit_on3d(z, y, x)
+    }
     #[text_signature = "(sdr)"]
     pub fn append_to_sdr(&self, sdr: &mut CpuSDR) {
         self.bits.append_to_sdr(&mut sdr.sdr)
@@ -2120,29 +1978,49 @@ impl CpuBitset {
             self.bits.clear_all()
         }
     }
-    #[text_signature = "(min_size)"]
-    pub fn ensure_size(&mut self, min_size: u32) {
-        self.bits.ensure_size(min_size)
-    }
-    #[text_signature = "(size)"]
-    pub fn set_size(&mut self, size: u32) {
-        self.bits.set_size(size)
-    }
     #[text_signature = "(bit_idx)"]
     pub fn set_bit_on(&mut self, bit_idx: u32) {
         self.bits.set_bit_on(bit_idx)
+    }
+    #[text_signature = "(y,x)"]
+    pub fn set_bit_on2d(&mut self, y: u32, x: u32) {
+        self.bits.set_bit_on2d(y, x)
+    }
+    #[text_signature = "(z,y,x)"]
+    pub fn set_bit_on3d(&mut self, z: u32, y: u32, x: u32) {
+        self.bits.set_bit_on3d(z, y, x)
     }
     #[text_signature = "(sdr)"]
     pub fn set_bit_off(&mut self, bit_idx: u32) {
         self.bits.set_bit_off(bit_idx)
     }
-    #[text_signature = "(sdr)"]
-    pub fn set_bits_on(&mut self, sdr: &CpuSDR) {
-        self.bits.set_bits_on(&sdr.sdr)
+    #[text_signature = "(sdr,input_range)"]
+    pub fn set_bits_on(&mut self, sdr: &CpuSDR,input_range:Option<(u32,u32)>) {
+        if let Some(input_range) = input_range{
+            self.bits.set_bits_on_in_range(input_range.0..input_range.1,&sdr.sdr)
+        }else{
+            self.bits.set_bits_on(&sdr.sdr)
+        }
     }
-    #[text_signature = "(sdr)"]
-    pub fn set_bits_off(&mut self, sdr: &CpuSDR) {
-        self.bits.set_bits_off(&sdr.sdr)
+    #[text_signature = "(sdr,offset,size)"]
+    pub fn set_bits_on3d(&mut self, sdr: &CpuSDR, offset: PyObject, size: PyObject) -> PyResult<()> {
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        Ok(self.bits.set_bits_on3d(arr3(py, offset)?, arr3(py, size)?, &sdr.sdr))
+    }
+    #[text_signature = "(sdr,offset,size)"]
+    pub fn set_bits_on2d(&mut self, sdr: &CpuSDR, offset: PyObject, size: PyObject) -> PyResult<()> {
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        Ok(self.bits.set_bits_on2d(arr2(py, offset)?, arr2(py, size)?, &sdr.sdr))
+    }
+    #[text_signature = "(sdr,input_range)"]
+    pub fn set_bits_off(&mut self, sdr: &CpuSDR,input_range:Option<(u32,u32)>) {
+        if let Some(input_range) = input_range{
+            self.bits.set_bits_off_in_range(input_range.0..input_range.1,&sdr.sdr)
+        }else{
+            self.bits.set_bits_off(&sdr.sdr)
+        }
     }
     #[text_signature = "(sdr)"]
     pub fn to_sdr(&self) -> CpuSDR {
@@ -2213,9 +2091,12 @@ impl CpuInput {
     pub fn cardinality(&self) -> u32 {
         self.inp.cardinality()
     }
-    #[text_signature = "(size)"]
-    pub fn set_size(&mut self, size: u32) {
-        self.inp.set_size(size)
+    #[text_signature = "(shape)"]
+    pub fn reshape(&mut self, size: PyObject) -> PyResult<()> {
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let [z, y, x] = arrX(py, size, 1, 1, self.inp.size())?;
+        Ok(self.inp.reshape3d(z, y, x))
     }
     #[text_signature = "(input)"]
     pub fn overlap(&self, input: PyObject) -> PyResult<u32> {
@@ -2606,27 +2487,6 @@ impl PyObjectProtocol for CpuBitset {
 impl PyObjectProtocol for CpuInput {
     fn __str__(&self) -> PyResult<String> {
         Ok(format!("{:?}", self.inp.get_sparse()))
-    }
-    fn __repr__(&self) -> PyResult<String> {
-        self.__str__()
-    }
-}
-
-#[pyproto]
-impl PyObjectProtocol for CpuBitset2d {
-    fn __str__(&self) -> PyResult<String> {
-        Ok(format!("{:?}", self.bits))
-    }
-    fn __repr__(&self) -> PyResult<String> {
-        self.__str__()
-    }
-}
-
-
-#[pyproto]
-impl PyObjectProtocol for CpuBitset3d {
-    fn __str__(&self) -> PyResult<String> {
-        Ok(format!("{:?}", self.bits))
     }
     fn __repr__(&self) -> PyResult<String> {
         self.__str__()
