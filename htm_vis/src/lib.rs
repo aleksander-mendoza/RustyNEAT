@@ -42,9 +42,7 @@ gfx_pipeline!( pipe {
 //----------------------------------------
 
 
-const INPUT_CELL_MARGIN: f32 = 0.2;
 const REGION_MARGIN: f32 = 2.;
-const OUTPUT_CELL_MARGIN: f32 = 0.2;
 const SCALE: f32 = 1.;
 const HEIGHT: f32 = 2.;
 const INACTIVE_CELL: u32 = 0;
@@ -54,7 +52,7 @@ const SELECTED_ACTIVE_CELL: u32 = 3;
 const POTENTIAL_INACTIVE_CELL: u32 = 4;
 const POTENTIAL_ACTIVE_CELL: u32 = 5;
 
-pub fn visualise_cpu_htm2(htm: &CpuHTM2, input_sdr: &[u32], input_shapes: &[[u32; 3]], output_sdr: &[u32], output_shapes: &[[u32; 3]]) {
+pub fn visualise_cpu_htm2(htm: &CpuHTM2, input_shapes: &[[u32; 3]], output_shapes: &[[u32; 3]], input_sdr: &[u32], output_sdr: &[u32], input_cell_margin: f32, output_cell_margin: f32) {
     assert_eq!(input_shapes.len(), output_shapes.len(), "Input and output shape counts do not match");
     use piston_window::*;
     use gfx::traits::*;
@@ -84,8 +82,8 @@ pub fn visualise_cpu_htm2(htm: &CpuHTM2, input_sdr: &[u32], input_shapes: &[[u32
 
 
     let shape_dims: Vec<([f32; 3], [f32; 3], [f32; 3])> = input_shapes.iter().zip(output_shapes.iter()).map(|(input_shape, output_shape)| {
-        let in_dim = input_shape.as_scalar::<f32>().mul_scalar(SCALE + INPUT_CELL_MARGIN).add_scalar(INPUT_CELL_MARGIN);
-        let out_dim = output_shape.as_scalar::<f32>().mul_scalar(SCALE + OUTPUT_CELL_MARGIN).add_scalar(OUTPUT_CELL_MARGIN);
+        let in_dim = input_shape.as_scalar::<f32>().mul_scalar(SCALE + input_cell_margin).add_scalar(input_cell_margin);
+        let out_dim = output_shape.as_scalar::<f32>().mul_scalar(SCALE + output_cell_margin).add_scalar(output_cell_margin);
         let dim = in_dim.max(&out_dim);
         (dim, in_dim, out_dim)
     }).collect();
@@ -104,7 +102,7 @@ pub fn visualise_cpu_htm2(htm: &CpuHTM2, input_sdr: &[u32], input_shapes: &[[u32
         for z in 0..input_shape[0] {
             for y in 0..input_shape[1] {
                 for x in 0..input_shape[2] {
-                    let mut pos = [x as f32, -(z as f32), y as f32].mul_scalar(SCALE + INPUT_CELL_MARGIN).add_scalar(INPUT_CELL_MARGIN).sub(&half_dim_no_height);
+                    let mut pos = [x as f32, -(z as f32), y as f32].mul_scalar(SCALE + input_cell_margin).add_scalar(input_cell_margin).sub(&half_dim_no_height);
                     pos[0] += offset;
                     let v = Vertex::new(pos);
                     vertex_data.push(v);
@@ -121,7 +119,7 @@ pub fn visualise_cpu_htm2(htm: &CpuHTM2, input_sdr: &[u32], input_shapes: &[[u32
         for z in 0..output_shape[0] {
             for y in 0..output_shape[1] {
                 for x in 0..output_shape[2] {
-                    let mut pos = [x as f32, -(z as f32), y as f32].mul_scalar(SCALE + OUTPUT_CELL_MARGIN).add_scalar(OUTPUT_CELL_MARGIN).sub(&half_dim_full_height);
+                    let mut pos = [x as f32, -(z as f32), y as f32].mul_scalar(SCALE + output_cell_margin).add_scalar(output_cell_margin).sub(&half_dim_full_height);
                     pos[0] += offset;
                     let v = Vertex::new(pos);
                     vertex_data.push(v);
@@ -198,10 +196,25 @@ pub fn visualise_cpu_htm2(htm: &CpuHTM2, input_sdr: &[u32], input_shapes: &[[u32
                         }
                     }
                 }
-                Button::Keyboard(x) if Key::D1<=x && x<=Key::D5 => {
-                    let x = (x as u32 - Key::D1 as u32)*2 + 1;
-                    first_person.settings.speed_horizontal = speed*x as f32;
-                    first_person.settings.speed_vertical = speed*x as f32;
+                Button::Keyboard(x) if Key::D1 <= x && x <= Key::D5 => {
+                    let x = (x as u32 - Key::D1 as u32) * 2 + 1;
+                    first_person.settings.speed_horizontal = speed * x as f32;
+                    first_person.settings.speed_vertical = speed * x as f32;
+                }
+                Button::Keyboard(Key::Q) => {
+                    let vec = first_person.position;
+                    let query_input = first_person.position[1] < HEIGHT/2.;
+                    let range = if query_input{0..output_offset}else{output_offset..vertex_data.len()};
+                    for i in range {
+                        if vertex_data[i].a_pos.sub(&vec).abs().all_lt_scalar(SCALE / 2.) {
+                            if query_input{
+                                println!("You're inside input cell {}",i);
+                            }else{
+                                println!("You're inside output cell {}",i-output_offset);
+                            }
+                            break;
+                        }
+                    }
                 }
                 _ => {}
             }

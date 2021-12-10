@@ -1047,13 +1047,17 @@ impl CpuHTM2 {
         }
         Ok(CpuHTM2 { htm })
     }
-    #[text_signature = "(input,input_shapes,output,output_shapes)"]
-    pub fn visualise(&mut self, input:&CpuSDR, input_shapes:Vec<PyObject>, output:&CpuSDR, output_shapes:Vec<PyObject>) -> PyResult<()> {
+    #[text_signature = "(input_shapes,output_shapes,input,output,input_cell_margin, output_cell_margin)"]
+    pub fn visualise(&mut self, input_shapes:Vec<PyObject>, output_shapes:Vec<PyObject>,input:Option<&CpuSDR>,output:Option<&CpuSDR>,input_cell_margin: Option<f32>, output_cell_margin: Option<f32>) -> PyResult<()> {
         let gil = Python::acquire_gil();
         let py = gil.python();
+        let input_cell_margin = input_cell_margin.unwrap_or(0.2);
+        let output_cell_margin = output_cell_margin.unwrap_or(0.2);
         let input_shapes:PyResult<Vec<[u32;3]>> = input_shapes.into_iter().map(|o|arrX(py,o,1,1,self.htm.input_size())).collect();
         let output_shapes:PyResult<Vec<[u32;3]>> = output_shapes.into_iter().map(|o|arrX(py,o,1,1,self.htm.minicolumns_as_slice().len() as u32)).collect();
-        Ok(visualise_cpu_htm2(&self.htm, input.sdr.as_slice(),&input_shapes?,output.sdr.as_slice(),&output_shapes?))
+        let input = input.map(|s|s.sdr.as_slice()).unwrap_or(&[]);
+        let output = output.map(|s|s.sdr.as_slice()).unwrap_or(&[]);
+        Ok(visualise_cpu_htm2(&self.htm, &input_shapes?,&output_shapes?,input,output,input_cell_margin,output_cell_margin))
     }
     #[text_signature = "(file)"]
     pub fn pickle(&mut self, file: String) -> PyResult<()> {

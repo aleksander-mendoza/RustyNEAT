@@ -19,12 +19,45 @@ GABOR_FILTERS = [
 enc = rusty_neat.htm.EncoderBuilder()
 S = 28 * 28
 # intervals = [(f * S, int(S * 0.8), (f + 1) * S) for f in range(len(GABOR_FILTERS))]
-img_enc = [enc.add_bits(S) for _ in GABOR_FILTERS]
-lbl_enc = enc.add_categorical(10, 28 * 4)
-bitset = htm.CpuBitset(enc.input_size)
 
-htm1 = htm.CpuHTM2(enc.input_size, 30, 30, 30)
-htm1.visualise(htm.CpuSDR(), [[len(GABOR_FILTERS), 28, 28], [4,28,10]], htm.CpuSDR(), [[5, 6], [0,0,0]])
+def prod(l):
+    i = 1
+    for e in l:
+        i*=e
+    return i
+
+layer1 = [enc.add_bits(S) for _ in GABOR_FILTERS]
+layer2 = enc.add_bits(13 * 13 * 8)
+layer1_shape = [len(GABOR_FILTERS), 28, 28]
+layer1_size = prod(layer1_shape)
+layer2_shape = [8, 13, 13]
+layer2_size = prod(layer2_shape)
+layer3_shape = [8, 13, 13]
+layer3_size = prod(layer3_shape)
+input_shapes = [layer1_shape, layer2_shape]
+htm1 = htm.CpuHTM2(enc.input_size, 30)
+
+htm1.add_2d_column_grid_with_3d_input(minicolumns_per_column=8,
+                                      inputs_per_minicolumn=30,
+                                      input_stride=[2, 2],
+                                      input_kernel=[4, 4],
+                                      input_size=input_shapes[0],
+                                      input_range=(0, layer1_size),
+                                      rand_seed=53463)
+
+htm2 = htm.CpuHTM2(enc.input_size, 30)
+htm2.add_2d_column_grid_with_3d_input(minicolumns_per_column=16,
+                                      inputs_per_minicolumn=30,
+                                      input_stride=[2, 2],
+                                      input_kernel=[4, 4],
+                                      input_size=input_shapes[0],
+                                      input_range=(layer1_size, layer1_size+layer2_size),
+                                      rand_seed=53463)
+
+output_shapes = [[13, 13, 8], [0, 0, 0]]
+
+htm1.visualise(input_shapes, output_shapes)
+
 htm2 = htm.CpuHTM2(enc.input_size * 2, 28 * 8)
 MNIST, LABELS = torch.load('htm/data/mnist.pt')
 
