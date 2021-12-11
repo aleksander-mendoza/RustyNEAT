@@ -55,10 +55,11 @@ impl OclHTM2{
             map_err(Error::from)
     }
 
-    fn htm_calculate_overlap_and_group_into_columns(&mut self, max_overlap:usize,minicolumns_per_column:usize, bitset_input:&OclBitset, number_of_minicolumns_per_overlap:&Buffer<i32>) -> Result<(), Error> {
+    fn htm_calculate_overlap_and_group_into_columns(&mut self, max_overlap:usize,column_stride:usize, minicolumn_stride:usize, bitset_input:&OclBitset, number_of_minicolumns_per_overlap:&Buffer<i32>) -> Result<(), Error> {
         self.prog.kernel_builder("htm_calculate_overlap_and_group_into_columns2")?.
             add_num(max_overlap)?. // size_t max_overlap,
-            add_num(minicolumns_per_column)?. // size_t minicolumns_per_column,
+            add_num(column_stride)?. // size_t column_stride,
+            add_num(minicolumn_stride)?.  // size_t minicolumn_stride,
             add_num(self.permanence_threshold)?. // float permanence_threshold,
             add_buff(&self.minicolumns)?.// __global HtmMinicolumn2 * minicolumns,
             add_buff(bitset_input.buffer())?.// __global uint * inputs,
@@ -116,12 +117,13 @@ impl OclHTM2{
             enq(self.prog.queue(),&[self.minicolumn_count(),1,1]).
             map_err(Error::from)
     }
-    fn htm_find_top_minicolumns_and_group_into_columns(&mut self, minicolumns_per_column:usize,
+    fn htm_find_top_minicolumns_and_group_into_columns(&mut self, column_stride:usize, minicolumn_stride:usize,
                                                        number_of_minicolumns_per_overlap_that_made_it_to_top_n: &Buffer<i32>, top_n_minicolumns: &Buffer<u32>, current_top_n_minicolumn_idx: &Buffer<u32>) -> Result<(), Error> {
         self.prog.kernel_builder("htm_find_top_minicolumns_and_group_into_columns2")?.
             add_num(self.n)?. // size_t n,
             add_num(self.max_overlap)?. // size_t max_overlap,
-            add_num(minicolumns_per_column)?. // size_t minicolumns_per_column,
+            add_num(column_stride)?. // size_t column_stride,
+            add_num(minicolumn_stride)?. // size_t minicolumn_stride,
             add_buff(&self.minicolumns)?.// __global HtmMinicolumn2  * minicolumns,
             add_buff(number_of_minicolumns_per_overlap_that_made_it_to_top_n)?.// __global int * number_of_minicolumns_per_overlap_that_made_it_to_top_n,
             add_buff(top_n_minicolumns)?.// __global uint * top_n_minicolumns,
@@ -148,21 +150,25 @@ impl OclHTM2{
         Ok(top_n_minicolumns)
     }
 
-    pub fn compute_and_group_into_columns(&mut self, minicolumns_per_column:usize,bitset_input: &OclBitset) -> Result<OclSDR,Error> {
-        assert!(minicolumns_per_column>=self.n as usize,"Each column activates n={} winners but there are only {} minicolumns per column",self.n,minicolumns_per_column);
+    pub fn compute_and_group_into_columns(&mut self, minicolumns_per_column:usize,minicolumn_stride:usize,bitset_input: &OclBitset) -> Result<OclSDR,Error> {
+        assert!(minicolumns_per_column>0);
+        assert!(minicolumn_stride>0);
+        assert!(minicolumns_per_column >= self.n as usize, "Each column activates n={} winners but there are only {} minicolumns per column", self.n, minicolumns_per_column);
         assert_eq!(self.minicolumn_count()%minicolumns_per_column,0,"The number of minicolumns cannot be evenly divided into columns");
         let column_count = self.minicolumn_count()/minicolumns_per_column;
+        let column_stride = if minicolumn_stride==1{minicolumns_per_column}else{1};
+        assert_eq!(minicolumn_stride*(minicolumns_per_column-1)+column_stride*(column_count-1),self.minicolumn_count()-1,"Minicolumn stride == {}, column stride == {}, minicolumns_per_column == {}, column_count == {} not compatible with total number of minicolumns {}",minicolumn_stride,column_stride,minicolumns_per_column,column_count,self.minicolumn_count());
         assert!(self.input_size() as usize <= bitset_input.size(), "HTM expects input of size {} but got {}", self.input_size(), bitset_input.size());
         let mut number_of_minicolumns_per_overlap = self.prog.buffer_filled(MemFlags::READ_WRITE,(self.max_overlap as usize + 1)*column_count,0)?;
-        self.htm_calculate_overlap_and_group_into_columns(self.max_overlap as usize,minicolumns_per_column,bitset_input, &number_of_minicolumns_per_overlap);
+        self.htm_calculate_overlap_and_group_into_columns(self.max_overlap as usize,column_stride, minicolumn_stride,bitset_input, &number_of_minicolumns_per_overlap);
         self.htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n_and_group_into_columns(self.n as usize,self.max_overlap as usize,column_count,&number_of_minicolumns_per_overlap);
         let top_n_minicolumns = unsafe{self.prog.buffer_empty(MemFlags::READ_WRITE,(self.n as usize)*column_count)?};
         let current_top_n_minicolumn_idx = self.prog.buffer_filled(MemFlags::READ_WRITE,column_count,0)?;
-        self.htm_find_top_minicolumns_and_group_into_columns(minicolumns_per_column,&number_of_minicolumns_per_overlap,&top_n_minicolumns, &current_top_n_minicolumn_idx);
+        self.htm_find_top_minicolumns_and_group_into_columns( column_stride,minicolumn_stride,&number_of_minicolumns_per_overlap,&top_n_minicolumns, &current_top_n_minicolumn_idx);
         Ok(OclSDR::from_buff(self.prog.clone(),top_n_minicolumns,self.n*column_count as u32))
     }
-    pub fn infer_and_group_into_columns(&mut self, minicolumns_per_column:usize,bitset_input: &OclBitset, learn: bool) -> Result<OclSDR,Error> {
-        let top_n_minicolumns = self.compute_and_group_into_columns(minicolumns_per_column,bitset_input)?;
+    pub fn infer_and_group_into_columns(&mut self, minicolumns_per_column:usize,minicolumn_stride:usize,bitset_input: &OclBitset, learn: bool) -> Result<OclSDR,Error> {
+        let top_n_minicolumns = self.compute_and_group_into_columns(minicolumns_per_column,minicolumn_stride,bitset_input)?;
         if learn {
             self.update_permanence(&top_n_minicolumns, bitset_input)?
         }

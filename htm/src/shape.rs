@@ -9,8 +9,28 @@ use std::collections::Bound;
 
 pub trait Shape<const DIM: usize>: Eq + PartialEq + Copy + Clone + Debug + VectorFieldNum<u32> {
 
-    fn pos(&self, index: u32) -> [u32; DIM];
-    fn idx(&self, pos: [u32; DIM]) -> u32;
+    fn pos(&self, mut index: u32) -> [u32; DIM] {
+        let original_index = index;
+        let mut pos:[u32;DIM] = unsafe{MaybeUninit::uninit().assume_init()};
+        for dim in (0..DIM).rev(){
+            let dim_size = self.dim(dim);
+            let coord = index % dim_size;
+            index = index / dim_size;
+            pos[dim] = coord;
+        }
+        assert_eq!(index,0,"Index {} is out of bounds for shape {:?}",original_index,self);
+        pos
+    }
+
+    fn idx(&self, pos: [u32; DIM]) -> u32 {
+        let mut idx = 0;
+        for dim  in 0..DIM{
+            let dim_size = self.dim(dim);
+            assert!(pos[dim]<dim_size,"position[{}]=={} >= shape[{}]=={}",dim,pos[dim],dim,dim_size);
+            idx = idx*dim_size + pos[dim];
+        }
+        idx
+    }
     fn dim(&self, dim:usize) -> u32;
     fn set_dim(&mut self, dim:usize, size:u32);
     fn rand(&mut self, size:&Self, mut rand_seed:u32) -> u32{
@@ -24,11 +44,21 @@ pub trait Shape<const DIM: usize>: Eq + PartialEq + Copy + Clone + Debug + Vecto
         (0..DIM).map(|i| self.dim(i)).product()
     }
     fn conv_out_size(&self, stride: &Self, kernel_size: &Self) -> Self {
-        let grid_size = self;
-        assert!(kernel_size.all_le(grid_size),"Kernel size {:?} is larger than the grid {:?} of voting columns",kernel_size,grid_size);
-        let out_grid_size = grid_size.sub(kernel_size);
-        assert!(out_grid_size.rem(stride).all_eq_scalar(0),"Convolution stride {:?} does not evenly divide the grid {:?} of voting columns",stride,grid_size);
-        out_grid_size.div(stride).add_scalar(1)
+        let input = self;
+        assert!(kernel_size.all_le(input),"Kernel size {:?} is larger than the input shape {:?} ",kernel_size,input);
+        let input_sub_kernel = input.sub(kernel_size);
+        assert!(input_sub_kernel.rem(stride).all_eq_scalar(0),"Convolution stride {:?} does not evenly divide the output shape {:?} ",stride,input);
+        input_sub_kernel.div(stride).add_scalar(1)
+        //(input-kernel)/stride+1 == output
+    }
+    fn conv_stride(&self, out_size: &Self, kernel_size: &Self) -> Self {
+        let input = self;
+        assert!(kernel_size.all_le(input),"Kernel size {:?} is larger than the input shape {:?}",kernel_size,input);
+        let input_sub_kernel = input.sub(kernel_size);
+        let out_size_minus_1 = out_size.sub_scalar(1);
+        assert!(input_sub_kernel.rem(&out_size_minus_1).all_eq_scalar(0),"Output shape {:?}-1 does not evenly divide the input shape {:?}",out_size,input);
+        input_sub_kernel.div(&out_size_minus_1)
+        //(input-kernel)/(output-1) == stride
     }
 }
 pub trait Shape2{
@@ -42,28 +72,6 @@ pub trait Shape3{
     fn depth(&self)->u32;
     fn index(&self, z:u32, y: u32, x:u32) -> u32;
 }
-impl Shape<2> for [u32; 2] {
-
-    fn pos(&self, index: u32) -> [u32; 2] {
-        assert!(index < self.size());
-        let y = index / self.width();
-        let x = index % self.width();
-        [y, x]
-    }
-    fn idx(&self, pos: [u32; 2]) -> u32 {
-        let [y, x] = pos;
-        assert!(y < self.height());
-        assert!(x < self.width());
-        y * self.width() + x
-    }
-    fn dim(&self, dim:usize) -> u32{
-        self[dim]
-    }
-
-    fn set_dim(&mut self, dim: usize, size: u32) {
-        self[dim] = size
-    }
-}
 impl Shape2 for [u32;2]{
     fn width(&self) -> u32 {
         self[1]
@@ -75,31 +83,6 @@ impl Shape2 for [u32;2]{
 
     fn index(&self, y: u32, x: u32) -> u32 {
         self.idx([y,x])
-    }
-}
-
-impl Shape<3> for [u32; 3] {
-    fn pos(&self, index: u32) -> [u32; 3] {
-        assert!(index < self.size());
-        let x = index % self.width();
-        let zy = index / self.width();
-        let y = zy % self.height();
-        let z = zy / self.height();
-        [z, y, x]
-    }
-
-    fn idx(&self, pos: [u32; 3]) -> u32 {
-        let [z, y, x] = pos;
-        assert!(y < self.height());
-        assert!(x < self.width());
-        assert!(z < self.depth());
-        (z * self.height() + y) * self.width() + x
-    }
-    fn dim(&self, dim:usize) -> u32{
-        self[dim]
-    }
-    fn set_dim(&mut self, dim: usize, size: u32) {
-        self[dim] = size
     }
 }
 impl Shape3 for [u32;3]{
@@ -115,8 +98,18 @@ impl Shape3 for [u32;3]{
         self[0]
     }
 
-    fn index(&self, z: u32, y: u32, x: u32) -> u32 {
+    fn index(&self, z:u32, y: u32, x: u32) -> u32 {
         self.idx([z,y,x])
+    }
+}
+
+impl <const DIM:usize> Shape<DIM> for [u32;DIM]{
+    fn dim(&self, dim: usize) -> u32 {
+        self[dim]
+    }
+
+    fn set_dim(&mut self, dim: usize, size: u32) {
+        self[dim] = size
     }
 }
 

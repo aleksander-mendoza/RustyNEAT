@@ -243,7 +243,9 @@ __kernel void htm_calculate_overlap2(
 }
 
 __kernel void htm_calculate_overlap_and_group_into_columns2(
-                  size_t max_overlap, size_t minicolumns_per_column,
+                  size_t max_overlap,
+                  size_t column_stride,
+                  size_t minicolumn_stride,
                   float permanence_threshold,
                   __global HtmMinicolumn2  * minicolumns,
                   __global uint * inputs,
@@ -251,7 +253,7 @@ __kernel void htm_calculate_overlap_and_group_into_columns2(
                   __global int * number_of_minicolumns_per_overlap
 ){
     const size_t minicolumn_idx = get_global_id(0);
-    const size_t column_idx = minicolumn_idx / minicolumns_per_column;
+    const size_t column_idx = column_stride==1?minicolumn_idx%minicolumn_stride:minicolumn_idx / column_stride;
     const size_t offset = (max_overlap+1)*column_idx;
     uint overlap = htm_calculate_overlap_for_minicolumn2(minicolumn_idx,
            permanence_threshold,
@@ -304,14 +306,16 @@ __kernel void htm_find_top_minicolumns2(
         }
     }
 }
-__kernel void htm_find_top_minicolumns_and_group_into_columns2(size_t n, size_t max_overlap, size_t minicolumns_per_column,
+__kernel void htm_find_top_minicolumns_and_group_into_columns2(size_t n, size_t max_overlap,
+                      size_t column_stride,
+                      size_t minicolumn_stride,
                       __global HtmMinicolumn2  * minicolumns,
                       __global int * number_of_minicolumns_per_overlap_that_made_it_to_top_n,
                       __global uint * top_n_minicolumns,
                       __global uint * current_top_n_minicolumn_idx // precodntion: equals 0 ; postcondition: equals n
 ){
     const size_t minicolumn_idx = get_global_id(0);
-    const size_t column_idx = minicolumn_idx / minicolumns_per_column;
+    const size_t column_idx = column_stride==1?minicolumn_idx%minicolumn_stride:minicolumn_idx / column_stride;
     size_t overlap_offset = (max_overlap+1)*column_idx;
     const int overlap = minicolumns[minicolumn_idx].overlap;
     if(atomic_add(&number_of_minicolumns_per_overlap_that_made_it_to_top_n[overlap_offset + overlap],-1)>0){ // only add those columns that made it to top n
