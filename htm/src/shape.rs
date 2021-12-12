@@ -60,6 +60,19 @@ pub trait Shape<const DIM: usize>: Eq + PartialEq + Copy + Clone + Debug + Vecto
         input_sub_kernel.div(&out_size_minus_1)
         //(input-kernel)/(output-1) == stride
     }
+    fn conv_compose(&self, self_kernel:&Self, next_stride: &Self, next_kernel: &Self) -> (Self,Self) {
+        //(A-kernelA)/strideA+1 == B
+        //(B-kernelB)/strideB+1 == C
+        //((A-kernelA)/strideA+1-kernelB)/strideB+1 == C
+        //(A-kernelA+(1-kernelB)*strideA)/(strideA*strideB)+1 == C
+        //(A-(kernelA-(1-kernelB)*strideA))/(strideA*strideB)+1 == C
+        //(A-(kernelA+(kernelB-1)*strideA))/(strideA*strideB)+1 == C
+        //    ^^^^^^^^^^^^^^^^^^^^^^^^^^^                    composed kernel
+        //                                   ^^^^^^^^^^^^^^^ composed stride
+        let composed_kernel = self_kernel.add(&next_kernel.sub_scalar(1).mul(self));
+        let composed_stride = self.mul(next_stride);
+        (composed_stride,composed_kernel)
+    }
 }
 pub trait Shape2{
     fn width(&self)->u32;

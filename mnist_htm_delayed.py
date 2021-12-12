@@ -18,47 +18,81 @@ GABOR_FILTERS = [
 ]
 enc = rusty_neat.htm.EncoderBuilder()
 S = 28 * 28
+
+
 # intervals = [(f * S, int(S * 0.8), (f + 1) * S) for f in range(len(GABOR_FILTERS))]
 
 def prod(l):
     i = 1
     for e in l:
-        i*=e
+        i *= e
     return i
 
-layer1 = [enc.add_bits(S) for _ in GABOR_FILTERS]
-layer2 = enc.add_bits(13 * 13 * 8)
+
 layer1_shape = [len(GABOR_FILTERS), 28, 28]
 layer1_size = prod(layer1_shape)
-layer2_shape = [8, 13, 13]
+layer2_neurons_per_column = 4
+layer1_to_2_stride = [2, 2]
+layer1_to_2_kernel = [4, 4]
+layer1_to_2_pop = htm.Population()
+layer1_to_2_pop.push_add_2d_column_grid_with_3d_input(
+    input_range=(0, layer1_size),
+    neurons_per_column=layer2_neurons_per_column,
+    segments_per_neuron=1,
+    synapses_per_segment=30,
+    stride=layer1_to_2_stride,
+    kernel=layer1_to_2_kernel,
+    input_size=layer1_shape,
+    rand_seed=53463
+)
+layer2_shape = htm.conv_out_size(layer1_shape[1:], layer1_to_2_stride, layer1_to_2_kernel)
+layer2_shape[0] = layer2_neurons_per_column
 layer2_size = prod(layer2_shape)
-layer3_shape = [8, 13, 13]
+layer3_neurons_per_column = 4
+layer2_to_3_stride = [1, 1]
+layer2_to_3_kernel = [3, 3]
+layer2_to_3_pop = htm.Population()
+layer2_to_3_pop.push_add_2d_column_grid_with_3d_input(
+    input_range=(layer1_size, layer1_size + layer2_size),
+    neurons_per_column=layer3_neurons_per_column,
+    segments_per_neuron=1,
+    synapses_per_segment=30,
+    stride=layer2_to_3_stride,
+    kernel=layer2_to_3_kernel,
+    input_size=layer2_shape,
+    rand_seed=43643908
+)
+layer1_to_3_stride, layer1_to_3_kernel = htm.conv_compose(layer1_to_2_stride, layer1_to_2_kernel,
+                                                          layer2_to_3_stride, layer2_to_3_kernel)
+layer1_to_3_stride, layer1_to_3_kernel = layer1_to_3_stride[1:], layer1_to_3_kernel[1:]
+layer3_shape = htm.conv_out_size(layer2_shape[1:], layer2_to_3_stride, layer2_to_3_kernel)
+layer3_shape[0] = layer3_neurons_per_column
 layer3_size = prod(layer3_shape)
-input_shapes = [layer1_shape, layer2_shape]
-htm1 = htm.CpuHTM2(enc.input_size, 30)
+layer1_to_3_pop = htm.Population()
+layer1_to_3_pop.push_add_2d_column_grid_with_3d_input(
+    input_range=(0, layer1_size),
+    neurons_per_column=layer3_neurons_per_column,
+    segments_per_neuron=1,
+    synapses_per_segment=30,
+    stride=layer1_to_3_stride,
+    kernel=layer1_to_3_kernel,
+    input_size=layer1_shape,
+    rand_seed=43643908
+)
 
-htm1.add_2d_column_grid_with_3d_input(minicolumns_per_column=8,
-                                      inputs_per_minicolumn=30,
-                                      input_stride=[2, 2],
-                                      input_kernel=[4, 4],
-                                      input_size=input_shapes[0],
-                                      input_range=(0, layer1_size),
-                                      rand_seed=53463)
+input_shapes = [layer1_shape, layer2_shape, layer3_shape]
+output_shapes = [layer2_shape, layer3_shape, [0, 0, 0]]
 
-htm2 = htm.CpuHTM2(enc.input_size, 30)
-htm2.add_2d_column_grid_with_3d_input(minicolumns_per_column=16,
-                                      inputs_per_minicolumn=30,
-                                      input_stride=[2, 2],
-                                      input_kernel=[4, 4],
-                                      input_size=input_shapes[0],
-                                      input_range=(layer1_size, layer1_size+layer2_size),
-                                      rand_seed=53463)
+layer1_enc = [enc.add_bits(S) for _ in GABOR_FILTERS]
+layer2_enc = enc.add_bits(layer2_size)
+layer3_enc = enc.add_bits(layer3_size)
 
-output_shapes = [[13, 13, 8], [0, 0, 0]]
+htm1 = htm.CpuHTM2(enc.input_size, 30, layer1_to_2_pop)
+htm1.visualise(input_shapes, [layer2_shape, [0, 0, 0], [0, 0, 0]])
 
-htm1.visualise(input_shapes, output_shapes)
+htm2 = htm.CpuHTM2(enc.input_size, 30, layer2_to_3_pop * layer1_to_3_pop)
+htm2.visualise(input_shapes, [[0, 0, 0], layer3_shape, [0, 0, 0]])
 
-htm2 = htm.CpuHTM2(enc.input_size * 2, 28 * 8)
 MNIST, LABELS = torch.load('htm/data/mnist.pt')
 
 

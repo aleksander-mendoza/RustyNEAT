@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::{wrap_pyfunction, wrap_pymodule, PyObjectProtocol, PyIterProtocol, PySequenceProtocol, PyTypeInfo, PyDowncastError, AsPyPointer};
+use pyo3::{wrap_pyfunction, wrap_pymodule, PyObjectProtocol, PyIterProtocol, PySequenceProtocol, PyTypeInfo, PyDowncastError, AsPyPointer, PyNumberProtocol};
 use pyo3::PyResult;
 use rusty_neat_core::{cppn, neat, gpu};
 use std::collections::HashSet;
@@ -17,7 +17,7 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{Encoder, HomSegment, auto_gen_seed, EncoderTarget, EncoderRange, DgCoord2d};
+use htm::{Encoder, HomSegment, auto_gen_seed, EncoderTarget, EncoderRange, DgCoord2d, Shape, VectorFieldOne};
 use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
@@ -147,16 +147,26 @@ pub struct EncoderBuilder {
     enc: htm::EncoderBuilder,
 }
 
+///
+/// Population(population_size:int,num_of_segments:int)
+///
+///
 #[pyclass]
 pub struct Population {
     pop:htm::Population,
 }
-
+///
+/// Neuron(num_of_segments:int)
+///
+///
 #[pyclass]
 pub struct Neuron {
     n:htm::Neuron,
 }
-
+///
+/// Segment()
+///
+///
 #[pyclass]
 pub struct Segment {
     seg:htm::Segment,
@@ -624,9 +634,10 @@ impl CpuHOM {
 #[pymethods]
 impl Population {
     #[new]
-    pub fn new(population_size:usize,num_of_segments:usize) -> Self {
-        Self{pop:htm::Population::new(population_size,num_of_segments)}
+    pub fn new(population_size:Option<usize>,num_of_segments:Option<usize>) -> Self {
+        Self{pop:htm::Population::new(population_size.unwrap_or(0),num_of_segments.unwrap_or(1))}
     }
+
     #[text_signature = "(input_range,total_region,subregion_start,subregion_end,synapse_count,rand_seed)"]
     pub fn add_uniform_rand_inputs_from_area(&mut self, input_range:(u32,u32), total_region:PyObject, subregion_start:PyObject,subregion_end:PyObject,synapse_count:u32, rand_seed:Option<u32>) -> PyResult<u32> {
         let gil = Python::acquire_gil();
@@ -643,7 +654,7 @@ impl Population {
         Ok(self.pop.add_uniform_rand_inputs_from_range(input_range.0..input_range.1,synapse_count,rand_seed.unwrap_or_else(auto_gen_seed)))
     }
 
-    #[text_signature = "(input_range,neurons_per_column,synapses_per_segment,,rand_seed)"]
+    #[text_signature = "(input_range,neurons_per_column,synapses_per_segment,stride,kernel,input_size,rand_seed)"]
     pub fn add_2d_column_grid_with_3d_input(&mut self, input_range:(u32,u32),neurons_per_column: u32,synapses_per_segment: u32, stride:PyObject, kernel:PyObject,input_size:PyObject, rand_seed:Option<u32>) -> PyResult<u32> {
         let gil = Python::acquire_gil();
         let py = gil.python();
@@ -652,17 +663,39 @@ impl Population {
         let input_size = arr3(py,input_size)?;
         Ok(self.pop.add_2d_column_grid_with_3d_input(input_range.0..input_range.1,neurons_per_column,synapses_per_segment,stride,kernel,input_size,rand_seed.unwrap_or_else(auto_gen_seed)))
     }
+    #[text_signature = "(input_range,neurons_per_column,segments_per_neuron,synapses_per_segment,stride,kernel,input_size,rand_seed)"]
+    pub fn push_add_2d_column_grid_with_3d_input(&mut self, input_range:(u32,u32),neurons_per_column: u32,segments_per_neuron: usize,synapses_per_segment: u32, stride:PyObject, kernel:PyObject,input_size:PyObject, rand_seed:Option<u32>) -> PyResult<u32> {
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let stride = arr2(py,stride)?;
+        let kernel = arr2(py,kernel)?;
+        let input_size = arr3(py,input_size)?;
+        let output = [input_size[1],input_size[2]].conv_out_size(&stride,&kernel);
+        self.pop.push_neurons((output.product()*neurons_per_column) as usize,segments_per_neuron);
+        Ok(self.pop.add_2d_column_grid_with_3d_input(input_range.0..input_range.1,neurons_per_column,synapses_per_segment,stride,kernel,input_size,rand_seed.unwrap_or_else(auto_gen_seed)))
+    }
+    #[text_signature = "(neurons_per_column,segments_per_neuron,stride,kernel,input_size)"]
+    pub fn push_2d_column_grid_with_3d_input(&mut self, neurons_per_column: u32,segments_per_neuron: usize, stride:PyObject, kernel:PyObject,input_size:PyObject) -> PyResult<()> {
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let stride = arr2(py,stride)?;
+        let kernel = arr2(py,kernel)?;
+        let input_size = arr3(py,input_size)?;
+        let output = [input_size[1],input_size[2]].conv_out_size(&stride,&kernel);
+        self.pop.push_neurons((output.product()*neurons_per_column) as usize,segments_per_neuron);
+        Ok(())
+    }
     #[text_signature = "(other)"]
     pub fn zip_join(&mut self,other:&Population) {
         self.pop.zip_join(&other.pop)
     }
     #[text_signature = "(other)"]
-    pub fn append(&mut self,other:&mut Population) {
-        self.pop.append(&mut other.pop)
+    pub fn append(&mut self,other:&Population) {
+        self.pop.append(&mut other.pop.clone())
     }
     #[text_signature = "(other)"]
-    pub fn zip_append(&mut self,other:&mut Population) {
-        self.pop.zip_append(&mut other.pop)
+    pub fn zip_append(&mut self,other:&Population) {
+        self.pop.zip_append(&mut other.pop.clone())
     }
     #[text_signature = "()"]
     pub fn clone(&self) -> Self{
@@ -671,6 +704,10 @@ impl Population {
     #[text_signature = "(neuron)"]
     pub fn push(&mut self, neuron:&Neuron) {
         self.pop.push(neuron.n.clone())
+    }
+    #[text_signature = "(population_size,segments_per_neuron)"]
+    pub fn push_neurons(&mut self, population_size: usize, segments_per_neuron: Option<usize>){
+        self.pop.push_neurons(population_size,segments_per_neuron.unwrap_or(1))
     }
     #[text_signature = "(index)"]
     pub fn remove(&mut self, index:usize) -> Neuron {
@@ -1575,34 +1612,42 @@ pub fn vote(sdrs: Vec<PyRef<CpuSDR>>, n: usize, threshold: u32) -> CpuSDR {
 }
 
 #[pyfunction]
-#[text_signature = "(input_size,minicolumns,n,inputs_per_minicolumn,inhibitory_inputs_per_minicolumn,rand_seed)"]
-pub fn cpu_htm4_new(input_size: u32, n: u32) -> CpuHTM4 {
-    CpuHTM4 { htm: htm::CpuHTM4::new(input_size, n) }
+#[text_signature = "(input_size,stride,kernel)"]
+pub fn conv_out_size(input_size: PyObject, stride: PyObject, kernel: PyObject) -> PyResult<Vec<u32>> {
+    let gil = Python::acquire_gil();
+    let py = gil.python();
+    let input_size = arrX(py,input_size,1,1,1)?;
+    let stride = arrX(py,stride,1,1,1)?;
+    let kernel = arrX(py,kernel,1,1,1)?;
+    let out_size = input_size.conv_out_size(&stride,&kernel);
+    Ok(out_size.to_vec())
 }
 
 #[pyfunction]
-#[text_signature = "(input_size,minicolumns,n,inputs_per_minicolumn,inhibitory_inputs_per_minicolumn,rand_seed)"]
-pub fn cpu_htm4_new_globally_uniform_prob_exact_inhibitory(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, inhibitory_inputs_per_minicolumn: u32, rand_seed: Option<u32>) -> CpuHTM4 {
-    let mut htm = cpu_htm4_new(input_size, n);
-    htm.htm.add_globally_uniform_prob_exact_inhibitory(minicolumns, inputs_per_minicolumn, inhibitory_inputs_per_minicolumn, rand_seed.unwrap_or_else(auto_gen_seed));
-    htm
+#[text_signature = "(input_size,output_size,kernel)"]
+pub fn conv_stride(input_size: PyObject, output_size: PyObject, kernel: PyObject) -> PyResult<Vec<u32>> {
+    let gil = Python::acquire_gil();
+    let py = gil.python();
+    let input_size = arrX(py,input_size,1,1,1)?;
+    let output_size = arrX(py,output_size,1,1,1)?;
+    let kernel = arrX(py,kernel,1,1,1)?;
+    let stride = input_size.conv_stride(&output_size,&kernel);
+    Ok(stride.to_vec())
 }
 
 #[pyfunction]
-#[text_signature = "(input_size,minicolumns,n,inputs_per_minicolumn,excitatory_connection_probability,rand_seed)"]
-pub fn cpu_htm4_new_globally_uniform_prob(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, excitatory_connection_probability: f32, rand_seed: Option<u32>) -> CpuHTM4 {
-    let mut htm = cpu_htm4_new(input_size, n);
-    htm.htm.add_globally_uniform_prob(minicolumns, inputs_per_minicolumn, excitatory_connection_probability, rand_seed.unwrap_or_else(auto_gen_seed));
-    htm
+#[text_signature = "(stride1,kernel1,stride2,kernel2)"]
+pub fn conv_compose(stride1: PyObject, kernel1: PyObject,stride2: PyObject, kernel2: PyObject) -> PyResult<(Vec<u32>,Vec<u32>)> {
+    let gil = Python::acquire_gil();
+    let py = gil.python();
+    let stride1 = arrX(py,stride1,1,1,1)?;
+    let kernel1 = arrX(py,kernel1,1,1,1)?;
+    let stride2 = arrX(py,stride2,1,1,1)?;
+    let kernel2 = arrX(py,kernel2,1,1,1)?;
+    let (stride,kernel) = stride1.conv_compose(&kernel1,&stride2,&kernel2);
+    Ok((stride.to_vec(),kernel.to_vec()))
 }
 
-#[pyfunction]
-#[text_signature = "(input_size,minicolumns,n,inputs_per_minicolumn,excitatory_connection_probability,rand_seed)"]
-pub fn cpu_htm4_new_globally_uniform_prob_without_inhibitory(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, excitatory_connection_probability: f32, rand_seed: Option<u32>) -> CpuHTM4 {
-    let mut htm = cpu_htm4_new(input_size, n);
-    htm.htm.add_globally_uniform_prob_without_inhibitory(minicolumns, inputs_per_minicolumn, excitatory_connection_probability, rand_seed.unwrap_or_else(auto_gen_seed));
-    htm
-}
 
 fn py_any_as_numpy_bool(input: &PyAny) -> Result<&PyArrayDyn<bool>, PyErr> {
     py_any_as_numpy(input, DataType::Bool)
@@ -2312,5 +2357,26 @@ impl PySequenceProtocol for Neuron {
 impl PySequenceProtocol for Segment {
     fn __len__(&self) -> usize {
         self.seg.len()
+    }
+}
+
+
+
+#[pyproto]
+impl PyNumberProtocol for Neuron {
+    fn __add__(lhs: PyRef<Self>, rhs: PyRef<Self>) -> Self {
+        Self{n:lhs.n.clone()+rhs.n.clone()}
+    }
+    fn __mul__(lhs: PyRef<Self>, rhs: PyRef<Self>) -> Self {
+        Self{n:lhs.n.clone()*rhs.n.clone()}
+    }
+}
+#[pyproto]
+impl PyNumberProtocol for Population {
+    fn __add__(lhs: PyRef<Self>, rhs: PyRef<Self>) -> Self {
+        Self{pop:lhs.pop.clone()+rhs.pop.clone()}
+    }
+    fn __mul__(lhs: PyRef<Self>, rhs: PyRef<Self>) -> Self {
+        Self{pop:lhs.pop.clone()*rhs.pop.clone()}
     }
 }

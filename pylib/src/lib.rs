@@ -82,10 +82,9 @@ pub fn htm(py: Python, m: &PyModule) -> PyResult<()> {
     use py_htm::*;
     m.add_function(wrap_pyfunction!(bitset_from_bools, m)?)?;
     m.add_function(wrap_pyfunction!(bitset_from_indices, m)?)?;
-    m.add_function(wrap_pyfunction!(cpu_htm4_new, m)?)?;
-    m.add_function(wrap_pyfunction!(cpu_htm4_new_globally_uniform_prob_exact_inhibitory, m)?)?;
-    m.add_function(wrap_pyfunction!(cpu_htm4_new_globally_uniform_prob_without_inhibitory, m)?)?;
-    m.add_function(wrap_pyfunction!(cpu_htm4_new_globally_uniform_prob, m)?)?;
+    m.add_function(wrap_pyfunction!(conv_out_size, m)?)?;
+    m.add_function(wrap_pyfunction!(conv_stride, m)?)?;
+    m.add_function(wrap_pyfunction!(conv_compose, m)?)?;
     m.add_function(wrap_pyfunction!(vote, m)?)?;
     m.add_function(wrap_pyfunction!(vote_conv2d, m)?)?;
     m.add_function(wrap_pyfunction!(vote_conv2d_transpose, m)?)?;

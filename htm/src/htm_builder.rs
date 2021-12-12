@@ -155,6 +155,9 @@ impl Population {
     pub fn push(&mut self, neuron:Neuron){
         self.neurons.push(neuron)
     }
+    pub fn push_neurons(&mut self, population_size: usize, segments_per_neuron: usize){
+        self.neurons.extend((0..population_size).map(|_|Neuron::new(segments_per_neuron)))
+    }
     pub fn zip_join(&mut self, other: &Population) {
         assert_eq!(self.len(), other.len(), "Cannot zip join populations of different len {} and {}",self.len(), other.len());
         for (a, b) in self.neurons.iter_mut().zip(other.neurons.iter()) {
@@ -164,7 +167,7 @@ impl Population {
     pub fn zip_append(&mut self, other: &mut Population) {
         assert_eq!(self.len(), other.len(), "Cannot zip append populations of different len {} and {}",self.len(), other.len());
         for (a, b) in self.neurons.iter_mut().zip(other.neurons.iter_mut()) {
-            a.append(b)
+            a.append( b)
         }
     }
     pub fn add_uniform_rand_inputs(&mut self, input_size: u32, synapse_count: u32, transformation: &mut impl FnMut(u32) -> u32, mut rand_seed: u32) -> u32 {
@@ -235,3 +238,60 @@ impl Population {
     // }
 }
 
+
+impl Add for Neuron{
+    type Output = Neuron;
+
+    fn add(mut self, mut rhs: Self) -> Self {
+        self.append(&mut rhs);
+        self
+    }
+}
+
+impl AddAssign for Neuron{
+    fn add_assign(&mut self, mut rhs: Self) {
+        self.append(&mut rhs)
+    }
+}
+
+impl Mul for Neuron{
+    type Output = Neuron;
+
+    fn mul(mut self, mut rhs: Self) -> Self {
+        self.zip_join(&mut rhs);
+        self
+    }
+}
+impl MulAssign for Neuron{
+    fn mul_assign(&mut self, mut rhs: Self) {
+        self.zip_join(&mut rhs)
+    }
+}
+
+impl Add for Population{
+    type Output = Population;
+
+    fn add(mut self, mut rhs: Self) -> Self {
+        self.append(&mut rhs);
+        self
+    }
+}
+
+impl AddAssign for Population{
+    fn add_assign(&mut self, mut rhs: Self) {
+        self.append(&mut rhs)
+    }
+}
+impl Mul for Population{
+    type Output = Population;
+
+    fn mul(mut self, mut rhs: Self) -> Self {
+        self.zip_append(&mut rhs);
+        self
+    }
+}
+impl MulAssign for Population{
+    fn mul_assign(&mut self, mut rhs: Self) {
+        self.zip_append(&mut rhs)
+    }
+}
