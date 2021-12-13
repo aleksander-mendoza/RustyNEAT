@@ -931,4 +931,23 @@ mod tests {
         }
         Ok(())
     }
+    #[test]
+    fn test37() -> Result<(),String>{
+        let i = 32;
+        let mut htm = CpuBigHTM::new(i, 32,4,643765);
+        let mut htm2 = htm.clone();
+        let b = CpuBitset::rand(i,4547856);
+        let b = CpuInput::from_dense(b);
+        let o = htm.infer(&b,true);
+        let o2 = htm2.infer(&b,false);
+        htm2.update_permanence(&b,&o2);
+        assert_eq!(o,o2);
+        for (m,m2) in htm.minicolumns_as_slice().iter().zip(htm2.minicolumns_as_slice().iter()){
+            assert_eq!(m.segments.len(),m2.segments.len());
+            for (s,s2) in m.segments.iter().zip(m2.segments.iter()){
+                assert_eq!(s.synapses,s2.synapses);
+            }
+        }
+        Ok(())
+    }
 }

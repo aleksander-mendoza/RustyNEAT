@@ -88,6 +88,10 @@ pub struct CpuHOM {
     hom: htm::CpuHOM,
 }
 
+///
+/// CpuHTM2(input_size:int, minicolumns:int, n: int, rand_seed:int)
+///
+///
 #[pyclass]
 pub struct CpuBigHTM {
     htm: htm::CpuBigHTM,
@@ -312,9 +316,17 @@ impl BitsEncoder {
             self.encode_from_bools(sdr, bools)
         } else if let Ok(indices) = val.extract::<Vec<u32>>() {
             self.encode_from_indices(sdr, indices)
+        } else if let Ok(indices) = val.extract::<PyRef<CpuSDR>>() {
+            self.encode_from_sdr(sdr, indices)
         } else {
             self.encode_from_numpy(sdr, val)
         }
+    }
+    pub fn encode_from_sdr(&self, sdr: PyObject, indices: PyRef<CpuSDR>) -> PyResult<()> {
+        encode(sdr, indices.sdr.as_slice(),
+               |x, y| self.enc.encode(x, y),
+               |x, y| self.enc.encode(x, y),
+               |x, y| self.enc.encode(x, y))
     }
     pub fn encode_from_indices(&self, sdr: PyObject, indices: Vec<u32>) -> PyResult<()> {
         encode(sdr, indices.as_slice(),
@@ -996,6 +1008,16 @@ impl CpuBigHTM {
     }
 
     #[getter]
+    fn get_removal_permanence_threshold(&self) -> f32 {
+        self.htm.params().removal_permanence_threshold
+    }
+
+    #[setter]
+    fn set_removal_permanence_threshold(&mut self, removal_permanence_threshold: f32) {
+        self.htm.params_mut().removal_permanence_threshold = removal_permanence_threshold
+    }
+
+    #[getter]
     fn get_permanence_threshold(&self) -> f32 {
         self.htm.params().permanence_threshold
     }
@@ -1049,10 +1071,33 @@ impl CpuBigHTM {
     fn __call__(&mut self, bitset_input: &CpuInput, learn: Option<bool>) -> CpuSDR {
         self.infer(bitset_input, learn)
     }
+    ///
+    /// If there is not enough input activity to determine n winner cells, then the missing cells will be chosen at random.
+    ///
     #[text_signature = "(input, learn)"]
     fn infer(&mut self, input: &CpuInput, learn: Option<bool>) -> CpuSDR {
         CpuSDR { sdr: self.htm.infer(&input.inp, learn.unwrap_or(false)) }
     }
+    ///
+    /// If there is not enough input activity to determine n winner cells, then return only those we could find
+    ///
+    pub fn infer_less_than_n(&mut self, active_inputs: &CpuInput, learn: Option<bool>) -> CpuSDR{
+        CpuSDR { sdr: self.htm.infer_less_than_n(&active_inputs.inp, learn.unwrap_or(false)) }
+    }
+    ///
+    /// If there is not enough input activity to determine n winner cells, then the missing cells will be chosen at random from the provided sticky activity SDR. It is necessary that sticky_activity contains no duplicates
+    ///
+    pub fn infer_sticky(&mut self, active_inputs: &CpuInput,sticky_activity:&CpuSDR,learn: Option<bool>) -> CpuSDR{
+        CpuSDR { sdr: self.htm.infer_sticky(&active_inputs.inp, learn.unwrap_or(false),sticky_activity.sdr.as_slice()) }
+    }
+    ///
+    /// If there is not enough input activity to determine n winner cells, then the missing cells will be chosen at random from the provided SDR. It is necessary that whitelist contains no duplicates. If
+    /// there are any winner cells which are not on the whitelist, then they will be removed and replaced with some cells from the list.
+    ///
+    pub fn infer_from_whitelist(&mut self, active_inputs: &CpuInput,whitelist:&CpuInput,learn: Option<bool>) -> CpuSDR{
+        CpuSDR { sdr: self.htm.infer_sticky(&active_inputs.inp, learn.unwrap_or(false),sticky_activity.sdr.as_slice()) }
+    }
+
     #[text_signature = "(input,active_columns)"]
     fn update_permanence(&mut self, input: &CpuInput, active_columns: &CpuSDR) {
         self.htm.update_permanence(&input.inp, &active_columns.sdr)
@@ -1664,6 +1709,9 @@ fn py_any_as_numpy<T>(input: &PyAny, dtype: DataType) -> Result<&PyArrayDyn<T>, 
         }
         &*(input as *const PyAny as *const PyArrayDyn<u8>)
     };
+    if !array.is_c_contiguous(){
+        return Err(PyValueError::new_err("Numpy array is not C contiguous"));
+    }
     let actual_dtype = array.dtype().get_datatype().ok_or_else(|| PyValueError::new_err("No numpy array has no dtype"))?;
     if dtype != actual_dtype {
         return Err(PyValueError::new_err(format!("Expected numpy array of dtype {:?} but got {:?}", dtype, actual_dtype)));

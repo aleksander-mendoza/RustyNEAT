@@ -141,7 +141,7 @@ impl Encoder<&[bool]> for BitsEncoder{
         assert!(neuron_bits.len() <= self.neuron_range_length as usize,"This encoder writes to a range of {} bits, but input array contains {} bits",self.neuron_range_length, neuron_bits.len());
         for (neuron_idx, &is_on) in neuron_bits.iter().enumerate(){
             if is_on {
-                sdr.push(neuron_idx as u32)
+                sdr.push(self.neuron_range_begin+neuron_idx as u32)
             }
         }
     }

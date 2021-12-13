@@ -80,96 +80,62 @@ layer1_to_3_pop.push_add_2d_column_grid_with_3d_input(
     rand_seed=43643908
 )
 
-input_shapes = [layer1_shape, layer2_shape, layer3_shape]
-output_shapes = [layer2_shape, layer3_shape, [0, 0, 0]]
+layer4_shape = [4, layer3_size, 1]
+layer4_size = prod(layer4_shape)
+layer3_to_4_pop = htm.Population(layer4_size)
+layer3_to_4_pop.add_uniform_rand_inputs_from_range((layer1_size + layer2_size, layer1_size + layer2_size + layer3_size),
+                                                   30)
+
+input_shapes = [layer1_shape, layer2_shape, layer3_shape, layer4_shape]
+output_shapes = [layer2_shape, layer3_shape, layer4_shape, [0, 0, 0]]
 
 layer1_enc = [enc.add_bits(S) for _ in GABOR_FILTERS]
 layer2_enc = enc.add_bits(layer2_size)
 layer3_enc = enc.add_bits(layer3_size)
+# layer4_enc = enc.add_bits(layer4_size)
 
 htm1 = htm.CpuHTM2(enc.input_size, 30, layer1_to_2_pop)
-htm1.visualise(input_shapes, [layer2_shape, [0, 0, 0], [0, 0, 0]])
+# htm1.visualise(input_shapes, [layer2_shape, [0, 0, 0], [0, 0, 0]])
 
 htm2 = htm.CpuHTM2(enc.input_size, 30, layer2_to_3_pop * layer1_to_3_pop)
-htm2.visualise(input_shapes, [[0, 0, 0], layer3_shape, [0, 0, 0]])
+# htm2.visualise(input_shapes, [[0, 0, 0], layer3_shape, [0, 0, 0]])
 
+htm3 = htm.CpuHTM2(enc.input_size, 30, layer3_to_4_pop)
+htm3.set_all_permanences(1.)
+
+htm4 = htm.CpuBigHTM(input_size=layer4_size, minicolumns=10 * 28, n=4)
+
+bitset = htm.CpuBitset(enc.input_size)
 MNIST, LABELS = torch.load('htm/data/mnist.pt')
 
 
-def encode_img(img):
-    img = img.type(torch.float) / 255
-    for kernel, enc in zip(GABOR_FILTERS, img_enc):
-        i = ndimage.convolve(img, kernel, mode='constant')
-        i = i.clip(0, 1)
-        i = i > 0.8
-        # plt.imshow(i)
-        # plt.show()
-        i = i.reshape(S)
-        i = i.tolist()
-        enc.encode(bitset, i)
-
-
-def clear_img():
-    for enc in img_enc:
-        enc.clear(bitset)
-
-
-def encode(img, lbl):
-    encode_img(img)
-    lbl_enc.encode(bitset, lbl)
-
-
-def train(samples, repetitions):
+def train(samples, repetitions, train_map):
     for _ in range(repetitions):
         for img, lbl in tqdm(zip(MNIST[:samples], LABELS[:samples]), desc="training", total=samples):
+            img = img.type(torch.float) / 255
             bitset.clear()
-            encode(img, lbl)
-            active_columns = htm1(bitset, True)
-            # active_columns = active_columns.to_bitset(enc.input_size)
-            # active_columns = htm2(active_columns, True)
+            for kernel, enc in zip(GABOR_FILTERS, layer1_enc):
+                i = ndimage.convolve(img, kernel, mode='constant')
+                i = i.clip(0, 1)
+                i = i > 0.8
+                enc.encode(bitset, i)
+            # htm1.visualise(input_shapes, [layer2_shape, [0, 0, 0], [0, 0, 0]], input=bitset.to_sdr(),
+            # input_cell_margin=0.4)
+            layer2_activity = htm1(bitset, True)
+            layer2_enc.encode(bitset, layer2_activity)
+            # htm2.visualise(input_shapes, [[0, 0, 0], layer3_shape, [0, 0, 0]], input=bitset.to_sdr(),
+            #                input_cell_margin=0.4)
+            layer3_activity = htm2(bitset, True)
+            layer3_enc.encode(bitset, layer3_activity)
+            # htm3.visualise(input_shapes, [[0, 0, 0], layer3_shape, [0, 0, 0]], input=bitset.to_sdr(),
+            #                input_cell_margin=0.4)
+            if train_map:
+                layer4_activity = htm3(bitset, False)
+                layer4_activity = layer4_activity.to_input(layer4_size)
+                # htm3.visualise(input_shapes, [[0, 0, 0], [0, 0, 0], layer4_shape, [0, 0, 0]], input=bitset.to_sdr(),
+                #                input_cell_margin=0.4)
+                layer5_activity = htm4.infer_sticky(layer4_activity,)
 
 
-def test(img):
-    bitset.clear()
-    encode_img(img)
-    active_columns_no_lbl = htm1(bitset)
-    # active_columns_no_lbl = active_columns_no_lbl.to_bitset(enc.input_size)
-    # active_columns_no_lbl = htm2(active_columns_no_lbl)
-    overlap = [0] * 10
-    for lbl in range(0, 10):
-        lbl_enc.clear(bitset)
-        lbl_enc.encode(bitset, lbl)
-        active_columns = htm1(bitset)
-        # active_columns = active_columns.to_bitset(enc.input_size)
-        # active_columns = htm2(active_columns)
-        overlap[lbl] = active_columns_no_lbl.overlap(active_columns)
-    # print(lbl, overlap[lbl])
-    return np.argmax(overlap)
-
-
-def eval(samples):
-    correct = 0
-    for img, lbl in tqdm(zip(MNIST[:samples], LABELS[:samples]), desc="evaluation", total=samples):
-        guessed = test(img)
-        if guessed == lbl:
-            correct += 1
-    return correct
-
-
-def random_trials(samples, repetitions, trials):
-    avg = 0
-    for _ in tqdm(range(trials), desc="trial", total=trials):
-        generate_htm()
-        train(samples, repetitions)
-        correct = eval(samples)
-        print(correct, "/", samples, "=", correct / samples)
-        avg += correct / samples
-    return avg / trials
-
-
-def run(samples, repetitions, trials):
-    acc = random_trials(samples, repetitions, trials)
-    print("Ensemble accuracy(" + str(samples) + "," + str(repetitions) + "," + str(trials) + "):", acc)
-
-
-run(100, 2, 20)
+train(100, 1, False)
+train(100, 1, True)
