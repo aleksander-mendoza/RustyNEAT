@@ -169,17 +169,17 @@ impl CpuBigHTM {
     /**If there is not enough input activity to determine n winner cells, then the missing cells will be chosen at random from the provided SDR. It is necessary that whitelist contains no duplicates. If
      there are any winner cells which are not on the whitelist, then they will be removed and replaced with some cells from the list.*/
     pub fn infer_from_whitelist(&mut self, active_inputs: &CpuInput, learn: bool,whitelist:&CpuInput) -> CpuSDR{
-        assert!(whitelist.len() >= self.params().n,"This HTM needs to select n=={} winner cells but the provided whitelist has only {} cells",self.params().n,whitelist.len());
+        assert!(whitelist.cardinality() as usize >= self.params().n,"This HTM needs to select n=={} winner cells but the provided whitelist has only {} cells",self.params().n,whitelist.cardinality());
         self.infer_and_postprocess(active_inputs,learn,|predicted_minicolumns,overlap_per_minicolumn,_,hyperparams,min_overlap,mut rand_seed|{
             predicted_minicolumns.retain(|x|whitelist.contains(x));
             while predicted_minicolumns.len() < hyperparams.n{
-                let mut rand_idx = rand_seed as usize % whitelist.len();
-                while overlap_per_minicolumn[whitelist[rand_idx] as usize] as usize > min_overlap{
+                let mut rand_idx = (rand_seed % whitelist.cardinality())as usize;
+                while overlap_per_minicolumn[whitelist.get_sparse()[rand_idx] as usize] as usize > min_overlap{
                     rand_seed = xorshift32(rand_seed);
-                    rand_idx = rand_seed as usize % whitelist.len();
+                    rand_idx = (rand_seed  % whitelist.cardinality())as usize;
                 }
-                predicted_minicolumns.push(whitelist[rand_idx]);
-                overlap_per_minicolumn[whitelist[rand_idx] as usize] = u32::MAX;
+                predicted_minicolumns.push(whitelist.get_sparse()[rand_idx]);
+                overlap_per_minicolumn[whitelist.get_sparse()[rand_idx] as usize] = u32::MAX;
             }
             rand_seed
         })

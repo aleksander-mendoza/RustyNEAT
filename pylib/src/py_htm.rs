@@ -38,7 +38,11 @@ pub struct CpuBitset {
     bits: htm::CpuBitset,
 }
 
-
+///
+/// CpuInput(size)
+///
+/// Optimised structure for holding both bitset and SDR. As a result most operations become O(1).
+///
 #[pyclass]
 pub struct CpuInput {
     inp: htm::CpuInput,
@@ -1081,12 +1085,14 @@ impl CpuBigHTM {
     ///
     /// If there is not enough input activity to determine n winner cells, then return only those we could find
     ///
+    #[text_signature = "(active_inputs,learn)"]
     pub fn infer_less_than_n(&mut self, active_inputs: &CpuInput, learn: Option<bool>) -> CpuSDR{
         CpuSDR { sdr: self.htm.infer_less_than_n(&active_inputs.inp, learn.unwrap_or(false)) }
     }
     ///
     /// If there is not enough input activity to determine n winner cells, then the missing cells will be chosen at random from the provided sticky activity SDR. It is necessary that sticky_activity contains no duplicates
     ///
+    #[text_signature = "(active_inputs,sticky_activity,learn)"]
     pub fn infer_sticky(&mut self, active_inputs: &CpuInput,sticky_activity:&CpuSDR,learn: Option<bool>) -> CpuSDR{
         CpuSDR { sdr: self.htm.infer_sticky(&active_inputs.inp, learn.unwrap_or(false),sticky_activity.sdr.as_slice()) }
     }
@@ -1094,8 +1100,9 @@ impl CpuBigHTM {
     /// If there is not enough input activity to determine n winner cells, then the missing cells will be chosen at random from the provided SDR. It is necessary that whitelist contains no duplicates. If
     /// there are any winner cells which are not on the whitelist, then they will be removed and replaced with some cells from the list.
     ///
+    #[text_signature = "(active_inputs,whitelist,learn)"]
     pub fn infer_from_whitelist(&mut self, active_inputs: &CpuInput,whitelist:&CpuInput,learn: Option<bool>) -> CpuSDR{
-        CpuSDR { sdr: self.htm.infer_sticky(&active_inputs.inp, learn.unwrap_or(false),sticky_activity.sdr.as_slice()) }
+        CpuSDR { sdr: self.htm.infer_from_whitelist(&active_inputs.inp, learn.unwrap_or(false),&whitelist.inp) }
     }
 
     #[text_signature = "(input,active_columns)"]

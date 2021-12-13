@@ -84,7 +84,7 @@ impl CpuSDR {
     pub fn clear(&mut self) {
         self.0.clear()
     }
-    pub fn retain(&mut self, predicate:impl FnMut(u32)->bool) {
+    pub fn retain(&mut self, mut predicate:impl FnMut(u32)->bool) {
         self.0.retain(|&x|predicate(x))
     }
     pub fn set(&mut self, active_neurons: &[u32]) {
