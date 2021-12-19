@@ -74,6 +74,13 @@ impl CpuSDR {
     pub fn as_slice(&self) -> &[u32] {
         self.0.as_slice()
     }
+    pub fn shift(&mut self, shift:i32){
+        for i in &mut self.0{
+            let new_i = *i as i32 + shift;
+            if new_i < 0{panic!("Shifting neuron {} by {} produces negative index {}",*i,shift,new_i)}
+            *i = new_i as u32;
+        }
+    }
     pub fn as_mut_slice(&mut self) -> &mut [u32] {
         self.0.as_mut_slice()
     }

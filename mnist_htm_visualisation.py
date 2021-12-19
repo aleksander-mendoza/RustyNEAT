@@ -188,8 +188,8 @@ layer3_to_4_pop = htm.Population(layer4_size)
 layer3_to_4_pop.add_uniform_rand_inputs_from_range((layer1_size + layer2_size, layer1_size + layer2_size + layer3_size),
                                                    30)
 
-input_shapes = [layer1_shape, layer2_shape, layer3_shape, layer4_shape]
-output_shapes = [layer2_shape, layer3_shape, layer4_shape, [0, 0, 0]]
+input_shapes = [layer1_shape, layer2_shape, layer3_shape]
+output_shapes = [layer2_shape, layer3_shape, [0, 0, 0]]
 
 enc1 = htm.EncoderBuilder()
 layer1_enc = [enc1.add_bits(S) for _ in GABOR_FILTERS]
@@ -244,8 +244,8 @@ def train(samples, repetitions, train_cortex, train_map):
             #                input_cell_margin=0.4)
             layer4_activity = htm3(bitset, False)
             layer4_activity = layer4_activity.to_input(layer4_size)
-            # htm3.visualise(input_shapes, [[0, 0, 0], [0, 0, 0], layer4_shape, [0, 0, 0]], input=bitset.to_sdr(),
-            #                input_cell_margin=0.4)
+            htm2.visualise(input_shapes, [[0, 0, 0],  layer3_shape, [0, 0, 0]], input=bitset.to_sdr(),
+                           input_cell_margin=0.4)
             if train_map:
                 layer5_activity = htm4.infer_from_whitelist(layer4_activity, layer5[lbl], learn=True)
             else:

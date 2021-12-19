@@ -496,11 +496,12 @@ impl CpuHTM2 {
                         top_n_minicolumns[current_top_n_minicolumn_idx] = minicolumn_idx as u32;
                         current_top_n_minicolumn_idx += 1;
                         if current_top_n_minicolumn_idx >= final_idx {
-                            return;
+                            break;
                         }
                     }
                 }
             }
+            assert_eq!(current_top_n_minicolumn_idx, final_idx, "Somethings wrong. Not enough columns. This shouldn't happen unless there's a bug");
         }
     }
     pub fn compute(&mut self, bitset_input: &CpuBitset) -> CpuSDR {

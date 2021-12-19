@@ -196,8 +196,9 @@ pub fn visualise_cpu_htm2(htm: &CpuHTM2, input_shapes: &[[u32; 3]], output_shape
                         }
                     }
                 }
-                Button::Keyboard(x) if Key::D1 <= x && x <= Key::D5 => {
-                    let x = (x as u32 - Key::D1 as u32) * 2 + 1;
+                Button::Keyboard(x) if Key::D1 <= x && x <= Key::D9 => {
+                    let x = (x as u32 - Key::D1 as u32) + 1;
+                    let x = x*x;
                     first_person.settings.speed_horizontal = speed * x as f32;
                     first_person.settings.speed_vertical = speed * x as f32;
                 }

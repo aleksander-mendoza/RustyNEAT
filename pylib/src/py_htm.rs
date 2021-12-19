@@ -1327,17 +1327,18 @@ impl CpuHTM2 {
         let output = output.map(|s|s.sdr.as_slice()).unwrap_or(&[]);
         Ok(visualise_cpu_htm2(&self.htm, &input_shapes?,&output_shapes?,input,output,input_cell_margin,output_cell_margin))
     }
+
     #[text_signature = "(file)"]
     pub fn pickle(&mut self, file: String) -> PyResult<()> {
         pickle(&self.htm, file)
     }
     #[text_signature = "(permenence)"]
     pub fn set_all_permanences(&mut self, val: f32) {
-        self.set_all_permanences(val)
+        self.htm.set_all_permanences(val)
     }
     #[text_signature = "(permenence)"]
     pub fn multiply_all_permanences(&mut self, val: f32) {
-        self.multiply_all_permanences(val)
+        self.htm.multiply_all_permanences(val)
     }
     #[text_signature = "(population,rand_seed)"]
     pub fn add_population(&mut self, population:&Population, rand_seed: Option<u32>) -> u32 {
@@ -1427,7 +1428,7 @@ impl CpuHTM2 {
     fn infer(&mut self, bitset_input: &CpuBitset, learn: Option<bool>) -> CpuSDR {
         CpuSDR { sdr: self.htm.infer(&bitset_input.bits, learn.unwrap_or(false)) }
     }
-    #[text_signature = "(minicolumns_per_column,bitset_input, learn)"]
+    #[text_signature = "(minicolumns_per_column,minicolumn_stride,bitset_input, learn)"]
     fn infer_and_group_into_columns(&mut self, minicolumns_per_column: usize, minicolumn_stride:usize, bitset_input: &CpuBitset, learn: Option<bool>) -> CpuSDR {
         CpuSDR { sdr: self.htm.infer_and_group_into_columns(minicolumns_per_column, minicolumn_stride,&bitset_input.bits, learn.unwrap_or(false)) }
     }
@@ -1547,6 +1548,10 @@ impl CpuSDR {
     #[text_signature = "(other_sdr)"]
     pub fn extend(&mut self, other: &CpuSDR) {
         self.sdr.extend(&other.sdr)
+    }
+    #[text_signature = "(shift)"]
+    pub fn shift(&mut self, shift: i32) {
+        self.sdr.shift(shift)
     }
     #[text_signature = "(other_sdr)"]
     pub fn subtract(&self, other: &CpuSDR) -> Self {
@@ -2150,7 +2155,7 @@ impl OclHTM2 {
     fn compute(&mut self, bitset_input: &OclBitset) -> Result<OclSDR, PyErr> {
         self.htm.compute(&bitset_input.bits).map(|sdr| OclSDR { sdr }).map_err(ocl_err_to_py_ex)
     }
-    #[text_signature = "(minicolumns_per_column, bitset_input)"]
+    #[text_signature = "(minicolumns_per_column,minicolumn_stride, bitset_input)"]
     fn compute_and_group_into_columns(&mut self, minicolumns_per_column: usize, minicolumn_stride:usize, bitset_input: &OclBitset) -> PyResult<OclSDR> {
         self.htm.compute_and_group_into_columns(minicolumns_per_column, minicolumn_stride,&bitset_input.bits).map(|sdr| OclSDR { sdr }).map_err(ocl_err_to_py_ex)
     }
