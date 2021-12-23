@@ -9,7 +9,7 @@ extern crate shader_version;
 use piston_window::*;
 use vecmath::*;
 use gfx::{Slice, InstanceParams, UpdateError, Primitive};
-use htm::{CpuHTM2, CpuBitset, EncoderTarget, CpuSDR, ArrayCast, VectorFieldMul, VectorFieldAdd, VectorFieldDiv, VectorFieldSub, VectorFieldPartialOrd, VectorFieldAbs, VectorFieldOne};
+use htm::{CpuHTM, CpuBitset, EncoderTarget, CpuSDR, ArrayCast, VectorFieldMul, VectorFieldAdd, VectorFieldDiv, VectorFieldSub, VectorFieldPartialOrd, VectorFieldAbs, VectorFieldOne};
 use gfx::memory::Usage;
 use gfx::traits::FactoryExt;
 use camera_controllers::Camera;
@@ -52,7 +52,7 @@ const SELECTED_ACTIVE_CELL: u32 = 3;
 const POTENTIAL_INACTIVE_CELL: u32 = 4;
 const POTENTIAL_ACTIVE_CELL: u32 = 5;
 
-pub fn visualise_cpu_htm2(htm: &CpuHTM2, input_shapes: &[[u32; 3]], output_shapes: &[[u32; 3]], input_sdr: &[u32], output_sdr: &[u32], input_cell_margin: f32, output_cell_margin: f32) {
+pub fn visualise_cpu_htm2(htm: &CpuHTM, input_shapes: &[[u32; 3]], output_shapes: &[[u32; 3]], input_sdr: &[u32], output_sdr: &[u32], input_cell_margin: f32, output_cell_margin: f32) {
     assert_eq!(input_shapes.len(), output_shapes.len(), "Input and output shape counts do not match");
     use piston_window::*;
     use gfx::traits::*;

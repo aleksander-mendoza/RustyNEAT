@@ -6,7 +6,7 @@ use ocl::core::{MemInfo, MemInfoResult, BufferRegion, Mem, ArgVal};
 use crate::cpu_sdr::CpuSDR;
 use crate::htm_program::HtmProgram;
 use ndalgebra::buffer::Buffer;
-use crate::htm2::*;
+use crate::htm::*;
 use crate::cpu_htm::CpuHTM;
 use crate::cpu_bitset::CpuBitset;
 use crate::rnd::{xorshift32, rand_u32_to_random_f32};

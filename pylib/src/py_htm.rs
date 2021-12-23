@@ -17,7 +17,7 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{Encoder, HomSegment, auto_gen_seed, EncoderTarget, EncoderRange, DgCoord2d, Shape, VectorFieldOne};
+use htm::{Encoder, HomSegment, auto_gen_seed, EncoderTarget, EncoderRange, Shape, VectorFieldOne};
 use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
@@ -48,44 +48,7 @@ pub struct CpuInput {
     inp: htm::CpuInput,
 }
 
-///
-/// CpuHTM(input_size, minicolumns, n, inputs_per_minicolumn, rand_seed)
-///
-///
-/// The standard implementation of spacial pooler. It is especially optimised for
-/// extremely sparse input, such that at any point in time only very few minicolumns
-/// have any synapse that connects to any active input. If your encoding of input
-/// is not that sparse, and most minicolumns will usually have at least one synapse
-/// that connects to some ative input at any time, then you're better off using CpuHTM2
-/// implementation. The difference bewteen CpuHTM and CpuHTM2 is that this one
-/// takes as input a CpuSDR and iterates only over active inputs, whereas CpuHTM2
-/// receives CpuBitset and iterates over minicolumns.
-///
-#[pyclass]
-pub struct CpuHTM {
-    htm: htm::CpuHTM,
-}
 
-///
-/// new(input_width,input_height, minicolumns, inputs_per_minicolumn, n, rand_seed)
-///
-///
-/// Randomly generate a new Dentate Gyrus. You can provide a random seed manually.
-/// Otherwise the millisecond part of system time is used as a seed. Seed is a 32-bit number.
-/// This implementation is just like CpuHTM2, except that it stores synapses as 2D-coordinates
-/// and then evaluates every synapse for every translation (with some stride). This is equivalent to
-/// having a spacial pooler with multiple feed-forward segments and each segment being exactly
-/// the same, except that the synapses are translated by some 2D displacement.
-///
-#[pyclass]
-pub struct CpuDG2_2d {
-    dg: htm::CpuDG2<DgCoord2d>,
-}
-
-#[pyclass]
-pub struct OclDG2_2d {
-    dg: htm::OclDG2,
-}
 
 #[pyclass]
 pub struct CpuHOM {
@@ -111,18 +74,8 @@ pub struct CpuBigHTM {
 ///
 ///
 #[pyclass]
-pub struct CpuHTM2 {
-    htm: htm::CpuHTM2,
-}
-
-#[pyclass]
-pub struct CpuHTM3 {
-    htm: htm::CpuHTM3,
-}
-
-#[pyclass]
-pub struct CpuHTM4 {
-    htm: htm::CpuHTM4,
+pub struct CpuHTM {
+    htm: htm::CpuHTM,
 }
 
 #[pyclass]
@@ -145,10 +98,6 @@ pub struct OclHTM {
     htm: htm::OclHTM,
 }
 
-#[pyclass]
-pub struct OclHTM2 {
-    htm: htm::OclHTM2,
-}
 
 #[pyclass]
 pub struct EncoderBuilder {
@@ -844,116 +793,6 @@ impl Segment {
 
 }
 
-#[pymethods]
-impl CpuHTM {
-    #[new]
-    pub fn new(input_size: u32, minicolumns: u32, n: u32, inputs_per_minicolumn: u32, rand_seed: Option<u32>) -> PyResult<Self> {
-        if inputs_per_minicolumn > input_size {
-            return Err(PyValueError::new_err(format!("There are {} inputs per minicolumn but only {} inputs in total", inputs_per_minicolumn, input_size)));
-        }
-        Ok(CpuHTM { htm: htm::CpuHTM::new_globally_uniform_prob(input_size, minicolumns, n, inputs_per_minicolumn, rand_seed.unwrap_or_else(auto_gen_seed)) })
-    }
-    #[text_signature = "(file)"]
-    pub fn pickle(&mut self, file: String) -> PyResult<()> {
-        pickle(&self.htm, file)
-    }
-    #[text_signature = "()"]
-    fn get_synapses(&self) -> Vec<(u32, f32)> {
-        self.htm.feedforward_connections_as_slice().iter().map(|c| (c.input_id, c.permanence)).collect()
-    }
-    #[getter]
-    fn get_minicolumn_count(&self) -> u32 {
-        self.htm.minicolumns_as_slice().len() as u32
-    }
-    #[getter]
-    fn get_synapse_count(&self) -> u32 {
-        self.htm.feedforward_connections_as_slice().len() as u32
-    }
-    #[getter]
-    fn get_input_size(&self) -> u32 {
-        self.htm.input_size()
-    }
-    #[getter]
-    fn get_n(&self) -> u32 {
-        self.htm.n
-    }
-
-    #[setter]
-    fn set_n(&mut self, n: u32) {
-        self.htm.n = n
-    }
-
-    #[getter]
-    fn get_permanence_decrement(&self) -> f32 {
-        self.htm.permanence_decrement_increment[0]
-    }
-
-    #[setter]
-    fn set_permanence_decrement(&mut self, permanence_decrement: f32) {
-        self.htm.permanence_decrement_increment[0] = permanence_decrement
-    }
-
-    #[getter]
-    fn get_permanence_increment(&self) -> f32 {
-        self.htm.permanence_decrement_increment[1]
-    }
-
-    #[setter]
-    fn set_permanence_increment(&mut self, permanence_increment: f32) {
-        self.htm.permanence_decrement_increment[1] = permanence_increment
-    }
-
-    #[getter]
-    fn get_permanence_threshold(&self) -> f32 {
-        self.htm.permanence_threshold
-    }
-
-    #[setter]
-    fn set_permanence_threshold(&mut self, permanence_threshold: f32) {
-        self.htm.permanence_threshold = permanence_threshold
-    }
-
-    #[getter]
-    fn get_max_overlap(&self) -> u32 {
-        self.htm.max_overlap
-    }
-
-    #[setter]
-    fn set_max_overlap(&mut self, max_overlap: u32) {
-        self.htm.max_overlap = max_overlap
-    }
-
-    #[call]
-    fn __call__(&mut self, bitset_input: &CpuInput, learn: Option<bool>) -> CpuSDR {
-        self.infer(bitset_input, learn)
-    }
-    #[text_signature = "(bitset_input, learn)"]
-    fn infer(&mut self, bitset_input: &CpuInput, learn: Option<bool>) -> CpuSDR {
-        CpuSDR { sdr: self.htm.infer(&bitset_input.inp, learn.unwrap_or(false)) }
-    }
-    #[text_signature = "(bitset_input,active_columns)"]
-    fn update_permanence(&mut self, bitset_input: &CpuBitset, active_columns: &CpuSDR) {
-        self.htm.update_permanence(&active_columns.sdr, &bitset_input.bits)
-    }
-    #[text_signature = "(bitset_input)"]
-    fn compute(&mut self, bitset_input: &CpuInput) -> CpuSDR {
-        CpuSDR { sdr: self.htm.compute(&bitset_input.inp) }
-    }
-
-    #[text_signature = "( /)"]
-    fn to_htm2(&self) -> CpuHTM2 {
-        CpuHTM2 { htm: htm::CpuHTM2::from(&self.htm) }
-    }
-    #[text_signature = "(context)"]
-    fn to_ocl(&self, context: &mut Context) -> PyResult<OclHTM> {
-        OclHTM::new(context, self)
-    }
-    #[text_signature = "( /)"]
-    fn clone(&self) -> CpuHTM {
-        CpuHTM { htm: self.htm.clone() }
-    }
-}
-
 
 #[pymethods]
 impl CpuBigHTM {
@@ -1120,140 +959,6 @@ impl CpuBigHTM {
     }
 }
 
-#[pymethods]
-impl CpuDG2_2d {
-    #[new]
-    pub fn new(input_size: (u32, u32), minicolumns: u32, n: u32, span: (u32, u32), inputs_per_granular_cell: u32, rand_seed: Option<u32>) -> PyResult<Self> {
-        let (input_height, input_width) = input_size;
-        let (span_h, span_w) = span;
-        if span_w > input_width {
-            return Err(PyValueError::new_err(format!("Span has width {} but total input is of width {}", span_w, input_width)));
-        }
-        if span_h > input_height {
-            return Err(PyValueError::new_err(format!("Span has height  {} but total input is of height {}", span_h, input_height)));
-        }
-        if inputs_per_granular_cell > span_w * span_h {
-            return Err(PyValueError::new_err(format!("Column can't have {} inputs if there are only {} inputs in span of {}x{}", inputs_per_granular_cell, span_w * span_h, span_w, span_h)));
-        }
-        let mut dg = htm::CpuDG2::new_2d(DgCoord2d::new_yx(input_height, input_width), DgCoord2d::new_yx(span_h, span_w), n);
-        dg.add_globally_uniform_prob(minicolumns, inputs_per_granular_cell, rand_seed.unwrap_or_else(auto_gen_seed));
-        Ok(CpuDG2_2d { dg })
-    }
-    #[text_signature = "(file)"]
-    pub fn pickle(&mut self, file: String) -> PyResult<()> {
-        pickle(&self.dg, file)
-    }
-    #[text_signature = "( /)"]
-    fn clone(&self) -> CpuDG2_2d {
-        CpuDG2_2d { dg: self.dg.clone() }
-    }
-    #[getter]
-    fn get_input_size(&self) -> (u32, u32) {
-        self.dg.input_size().as_yx()
-    }
-    #[getter]
-    fn get_minicolumn_count(&self) -> u32 {
-        self.dg.minicolumns_as_slice().len() as u32
-    }
-
-    #[getter]
-    fn get_n(&self) -> u32 {
-        self.dg.n
-    }
-    #[getter]
-    fn make_bitset(&self) -> CpuBitset {
-        CpuBitset { bits: self.dg.make_bitset() }
-    }
-    #[setter]
-    fn set_n(&mut self, n: u32) {
-        self.dg.n = n
-    }
-    #[getter]
-    fn get_max_overlap(&self) -> u32 {
-        self.dg.max_overlap
-    }
-
-    #[setter]
-    fn set_max_overlap(&mut self, max_overlap: u32) {
-        self.dg.max_overlap = max_overlap
-    }
-
-    #[text_signature = "(bitset_input,stride)"]
-    fn compute_translation_invariant(&mut self, bitset_input: &CpuBitset, stride: (u32, u32)) -> CpuSDR {
-        CpuSDR { sdr: self.dg.compute_translation_invariant(&bitset_input.bits, stride) }
-    }
-
-    #[text_signature = "(minicolumn_id)"]
-    fn get_overlap(&self, minicolumn_id: u32) -> i32 {
-        self.dg.minicolumns_as_slice()[minicolumn_id as usize].overlap
-    }
-
-    #[text_signature = "(minicolumn_id)"]
-    fn get_synapses_range(&self, minicolumn_id: u32) -> (u32, u32) {
-        let range = &self.dg.minicolumns_as_slice()[minicolumn_id as usize];
-        (range.connection_offset, range.connection_len)
-    }
-
-    #[text_signature = "(synapse_id)"]
-    fn get_synapse_input(&self, synapse_id: u32) -> (u32, u32) {
-        self.dg.feedforward_connections_as_slice()[synapse_id as usize].as_yx()
-    }
-
-    #[text_signature = "(synapse_id, input_coords)"]
-    fn set_synapse_input(&mut self, synapse_id: u32, input_coords: (u32, u32)) {
-        self.dg.feedforward_connections_as_mut_slice()[synapse_id as usize] = DgCoord2d::new_yx(input_coords.0, input_coords.1);
-    }
-    #[text_signature = "(context)"]
-    fn to_ocl(&self, context: &mut Context) -> PyResult<OclDG2_2d> {
-        OclDG2_2d::new(context, self)
-    }
-}
-
-
-#[pymethods]
-impl OclDG2_2d {
-    /// new(input_width,input_height, minicolumns, inputs_per_minicolumn, n, rand_seed)
-    /// --
-    ///
-    /// Randomly generate a new Dentate Gyrus. You can provide a random seed manually.
-    /// Otherwise the millisecond part of system time is used as a seed. Seed is a 32-bit number.
-    ///
-    #[new]
-    pub fn new(context: &mut Context, dg: &CpuDG2_2d) -> PyResult<Self> {
-        let htm = context.compile_htm_program()?;
-        let dg = htm::OclDG2::new(&dg.dg, htm.clone()).map_err(ocl_err_to_py_ex)?;
-        Ok(OclDG2_2d { dg })
-    }
-    #[getter]
-    fn get_input_size(&self) -> (u32, u32) {
-        self.dg.input_size().as_yx()
-    }
-
-    #[getter]
-    fn get_n(&self) -> u32 {
-        self.dg.n
-    }
-    #[setter]
-    fn set_n(&mut self, n: u32) {
-        self.dg.n = n
-    }
-    #[getter]
-    fn get_max_overlap(&self) -> u32 {
-        self.dg.max_overlap
-    }
-
-    #[setter]
-    fn set_max_overlap(&mut self, max_overlap: u32) {
-        self.dg.max_overlap = max_overlap
-    }
-
-    #[text_signature = "(bitset_input,stride)"]
-    fn compute_translation_invariant(&mut self, bitset_input: &OclBitset, stride: (u32, u32)) -> PyResult<OclSDR> {
-        let sdr = self.dg.compute_translation_invariant(&bitset_input.bits, stride).map_err(ocl_err_to_py_ex)?;
-        Ok(OclSDR { sdr })
-    }
-}
-
 fn arr3(py: Python, t: PyObject) -> PyResult<[u32; 3]> {
     Ok(if let Ok(t) = t.extract::<(u32, u32, u32)>(py) {
         [t.0, t.1, t.2]
@@ -1306,14 +1011,14 @@ fn arr2(py: Python, t: PyObject) -> PyResult<[u32; 2]> {
 }
 
 #[pymethods]
-impl CpuHTM2 {
+impl CpuHTM {
     #[new]
     pub fn new(input_size: u32, n: u32, population: Option<&Population>, rand_seed: Option<u32>) -> PyResult<Self> {
-        let mut htm = htm::CpuHTM2::new(input_size, n);
+        let mut htm = htm::CpuHTM::new(input_size, n);
         if let Some(population) = population {
             htm.add_population(&population.pop, rand_seed.unwrap_or_else(auto_gen_seed));
         }
-        Ok(CpuHTM2 { htm })
+        Ok(CpuHTM { htm })
     }
     #[text_signature = "(input_shapes,output_shapes,input,output,input_cell_margin, output_cell_margin)"]
     pub fn visualise(&mut self, input_shapes:Vec<PyObject>, output_shapes:Vec<PyObject>,input:Option<&CpuSDR>,output:Option<&CpuSDR>,input_cell_margin: Option<f32>, output_cell_margin: Option<f32>) -> PyResult<()> {
@@ -1358,8 +1063,8 @@ impl CpuHTM2 {
         }
     }
     #[text_signature = "( /)"]
-    fn clone(&self) -> CpuHTM2 {
-        CpuHTM2 { htm: self.htm.clone() }
+    fn clone(&self) -> CpuHTM {
+        CpuHTM { htm: self.htm.clone() }
     }
     #[getter]
     fn get_input_size(&self) -> u32 {
@@ -1484,8 +1189,8 @@ impl CpuHTM2 {
         self.htm.feedforward_connections_as_mut_slice()[synapse_id as usize].permanence = permanence;
     }
     #[text_signature = "(context)"]
-    fn to_ocl(&self, context: &mut Context) -> PyResult<OclHTM2> {
-        OclHTM2::new(context, self)
+    fn to_ocl(&self, context: &mut Context) -> PyResult<OclHTM> {
+        OclHTM::new(context, self)
     }
 }
 
@@ -2014,74 +1719,12 @@ impl CpuInput {
 }
 
 
+
 #[pymethods]
 impl OclHTM {
     #[new]
     pub fn new(context: &mut Context, htm: &CpuHTM) -> PyResult<Self> {
         htm::OclHTM::new(&htm.htm, context.compile_htm_program()?.clone()).map(|htm| OclHTM { htm }).map_err(ocl_err_to_py_ex)
-    }
-
-    #[getter]
-    fn get_n(&self) -> u32 {
-        self.htm.n
-    }
-
-    #[setter]
-    fn set_n(&mut self, n: u32) {
-        self.htm.n = n
-    }
-
-    #[getter]
-    fn get_permanence_decrement(&self) -> f32 {
-        self.htm.permanence_decrement_increment[0]
-    }
-
-    #[setter]
-    fn set_permanence_decrement(&mut self, permanence_decrement: f32) {
-        self.htm.permanence_decrement_increment[0] = permanence_decrement
-    }
-
-    #[getter]
-    fn get_permanence_increment(&self) -> f32 {
-        self.htm.permanence_decrement_increment[1]
-    }
-
-    #[setter]
-    fn set_permanence_increment(&mut self, permanence_increment: f32) {
-        self.htm.permanence_decrement_increment[1] = permanence_increment
-    }
-
-    #[getter]
-    fn get_permanence_threshold(&self) -> f32 {
-        self.htm.permanence_threshold
-    }
-
-    #[setter]
-    fn set_permanence_threshold(&mut self, permanence_threshold: f32) {
-        self.htm.permanence_threshold = permanence_threshold
-    }
-
-    #[getter]
-    fn get_max_overlap(&self) -> u32 {
-        self.htm.max_overlap
-    }
-
-    #[setter]
-    fn set_max_overlap(&mut self, max_overlap: u32) {
-        self.htm.max_overlap = max_overlap
-    }
-
-    #[call]
-    fn __call__(&mut self, input: &OclInput, learn: Option<bool>) -> PyResult<OclSDR> {
-        self.htm.infer(&input.inp, learn.unwrap_or(false)).map(|sdr| OclSDR { sdr }).map_err(ocl_err_to_py_ex)
-    }
-}
-
-#[pymethods]
-impl OclHTM2 {
-    #[new]
-    pub fn new(context: &mut Context, htm: &CpuHTM2) -> PyResult<Self> {
-        htm::OclHTM2::new(&htm.htm, context.compile_htm_program()?.clone()).map(|htm| OclHTM2 { htm }).map_err(ocl_err_to_py_ex)
     }
     #[getter]
     fn get_input_size(&self) -> u32 {

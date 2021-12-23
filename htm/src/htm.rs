@@ -1,30 +1,27 @@
 use ocl::OclPrm;
 use serde::{Serialize, Deserialize};
+use std::ops::Range;
 
-#[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[repr(C)]
 pub struct HtmFeedforwardConnection {
-    pub minicolumn_id: u32,
     pub permanence: f32,
     pub input_id: u32,
 }
 
-unsafe impl OclPrm for HtmFeedforwardConnection{}
+unsafe impl OclPrm for HtmFeedforwardConnection {}
 
-#[derive(Copy, Clone, Serialize, Deserialize, Debug, Default, PartialEq)]
-#[repr(C)]
-pub struct HtmInput {
-    pub connection_offset: u32,
-    pub connection_len: u32,
-}
 
-unsafe impl OclPrm for HtmInput{}
-
-#[derive(Copy, Clone, Serialize, Deserialize, Debug, Default, PartialEq)]
+#[derive(Copy, Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[repr(C)]
 pub struct HtmMinicolumn {
-    pub connection_index_offset: u32,
-    pub connection_index_len: u32,
+    pub connection_offset: u32,
+    pub connection_len: u32,
     pub overlap: i32,
 }
-unsafe impl OclPrm for HtmMinicolumn{}
+unsafe impl OclPrm for HtmMinicolumn {}
+impl HtmMinicolumn {
+    pub fn range(&self)->Range<usize>{
+        self.connection_offset as usize..(self.connection_offset+self.connection_len)as usize
+    }
+}
