@@ -1,10 +1,10 @@
 use crate::{CpuSDR, EncoderTarget, Shape3, Shape, resolve_range};
 use std::fmt::{Debug, Formatter};
-use crate::rnd::xorshift32;
 use serde::{Serialize, Deserialize};
 use crate::vector_field::{VectorFieldOne, VectorFieldAdd, VectorFieldPartialOrd};
 use std::ops::RangeBounds;
 use std::collections::Bound;
+use rand::Rng;
 
 #[derive(Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct CpuBitset {
@@ -134,19 +134,18 @@ impl CpuBitset {
         let shape = [depth, height, width];
         Self{ bits: vec![0; bit_count_to_vec_size(shape.product())], shape}
     }
-    pub fn rand(width:u32, mut rand_seed:u32) -> Self {
+    pub fn rand(width:u32, rand_seed:&mut impl rand::Rng) -> Self {
         Self::rand2d(1,width,rand_seed)
     }
-    pub fn rand2d(height:u32,width:u32, mut rand_seed:u32) -> Self {
+    pub fn rand2d(height:u32,width:u32, rand_seed:&mut impl rand::Rng) -> Self {
         Self::rand3d(1,height,width,rand_seed)
     }
-    pub fn rand3d(depth:u32, height:u32,width:u32, mut rand_seed:u32) -> Self {
+    pub fn rand3d(depth:u32, height:u32,width:u32, rand_seed:&mut impl rand::Rng) -> Self {
         let shape = [depth, height, width];
         let bit_count = shape.product();
         let u32_count = bit_count_to_vec_size(bit_count);
         Self { bits: (0..u32_count).map(|_|{
-            rand_seed = xorshift32(rand_seed);
-            rand_seed
+            rand_seed.gen()
         }).collect(), shape}
     }
     pub fn empty(width:u32) -> Self {
@@ -158,19 +157,18 @@ impl CpuBitset {
     pub fn empty3d(depth:u32, height:u32,width:u32) -> Self {
         Self { bits: vec![] ,shape:[depth,height,width]}
     }
-    pub fn rand_of_cardinality(bit_count: u32, cardinality:u32,mut rand_seed:u32) -> Self {
+    pub fn rand_of_cardinality(bit_count: u32, cardinality:u32,rand_seed:&mut impl rand::Rng) -> Self {
         let mut slf = Self::new(bit_count);
         slf.set_bits_on_rand(0,bit_count,cardinality,rand_seed);
         slf
     }
 
-    pub fn set_bits_on_rand(&mut self,from:u32,to:u32,bit_count: u32, mut rand_seed:u32) -> u32 {
+    pub fn set_bits_on_rand(&mut self,from:u32,to:u32,bit_count: u32, rand_seed:&mut impl rand::Rng) {
         let len = to-from;
         for _ in 0..bit_count{
-            rand_seed = xorshift32(rand_seed);
-            self.set_bit_on(from + rand_seed%len);
+            let r:u32 = rand_seed.gen();
+            self.set_bit_on(from + r%len);
         }
-        rand_seed
     }
 
 

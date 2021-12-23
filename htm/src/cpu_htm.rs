@@ -8,13 +8,13 @@ use crate::htm_program::HtmProgram;
 use ndalgebra::buffer::Buffer;
 use crate::htm::*;
 use crate::cpu_bitset::CpuBitset;
-use crate::rnd::{xorshift32, rand_u32_to_random_f32};
 use std::cmp::Ordering;
 use serde::{Serialize, Deserialize};
 use crate::{Shape, Shape3, Shape2, resolve_range};
 use std::collections::Bound;
 use crate::vector_field::{VectorFieldOne, VectorFieldDiv, VectorFieldAdd, VectorFieldMul, ArrayCast, VectorFieldSub, VectorFieldPartialOrd};
 use crate::htm_builder::Population;
+use rand::Rng;
 
 /***This implementation assumes that most of the time  vast majority of minicolumns are connected to at least one active
 input. Hence instead of iterating the input and then visiting only connected minicolumns, it's better to just iterate all
@@ -76,21 +76,20 @@ impl CpuHTM {
             input_size,
         }
     }
-    pub fn add_globally_uniform_prob(&mut self,minicolumn_count:usize,synapses_per_column:u32, mut rand_seed:u32)->u32{
+    pub fn add_globally_uniform_prob(&mut self,minicolumn_count:usize,synapses_per_column:u32,  rand_seed:&mut impl Rng){
         let mut pop = Population::new(minicolumn_count,1);
-        rand_seed = pop.add_uniform_rand_inputs_from_range(0..self.input_size,synapses_per_column,rand_seed);
+        pop.add_uniform_rand_inputs_from_range(0..self.input_size as usize,synapses_per_column as usize,rand_seed);
         self.add_population(&pop,rand_seed)
     }
 
-    pub fn add_population(&mut self, population:&Population, mut rand_seed:u32)->u32{
+    pub fn add_population(&mut self, population:&Population, rand_seed:&mut impl Rng){
         let Self{ feedforward_connections, minicolumns, max_overlap, .. } = self;
         for neuron in &population.neurons{
             let conn_start = feedforward_connections.len() as u32;
             for seg in &neuron.segments{
                 for &syn in &seg.synapses{
-                    rand_seed = xorshift32(rand_seed);
-                    let permanence = rand_u32_to_random_f32(rand_seed);
-                    feedforward_connections.push(HtmFeedforwardConnection { permanence, input_id:syn });
+                    let permanence = rand_seed.gen();
+                    feedforward_connections.push(HtmFeedforwardConnection { permanence, input_id:syn as u32 });
 
                 }
             }
@@ -105,7 +104,6 @@ impl CpuHTM {
                 overlap: 0
             });
         }
-        rand_seed
     }
 
 

@@ -2,12 +2,10 @@
 mod cpu_htm;
 mod htm;
 mod cpu_sdr;
-mod cpu_hom;
 mod encoder;
 mod ocl_sdr;
 mod ocl_htm;
 mod htm_program;
-mod ocl_hom;
 mod ocl_bitset;
 mod cpu_bitset;
 mod cpu_input;
@@ -18,11 +16,11 @@ mod shape;
 mod cpu_big_htm;
 mod vector_field;
 mod htm_builder;
+mod cpu_assembly;
 
 pub use htm_builder::*;
 pub use vector_field::*;
 pub use cpu_big_htm::*;
-pub use crate::rnd::auto_gen_seed;
 pub use ocl_htm::OclHTM;
 pub use ocl_bitset::OclBitset;
 pub use ocl_input::OclInput;
@@ -32,7 +30,6 @@ pub use shape::*;
 pub use htm::*;
 pub use map::*;
 pub use encoder::*;
-pub use cpu_hom::*;
 pub use cpu_bitset::CpuBitset;
 pub use cpu_input::CpuInput;
 pub use cpu_htm::CpuHTM;
@@ -53,18 +50,19 @@ mod tests {
     use crate::cpu_htm::CpuHTM;
     use ndalgebra::context::Context;
     use crate::encoder::{EncoderBuilder, Encoder};
-    use crate::rnd::xorshift32;
     use crate::htm_builder::Population;
+    use rand::SeedableRng;
 
     #[test]
     fn test1() -> Result<(), String> {
         let c = Context::default()?;
         let p = HtmProgram::new(c.clone())?;
+        let mut r = rand::thread_rng();
         let mut sdr = CpuInput::from_sparse_slice(&[4, 6, 14, 3], 16);
         let mut pop = Population::new(16,1);
-        pop.add_uniform_rand_inputs_from_range(0..16,12,343643);
+        pop.add_uniform_rand_inputs_from_range(0..16,12,&mut r);
         let mut htm2 = CpuHTM::new(16, 4);
-        htm2.add_population(&pop,3465745);
+        htm2.add_population(&pop,&mut r);
         let output_sdr2 = htm2.infer(sdr.get_dense(), false);
 
         let mut ocl_sdr = OclInput::new(p.clone(), 16,16)?;
@@ -287,51 +285,6 @@ mod tests {
         assert_eq!(subtract(&[1, 5, 6, 76], &[53, 746, 6, 1, 5, 78, 3, 6, 7]).as_slice(), &[76]);
         Ok(())
     }
-    #[test]
-    fn test8() -> Result<(), String> {
-        let mut encoder = EncoderBuilder::new();
-        let cat_enc = encoder.add_categorical(5, 10);
-        let number_of_minicolumns = 50;
-        let mut htm = CpuHTM::new(
-            encoder.input_size(),
-            16,
-
-        );
-        let mut pop = Population::new(number_of_minicolumns,1);
-        pop.add_uniform_rand_inputs_from_range(0..encoder.input_size(),25,544768);
-        htm.add_population(&pop,64574);
-        let mut hom = CpuHOM::new(1, number_of_minicolumns as u32);
-        hom.hyp.activation_threshold = 8;
-        hom.hyp.learning_threshold = 8;
-        hom.hyp.predicted_decrement = -0.0;
-        hom.hyp.permanence_decrement_increment = [0.,0.1];
-
-
-        const NOTE_A:u32 = 0;
-        const NOTE_B:u32 = 1;
-        const NOTE_C_SHARP:u32 = 2;
-        const NOTE_D:u32 = 3;
-        const NOTE_E:u32 = 4;
-        let sdrs:Vec<CpuInput> = (0..5).map(|i|{
-            let mut sdr = CpuInput::new(encoder.input_size());
-            cat_enc.encode(&mut sdr, i);
-            sdr
-        }).collect();
-        for sdr in &sdrs{
-            let activated = htm.infer(sdr.get_dense(),true);
-            hom.infer(&activated,true);
-        }
-        hom.reset();
-        let activated = htm.infer(sdrs[0].get_dense(),false);
-        let mut predicted = hom.infer(&activated,false);
-        for sdr in &sdrs[1..]{
-            let activated = htm.infer(sdr.get_dense(),true);
-            assert_eq!(predicted, activated);
-            predicted = hom.infer(&activated,true);
-        }
-
-        Ok(())
-    }
 
     #[test]
     fn test9() -> Result<(), String> {
@@ -372,87 +325,6 @@ mod tests {
 
 
     #[test]
-    fn test13() -> Result<(), String> {
-        let mut encoder = EncoderBuilder::new();
-        let cat_enc = encoder.add_categorical(5, 10);
-        let number_of_minicolumns = encoder.input_size();
-        let mut hom = CpuHOM::new(1, number_of_minicolumns);
-        hom.hyp.activation_threshold = 8;
-        hom.hyp.learning_threshold = 8;
-        hom.hyp.predicted_decrement = -0.0;
-        hom.hyp.permanence_decrement_increment = [0.,0.1];
-
-        const NOTE_A:u32 = 0;
-        const NOTE_B:u32 = 1;
-        const NOTE_C_SHARP:u32 = 2;
-        const NOTE_D:u32 = 3;
-        const NOTE_E:u32 = 4;
-        let sdrs:Vec<CpuInput> = (0..5).map(|i|{
-            let mut sdr = CpuInput::new(encoder.input_size());
-            cat_enc.encode(&mut sdr, i);
-            sdr
-        }).collect();
-        for sdr in &sdrs{
-            hom.infer(sdr.get_sparse(),true);
-        }
-        hom.reset();
-        let mut predicted = hom.infer(sdrs[0].get_sparse(),false);
-        for sdr in &sdrs[1..]{
-            assert_eq!(&predicted, sdr.get_sparse());
-            predicted = hom.infer(sdr.get_sparse(),true);
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn test14() -> Result<(), String> {
-        const CELLS_PER_COL:u32=1;
-        const CELLS_PER_IN:u32=4;
-        const IN:u32=CELLS_PER_IN*5;
-        const COLUMNS:u32=IN;
-        const N:u32 = 4;
-        const ACTIVATION_THRESHOLD:u32=4;
-        let mut encoder = EncoderBuilder::new();
-        let cat_enc = encoder.add_categorical(5, CELLS_PER_IN);
-        let mut htm = CpuHTM::new(encoder.input_size(), N );
-        htm.add_globally_uniform_prob(COLUMNS as usize,COLUMNS/2,967786374);
-        let mut hom = CpuHOM::new(1, COLUMNS);
-        hom.hyp.activation_threshold = ACTIVATION_THRESHOLD;
-        hom.hyp.learning_threshold = ACTIVATION_THRESHOLD;
-        hom.hyp.predicted_decrement = -0.0;
-        hom.hyp.permanence_decrement_increment = [0.,0.1];
-
-
-        const NOTE_A:u32 = 0;
-        const NOTE_B:u32 = 1;
-        const NOTE_C_SHARP:u32 = 2;
-        const NOTE_D:u32 = 3;
-        const NOTE_E:u32 = 4;
-        let sdrs:Vec<CpuInput> = (0..5).map(|i|{
-            let mut sdr = CpuInput::new(encoder.input_size());
-            cat_enc.encode(&mut sdr, i);
-            sdr
-        }).collect();
-        for sdr in &sdrs{
-            let activated = htm.infer(sdr.get_dense(),true);
-            hom.infer(&activated,true);
-        }
-        hom.reset();
-        let activated = htm.infer(sdrs[0].get_dense(),false);
-        let mut predicted = hom.infer(&activated,false);
-        for sdr in &sdrs[1..]{
-            let activated = htm.infer(sdr.get_dense(),true);
-            assert_eq!(predicted, activated);
-            predicted = hom.infer(&activated,true);
-        }
-
-        Ok(())
-    }
-
-
-
-    #[test]
     fn test16() {
         fn test(from:u32,to:u32) {
             let mut bits = CpuBitset::from_bools(&[true; 64]);
@@ -483,43 +355,6 @@ mod tests {
     //     let h = CpuHTM2::new_local_2d([4,4],[2,2],4,4,2.1, 64747);
     //
     // }
-
-    #[test]
-    fn test18() {
-        let out_columns = 28 * (28 + 10 * 4);
-        let mut htm_enc = EncoderBuilder::new();
-        const S:u32 = 28 * 28;
-        let img_enc = htm_enc.add_bits(S);
-        let mut hom_enc = EncoderBuilder::new();
-        let out_enc = hom_enc.add_bits(out_columns);
-        let lbl_num = 10;
-        let lbl_enc = hom_enc.add_categorical(lbl_num, 28 * 4);
-        let mut sdr = CpuSDR::new();
-        let data = (0..100).map(|i|CpuBitset::rand(htm_enc.input_size(),i*6546)).collect::<Vec<CpuBitset>>();
-        let mut rand_seed = 53676;
-        let labels = (0..data.len()).map(|_|{
-            rand_seed = xorshift32(rand_seed);
-            rand_seed%lbl_num
-        }).collect::<Vec<u32>>();
-        let label_sdrs = (0..lbl_num).map(|lbl|{
-            let mut sdr = CpuSDR::new();
-            lbl_enc.encode(&mut sdr,lbl);
-            sdr
-        }).collect::<Vec<CpuSDR>>();
-        let mut htm1 = CpuHTM::new(htm_enc.input_size(), 30);
-        htm1.add_globally_uniform_prob(out_columns as usize,28 * 4,648679);
-        let mut hom = CpuHOM::new(1, hom_enc.input_size());
-
-
-        for (img, &lbl) in data.iter().zip(labels.iter()){
-            let active_columns = htm1.infer(img,true);
-            let predicted_columns = hom.infer(&active_columns,true);
-            hom.infer(&label_sdrs[lbl as usize],true);
-            hom.reset();
-        }
-
-
-    }
 
 
     #[test]
@@ -652,27 +487,27 @@ mod tests {
         assert_eq!(o[0][1],CpuSDR::from_slice(&[3,4]));
     }
 
-    #[test]
-    fn test27() {
-        let mut htm = CpuBigHTM::new(16, 16, 2,55348);
-        let inp = CpuInput::from_sparse_slice(&[0,8],16);
-        let out = CpuSDR::from_slice(&[4,7]);
-        htm.update_permanence(&inp, &out);
-        let out2 = htm.infer(&inp, false);
-        assert_eq!(out2,out);
-    }
-
-    #[test]
-    fn test28() {
-        let mut htm1 = CpuBigHTM::new(16, 16, 2,55348);
-        let mut htm2 = CpuBigHTM::new(16, 16, 2,55348);
-        let inp = CpuInput::from_sparse_slice(&[0,8],16);
-        let out1 = htm1.infer(&inp, false);
-        htm1.update_permanence(&inp, &out1);
-        let out2 = htm2.infer(&inp, true);
-        assert_eq!(out2,out1);
-        assert_eq!(htm1,htm2);
-    }
+    // #[test]
+    // fn test27() {
+    //     let mut htm = CpuBigHTM::new(16, 16, 2,55348);
+    //     let inp = CpuInput::from_sparse_slice(&[0,8],16);
+    //     let out = CpuSDR::from_slice(&[4,7]);
+    //     htm.update_permanence(&inp, &out);
+    //     let out2 = htm.infer(&inp, false);
+    //     assert_eq!(out2,out);
+    // }
+    //
+    // #[test]
+    // fn test28() {
+    //     let mut htm1 = CpuBigHTM::new(16, 16, 2,55348);
+    //     let mut htm2 = CpuBigHTM::new(16, 16, 2,55348);
+    //     let inp = CpuInput::from_sparse_slice(&[0,8],16);
+    //     let out1 = htm1.infer(&inp, false);
+    //     htm1.update_permanence(&inp, &out1);
+    //     let out2 = htm2.infer(&inp, true);
+    //     assert_eq!(out2,out1);
+    //     assert_eq!(htm1,htm2);
+    // }
 
     #[test]
     fn test29() {
@@ -753,20 +588,21 @@ mod tests {
     fn test36() -> Result<(),String>{
         let c = Context::default()?;
         let p = HtmProgram::new(c.clone())?;
-        let i = [2u32,32,32];
+        let i = [2usize,32,32];
         let n = 4;
         let mut rand_seed = 42354;
-        let mut htm = CpuHTM::new(i.size(), n);
-        let stride = [4,4];
-        let kernel = [4,4];
+        let mut htm = CpuHTM::new(i.size() as u32, n);
+        let stride = [4usize,4];
+        let kernel = [4usize,4];
         let mini_per_col = 16;
         let inp_per_mini = 10;
         let columns = [i.height(),i.width()].conv_out_size(&stride,&kernel);
+        let mut r = rand::rngs::StdRng::from_seed([123;32]);
         let mut pop = Population::new_2d_column_grid_with_3d_input(mini_per_col,stride ,kernel,i,1);
-        rand_seed = pop.add_2d_column_grid_with_3d_input(0..htm.input_size(),mini_per_col,inp_per_mini,stride ,kernel,i,rand_seed);
-        htm.add_population(&pop,rand_seed);
-        let mut htms:Vec<CpuHTM> = (0..columns.size()).map(|_| CpuHTM::new(i.size(), n)).collect();
-        let mut rand_seed = 42354;
+        pop.add_2d_column_grid_with_3d_input(0..htm.input_size() as usize,mini_per_col,inp_per_mini,stride ,kernel,i,&mut r);
+        htm.add_population(&pop,&mut r);
+        let mut htms:Vec<CpuHTM> = (0..columns.size()).map(|_| CpuHTM::new(i.size() as u32, n)).collect();
+        let mut r = rand::rngs::StdRng::from_seed([123;32]);
         let column_area = [i[0],kernel[0],kernel[1]];
         let columns3d = [mini_per_col,columns[0],columns[1]];
         let mut pops:Vec<Population> = (0..htms.len()).map(|_|Population::new(mini_per_col as usize,1)).collect();
@@ -775,14 +611,14 @@ mod tests {
                 let mut pop = &mut pops[columns.index(y,x) as usize];
                 let from= [0,y*stride[0],x*stride[1]];
                 let to = from.add(&column_area);
-                rand_seed = pop.add_uniform_rand_inputs_from_area(0..i.size(),i,from..to,inp_per_mini,rand_seed);
+                pop.add_uniform_rand_inputs_from_area(0..i.size(),i,from..to,inp_per_mini,&mut r);
             }
         }
         for y in 0..columns[0] {
             for x in 0..columns[1] {
                 let h= &mut htms[columns.index(y,x) as usize];
                 let pop= &mut pops[columns.index(y,x) as usize];
-                rand_seed = h.add_population(pop,rand_seed);
+                h.add_population(pop,&mut r);
             }
         }
         for y in 0..columns[0] {
@@ -801,7 +637,7 @@ mod tests {
             for x in 0..columns[1] {
                 let h= &mut htms[columns.index(y,x) as usize];
                 for z in 0..h.minicolumns_as_slice().len(){
-                    let j = columns3d.idx([z as u32,y,x]);
+                    let j = columns3d.idx([z,y,x]);
                     let m2 = &htm.minicolumns_as_slice()[j as usize];
                     let r = h.minicolumns_as_slice()[z].range();
                     for (c,c2) in h.feedforward_connections_as_mut_slice()[r].iter_mut().zip(htm.feedforward_connections_as_slice()[m2.range()].iter()){
@@ -811,17 +647,18 @@ mod tests {
                 }
             }
         }
+        let mut r = rand::thread_rng();
         let minicolumn_stride = columns.product();
         let mut ocl_htm = OclHTM::new(&htm, p.clone())?;
         for trial in 0..8{
-            let mut b = CpuBitset::rand(i.size(),4553466+432*trial);
+            let mut b = CpuBitset::rand(i.size() as u32,&mut r);
             let mut a1 = htm.compute_and_group_into_columns(mini_per_col as usize,minicolumn_stride as usize,&b);
             let a2:Vec<CpuSDR> = htms.iter_mut().map(|htm|htm.compute(&b)).collect();
             for y in 0..columns[0] {
                 for x in 0..columns[1] {
                     let h= &mut htms[columns.index(y,x) as usize];
                     for (z,m) in h.minicolumns_as_slice().iter().enumerate(){
-                        let j = columns3d.idx([z as u32,y,x]);
+                        let j = columns3d.idx([z,y,x]);
                         let m2 = &htm.minicolumns_as_slice()[j as usize];
                         assert_eq!(m2.overlap,m.overlap);
                     }
@@ -833,10 +670,10 @@ mod tests {
             let mut a3 = ocl_a.to_cpu()?;
             a3.sort();
             for (k,a) in a2.iter().enumerate(){
-                let [ col0,col1] = columns.pos(k as u32);
+                let [ col0,col1] = columns.pos(k);
                 assert_eq!(a.len(),n as usize);
                 assert!(a.is_normalized());
-                let a_mapped:Vec<u32> = a.as_slice().iter().map(|&i|columns3d.idx([i,col0,col1])).collect();
+                let a_mapped:Vec<u32> = a.as_slice().iter().map(|&i|columns3d.idx([i as usize,col0,col1]) as u32).collect();
                 joined.extend_from_slice(&a_mapped);
                 
             }
@@ -848,23 +685,24 @@ mod tests {
         }
         Ok(())
     }
-    #[test]
-    fn test37() -> Result<(),String>{
-        let i = 32;
-        let mut htm = CpuBigHTM::new(i, 32,4,643765);
-        let mut htm2 = htm.clone();
-        let b = CpuBitset::rand(i,4547856);
-        let b = CpuInput::from_dense(b);
-        let o = htm.infer(&b,true);
-        let o2 = htm2.infer(&b,false);
-        htm2.update_permanence(&b,&o2);
-        assert_eq!(o,o2);
-        for (m,m2) in htm.minicolumns_as_slice().iter().zip(htm2.minicolumns_as_slice().iter()){
-            assert_eq!(m.segments.len(),m2.segments.len());
-            for (s,s2) in m.segments.iter().zip(m2.segments.iter()){
-                assert_eq!(s.synapses,s2.synapses);
-            }
-        }
-        Ok(())
-    }
+    // #[test]
+    // fn test37() -> Result<(),String>{
+    //     let i = 32;
+    //     let mut htm = CpuBigHTM::new(i, 32,4,643765);
+    //     let mut htm2 = htm.clone();
+    //     let mut r = rand::thread_rng();
+    //     let b = CpuBitset::rand(i,&mut r);
+    //     let b = CpuInput::from_dense(b);
+    //     let o = htm.infer(&b,true);
+    //     let o2 = htm2.infer(&b,false);
+    //     htm2.update_permanence(&b,&o2);
+    //     assert_eq!(o,o2);
+    //     for (m,m2) in htm.minicolumns_as_slice().iter().zip(htm2.minicolumns_as_slice().iter()){
+    //         assert_eq!(m.segments.len(),m2.segments.len());
+    //         for (s,s2) in m.segments.iter().zip(m2.segments.iter()){
+    //             assert_eq!(s.synapses,s2.synapses);
+    //         }
+    //     }
+    //     Ok(())
+    // }
 }

@@ -3,60 +3,53 @@ use std::fmt::{Debug, Formatter};
 use serde::{Serialize, Deserialize};
 use std::ops::{Add, Sub, Div, Mul, Rem, Index, IndexMut, RangeBounds, Range};
 use std::mem::MaybeUninit;
-use crate::rnd::xorshift32;
 use crate::vector_field::{VectorField, VectorFieldNum};
 use std::collections::Bound;
+use num_traits::Num;
 
-pub trait Shape<const DIM: usize>: Eq + PartialEq + Copy + Clone + Debug + VectorFieldNum<u32> {
-
-    fn pos(&self, mut index: u32) -> [u32; DIM] {
+pub trait Shape<T:Num + Copy + Debug + PartialOrd,const DIM: usize>: Eq + PartialEq + Copy + Clone + Debug + VectorFieldNum<T> {
+    fn pos(&self, mut index: T) -> [T; DIM] {
         let original_index = index;
-        let mut pos:[u32;DIM] = unsafe{MaybeUninit::uninit().assume_init()};
+        let mut pos:[T;DIM] = unsafe{MaybeUninit::uninit().assume_init()};
         for dim in (0..DIM).rev(){
             let dim_size = self.dim(dim);
             let coord = index % dim_size;
             index = index / dim_size;
             pos[dim] = coord;
         }
-        assert_eq!(index,0,"Index {} is out of bounds for shape {:?}",original_index,self);
+        assert_eq!(index,T::zero(),"Index {:?} is out of bounds for shape {:?}",original_index,self);
         pos
     }
 
-    fn idx(&self, pos: [u32; DIM]) -> u32 {
-        let mut idx = 0;
+    fn idx(&self, pos: [T; DIM]) -> T {
+        let mut idx = T::zero();
         for dim  in 0..DIM{
             let dim_size = self.dim(dim);
-            assert!(pos[dim]<dim_size,"position[{}]=={} >= shape[{}]=={}",dim,pos[dim],dim,dim_size);
+            assert!(pos[dim]<dim_size,"position[{:?}]=={:?} >= shape[{:?}]=={:?}",dim,pos[dim],dim,dim_size);
             idx = idx*dim_size + pos[dim];
         }
         idx
     }
-    fn dim(&self, dim:usize) -> u32;
-    fn set_dim(&mut self, dim:usize, size:u32);
-    fn rand(&mut self, size:&Self, mut rand_seed:u32) -> u32{
-        for i in 0..DIM{
-            rand_seed = xorshift32(rand_seed);
-            self.set_dim(i, rand_seed % size.dim(i));
-        }
-        rand_seed
-    }
-    fn size(&self) -> u32 {
-        (0..DIM).map(|i| self.dim(i)).product()
+    fn dim(&self, dim:usize) -> T;
+    fn set_dim(&mut self, dim:usize, size:T);
+
+    fn size(&self) -> T {
+        self.product()
     }
     fn conv_out_size(&self, stride: &Self, kernel_size: &Self) -> Self {
         let input = self;
         assert!(kernel_size.all_le(input),"Kernel size {:?} is larger than the input shape {:?} ",kernel_size,input);
         let input_sub_kernel = input.sub(kernel_size);
-        assert!(input_sub_kernel.rem(stride).all_eq_scalar(0),"Convolution stride {:?} does not evenly divide the output shape {:?} ",stride,input);
-        input_sub_kernel.div(stride).add_scalar(1)
+        assert!(input_sub_kernel.rem(stride).all_eq_scalar(T::zero()),"Convolution stride {:?} does not evenly divide the output shape {:?} ",stride,input);
+        input_sub_kernel.div(stride).add_scalar(T::one())
         //(input-kernel)/stride+1 == output
     }
     fn conv_stride(&self, out_size: &Self, kernel_size: &Self) -> Self {
         let input = self;
         assert!(kernel_size.all_le(input),"Kernel size {:?} is larger than the input shape {:?}",kernel_size,input);
         let input_sub_kernel = input.sub(kernel_size);
-        let out_size_minus_1 = out_size.sub_scalar(1);
-        assert!(input_sub_kernel.rem(&out_size_minus_1).all_eq_scalar(0),"Output shape {:?}-1 does not evenly divide the input shape {:?}",out_size,input);
+        let out_size_minus_1 = out_size.sub_scalar(T::one());
+        assert!(input_sub_kernel.rem(&out_size_minus_1).all_eq_scalar(T::zero()),"Output shape {:?}-1 does not evenly divide the input shape {:?}",out_size,input);
         input_sub_kernel.div(&out_size_minus_1)
         //(input-kernel)/(output-1) == stride
     }
@@ -69,59 +62,74 @@ pub trait Shape<const DIM: usize>: Eq + PartialEq + Copy + Clone + Debug + Vecto
         //(A-(kernelA+(kernelB-1)*strideA))/(strideA*strideB)+1 == C
         //    ^^^^^^^^^^^^^^^^^^^^^^^^^^^                    composed kernel
         //                                   ^^^^^^^^^^^^^^^ composed stride
-        let composed_kernel = self_kernel.add(&next_kernel.sub_scalar(1).mul(self));
+        let composed_kernel = self_kernel.add(&next_kernel.sub_scalar(T::one()).mul(self));
         let composed_stride = self.mul(next_stride);
         (composed_stride,composed_kernel)
     }
 }
 pub trait Shape2{
-    fn width(&self)->u32;
-    fn height(&self)->u32;
-    fn index(&self, y: u32, x:u32) -> u32;
+    type T;
+    fn width(&self)->Self::T;
+    fn height(&self)->Self::T;
+    fn index(&self, y: Self::T, x:Self::T) -> Self::T;
 }
 pub trait Shape3{
-    fn width(&self)->u32;
-    fn height(&self)->u32;
-    fn depth(&self)->u32;
-    fn index(&self, z:u32, y: u32, x:u32) -> u32;
+    type T;
+    fn width(&self)->Self::T;
+    fn height(&self)->Self::T;
+    fn depth(&self)->Self::T;
+    fn index(&self, z:Self::T, y: Self::T, x:Self::T) -> Self::T;
 }
-impl Shape2 for [u32;2]{
-    fn width(&self) -> u32 {
+macro_rules! impl_shape {
+    ($t:ident) => {
+impl Shape2 for [$t;2]{
+    type T = $t;
+
+    fn width(&self) -> $t {
         self[1]
     }
 
-    fn height(&self) -> u32 {
+    fn height(&self) -> $t {
         self[0]
     }
 
-    fn index(&self, y: u32, x: u32) -> u32 {
+    fn index(&self, y: $t, x: $t) -> $t {
         self.idx([y,x])
     }
 }
-impl Shape3 for [u32;3]{
-    fn width(&self) -> u32 {
+
+impl Shape3 for [$t;3]{
+    type T = $t;
+
+    fn width(&self) -> $t {
         self[2]
     }
 
-    fn height(&self) -> u32 {
+    fn height(&self) ->$t {
         self[1]
     }
 
-    fn depth(&self) -> u32 {
+    fn depth(&self) -> $t {
         self[0]
     }
 
-    fn index(&self, z:u32, y: u32, x: u32) -> u32 {
+    fn index(&self, z:$t, y: $t, x: $t) -> $t {
         self.idx([z,y,x])
     }
 }
+    };
+}
+impl_shape!(u32);
+impl_shape!(u64);
+impl_shape!(usize);
 
-impl <const DIM:usize> Shape<DIM> for [u32;DIM]{
-    fn dim(&self, dim: usize) -> u32 {
+
+impl <T:Num + Debug + Eq + Copy + PartialOrd,const DIM:usize> Shape<T,DIM> for [T;DIM]{
+    fn dim(&self, dim: usize) -> T {
         self[dim]
     }
 
-    fn set_dim(&mut self, dim: usize, size: u32) {
+    fn set_dim(&mut self, dim: usize, size: T) {
         self[dim] = size
     }
 }
@@ -178,7 +186,7 @@ mod tests {
 
     #[test]
     fn test4() {
-        let s = [6, 3, 4];
+        let s = [6u32, 3, 4];
         for x in 0..s.width() {
             for y in 0..s.height() {
                 for z in 0..s.depth() {

@@ -3,8 +3,9 @@ use std::fmt::{Debug, Formatter};
 use serde::{Serialize, Deserialize};
 use std::ops::{Add, Sub, Div, Mul, Rem, Index, IndexMut, Neg};
 use std::mem::MaybeUninit;
-use crate::rnd::xorshift32;
 use num_traits::{Zero, One, Num, AsPrimitive};
+use rand::Rng;
+use rand::distributions::{Standard, Distribution};
 
 pub trait VectorField<Scalar: Copy>: Sized {
     fn fold(&self, zero: Scalar, f: impl FnMut(Scalar, Scalar) -> Scalar) -> Scalar;
@@ -134,6 +135,11 @@ pub trait VectorFieldRem<Scalar: Rem<Output=Scalar> + Copy>: VectorField<Scalar>
     }
 }
 
+pub trait VectorFieldRng<Scalar: rand::Fill + Copy>: VectorField<Scalar> {
+    fn rand(&mut self, rng: &mut impl rand::Rng);
+}
+
+
 pub trait VectorFieldNum<S: Num + Copy + PartialOrd>: VectorField<S> + VectorFieldAdd<S> + VectorFieldSub<S> +
 VectorFieldMul<S> + VectorFieldDiv<S> + VectorFieldPartialOrd<S> + VectorFieldRem<S> +
 VectorFieldOne<S> + VectorFieldZero<S> {}
@@ -200,5 +206,13 @@ impl<T: Copy, const DIM: usize> ArrayCast<T, DIM> for [T; DIM] {
             arr[i] = self[i].as_();
         }
         arr
+    }
+}
+
+impl<T: rand::Fill + Copy, const DIM: usize> VectorFieldRng<T> for [T; DIM] where Standard: Distribution<T>{
+    fn rand(&mut self, rng: &mut impl rand::Rng){
+        for i in 0..DIM{
+            self[i] = rng.gen();
+        }
     }
 }
