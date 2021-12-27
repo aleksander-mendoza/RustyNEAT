@@ -196,7 +196,7 @@ mod tests {
         }
     }
 }
-pub fn resolve_range(input_size:u32,input_range:impl RangeBounds<u32>)->Range<u32>{
+pub fn resolve_range<T:Add<Output=T>>(input_size:T,input_range:impl RangeBounds<T>)->Range<T>{
     let b = match input_range.start_bound(){
         Bound::Included(&x) => x,
         Bound::Excluded(&x) => x+1,

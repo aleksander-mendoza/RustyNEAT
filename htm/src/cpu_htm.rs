@@ -145,7 +145,7 @@ impl CpuHTM {
     number_of_minicolumns_per_overlap_that_made_it_to_top_n.
     number_of_minicolumns_per_overlap_that_made_it_to_top_n holds rubbish for any overlap lower than smallest_overlap_that_made_it_to_top_n
     */
-    fn htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n(&self, number_of_minicolumns_per_overlap: &mut [i32]) -> u32 {
+    fn neurons_in_binhtm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n(&self, number_of_minicolumns_per_overlap: &mut [i32]) -> u32 {
         let mut total_minicolumns = 0;
         for overlap in (0..number_of_minicolumns_per_overlap.len()).rev() {
             let number_of_minicolumns = number_of_minicolumns_per_overlap[overlap as usize];
