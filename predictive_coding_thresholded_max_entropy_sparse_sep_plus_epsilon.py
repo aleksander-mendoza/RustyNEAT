@@ -35,7 +35,7 @@ def rand_patch():
 
 
 sep_threshold = 0.4
-threshold = -99999999. # 0.2
+threshold = -99999999.  # 0.2
 epsilon = 0.0001
 activity_epsilon = 0.0001
 activity_regen_epsilon = activity_epsilon / POP_SIZE2
