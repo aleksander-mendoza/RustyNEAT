@@ -131,8 +131,8 @@ impl CpuAssembly {
         let max_p = neurons.iter().map(|n|n.p).reduce(f32::max).unwrap();
         for neuron in neurons.iter_mut(){
             let mut sum = neuron.sum(connections,input);
+            assert!(sum >= neuron.p-max_p,"{} {} {}",sum,neuron.p,max_p);
             sum -= neuron.p-max_p;
-            assert!(sum >= 0.);
             //notice that sum might be equal 1. That's why the length of bins is self.bins + 1
             let bin = sum * bin_count;
             bins[bin as usize] += 1;

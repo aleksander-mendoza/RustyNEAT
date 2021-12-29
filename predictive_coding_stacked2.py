@@ -8,6 +8,7 @@ import numpy as np
 from tqdm import tqdm
 from scipy import ndimage
 import numpy as np
+from scipy.special import entr
 
 MNIST, LABELS = torch.load('htm/data/mnist.pt')
 
@@ -22,7 +23,9 @@ def sparse_weights(input_size, output_size, sparsity):
 
 
 def dense_weights(input_size, output_size):
-    return np.random.rand(input_size, output_size)
+    w = np.random.rand(input_size, output_size)
+    w = w / w.sum(0)
+    return w
 
 
 class Project:
@@ -34,43 +37,44 @@ class Project:
         self.threshold = threshold
         self.plasticity = plasticity
         self.p = np.ones(output_size)
-        self.wn = None
         self.top = None
         self.y = None
         self.x = None
-        self.normalize()
-
-    def normalize(self):
-        self.wn = self.w / self.w.sum(0)
 
     def run_top_k(self, x, k):
         x = x.reshape(-1)
-        s = x @ self.wn
+        s = x @ self.w
         r = s + self.p
         top_k = np.argpartition(r, -k)[-k:]
         top_k = top_k[s[top_k] >= self.threshold]
+        # self.p[top_k] -= activity_epsilon
         self.top = top_k if len(top_k) > 0 else None
         self.x = x
 
     def run_top_1(self, x):
         x = x.reshape(-1)
-        s = x @ self.wn
+        s = x @ self.w
         r = s + self.p
         top = r.argmax()
-        self.top = top if s[top] >= self.threshold else None
+        if s[top] >= self.threshold:
+            self.top = top
+            self.p[top] -= activity_epsilon
+        else:
+            self.top = None
         self.x = x
 
     def compute_y(self):
         y = np.zeros(self.output_size)
-        y[self.top] = 1
+        if self.top is not None:
+            y[self.top] = 1
         self.y = y
         return y
 
     def learn(self):
         if self.top is not None:
-            self.p[self.top] -= activity_epsilon
-            self.w[:, self.top] += self.plasticity * self.x
-            self.normalize()
+            w = self.w[:, self.top]
+            w += self.plasticity * self.x
+            w /= w.sum(0)
 
 
 class Separate(Project):
@@ -128,7 +132,8 @@ class Convolve:
         for i0 in range(self.column_grid_dim[0]):
             for i1 in range(self.column_grid_dim[1]):
                 column = self.columns[i0][i1]
-                y[column.top, i0, i1] = 1
+                if column.top is not None:
+                    y[column.top, i0, i1] = 1
         self.y = y
         return y
 
@@ -282,18 +287,25 @@ def experiment1():
                                     output_size=POP_SIZE2,
                                     connection_sparsity=sep_sparsity,
                                     k=15)
-    for s in tqdm(range(100000), desc="training"):
+    entropy = []
+    for s in range(1000000):
         img = normalise_img(rand_patch(PATCH_SIZE))
         m.run(img)
         m.learn()
         if s % 2000 == 0:
             stats = np.zeros((POP_SIZE2, PATCH_SIZE[0], PATCH_SIZE[1]))
-            for img in tqdm(test_patches, desc="eval"):
+            freq = np.zeros(POP_SIZE2)
+            for img in test_patches:
                 # img = normalise_img(rand_patch())
                 m.run(img)
                 if m.top is not None:
                     stats[m.top] += img
+                    freq[m.top] += 1
 
+            print(freq)
+            freq = freq / freq.sum()
+            print(freq)
+            # entropy.append(entr(freq).sum())
             for i in range(w):
                 for j in range(h):
                     axs[i, j].imshow(stats[i + j * w])
@@ -338,6 +350,9 @@ def experiment2():
 def experiment3():
     w, h = 5, 8
     fig, axs = plt.subplots(w, h)
+    for a in axs:
+        for b in a:
+            b.set_axis_off()
     PATCH_SIZE = np.array([7, 7])
     test_patches = [normalise_img(rand_patch(PATCH_SIZE)) for _ in range(20000)]
     POP_SIZE2 = 20
@@ -350,19 +365,22 @@ def experiment3():
                                         strides=[np.array([2, 2]), np.array([1, 1])],
                                         k=15)
     m.set_threshold(2, 0.02)
-    for s in tqdm(range(100000), desc="training"):
+    for s in range(100000):
         img = normalise_img(rand_patch(PATCH_SIZE))
         m.run(np.expand_dims(img, 0))
         m.learn()
         if s % 2000 == 0:
             stats = np.zeros((m.channels[-1], PATCH_SIZE[0], PATCH_SIZE[1]))
-            for img in tqdm(test_patches, desc="eval"):
+            freq = np.zeros(m.channels[-1])
+            for img in test_patches:
                 # img = normalise_img(rand_patch())
                 m.run(np.expand_dims(img, 0))
                 top = m.top[0][0]
                 if top is not None:
                     stats[top] += img
-
+                    freq[top] += 1
+            print(freq)
+            print(freq/freq.sum())
             for i in range(w):
                 for j in range(h):
                     axs[i, j].imshow(stats[i + j * w])
@@ -373,6 +391,9 @@ def experiment3():
 def experiment4():
     w, h = 8, 8
     fig, axs = plt.subplots(w, h)
+    for a in axs:
+        for b in a:
+            b.set_axis_off()
     PATCH_SIZE = np.array([11, 11])
     test_patches = [normalise_img(rand_patch(PATCH_SIZE)) for _ in range(20000)]
     POP_SIZE2 = 20
@@ -407,4 +428,4 @@ def experiment4():
     plt.show()
 
 
-experiment1()
+experiment4()
