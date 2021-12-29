@@ -428,4 +428,43 @@ def experiment4():
     plt.show()
 
 
+def experiment5():
+    w, h = 10, 10
+    fig, axs = plt.subplots(w, h)
+    for a in axs:
+        for b in a:
+            b.set_axis_off()
+    PATCH_SIZE = np.array([11, 11])
+    test_patches = [normalise_img(rand_patch(PATCH_SIZE)) for _ in range(20000)]
+    POP_SIZE2 = 20
+    POP_SIZE1 = 64
+    sep_sparsity = 5
+    m = ExclusiveCoincidenceMachineConv(input_size=PATCH_SIZE,
+                                        connection_sparsity=sep_sparsity,
+                                        channels=[1, POP_SIZE1, POP_SIZE2, 40, 64, 100],
+                                        kernels=[np.array([5, 5]), np.array([3, 3]), np.array([3, 3]), np.array([3, 3])],
+                                        strides=[np.array([2, 2]), np.array([2, 2]), np.array([2, 2]), np.array([1, 1])],
+                                        k=15)
+    assert (m.last().output_shape == np.array([m.channels[-1],1,1])).all()
+    m.set_threshold(2, 0.02)
+    m.set_threshold(3, 0.02)
+    for s in tqdm(range(1000000), desc="training"):
+        img = normalise_img(rand_patch(PATCH_SIZE))
+        m.run(np.expand_dims(img, 0))
+        m.learn()
+        if s % 10000 == 0:
+            stats = np.zeros((m.channels[-1], PATCH_SIZE[0], PATCH_SIZE[1]))
+            for img in tqdm(test_patches, desc="eval"):
+                # img = normalise_img(rand_patch())
+                m.run(np.expand_dims(img, 0))
+                top = m.top[0][0]
+                if top is not None:
+                    stats[top] += img
+
+            for i in range(w):
+                for j in range(h):
+                    axs[i, j].imshow(stats[i + j * w])
+            plt.pause(0.01)
+    plt.show()
+
 experiment4()

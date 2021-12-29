@@ -44,6 +44,12 @@ pub trait Shape<T:Num + Copy + Debug + PartialOrd,const DIM: usize>: Eq + Partia
         input_sub_kernel.div(stride).add_scalar(T::one())
         //(input-kernel)/stride+1 == output
     }
+    fn conv_in_size(&self, stride: &Self, kernel_size: &Self) -> Self {
+        let output = self;
+        assert!(output.all_gt_scalar(T::zero()),"Output size {:?} contains zero",output);
+        output.sub_scalar(T::one()).mul(stride).add(kernel_size)
+        //input == stride*(output-1)+kernel
+    }
     fn conv_stride(&self, out_size: &Self, kernel_size: &Self) -> Self {
         let input = self;
         assert!(kernel_size.all_le(input),"Kernel size {:?} is larger than the input shape {:?}",kernel_size,input);

@@ -17,7 +17,7 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{Encoder, EncoderTarget, EncoderRange, Shape, VectorFieldOne};
+use htm::{Encoder, EncoderTarget, EncoderRange, Shape, VectorFieldOne, Synapse};
 use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
@@ -497,6 +497,22 @@ impl Population {
         Ok(self.pop.add_uniform_rand_inputs_from_range(input_range.0..input_range.1,synapse_count,&mut rand::thread_rng()))
     }
 
+    #[text_signature = "(input_range,total_region,subregion_start,subregion_end)"]
+    pub fn add_all_inputs_from_area(&mut self, input_range:(usize,usize), total_region:PyObject, subregion_start:PyObject,subregion_end:PyObject) -> PyResult<()> {
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let input_range = input_range.0..input_range.1;
+        let total_region = arrX(py,&total_region,1,1,input_range.len())?;
+        let subregion_start = arrX(py,&subregion_start,0,0,0)?;
+        let subregion_end = arrX(py,&subregion_end,total_region[0],total_region[1],total_region[2])?;
+        Ok(self.pop.add_all_inputs_from_area(input_range,total_region,subregion_start..subregion_end,&mut rand::thread_rng()))
+    }
+
+    #[text_signature = "(input_range)"]
+    pub fn add_all_inputs_from_range(&mut self, input_range:(usize,usize)) -> PyResult<()> {
+        Ok(self.pop.add_all_inputs_from_range(input_range.0..input_range.1,&mut rand::thread_rng()))
+    }
+
     #[text_signature = "(input_range,neurons_per_column,synapses_per_segment,stride,kernel,input_size)"]
     pub fn add_2d_column_grid_with_3d_input(&mut self, input_range:(usize,usize),neurons_per_column: usize,synapses_per_segment: usize, stride:PyObject, kernel:PyObject,input_size:PyObject) -> PyResult<()> {
         let gil = Python::acquire_gil();
@@ -528,6 +544,39 @@ impl Population {
         self.pop.push_neurons(output.product()*neurons_per_column,segments_per_neuron);
         Ok(())
     }
+    #[text_signature = "()"]
+    pub fn set_weights_random(&mut self){
+        self.pop.set_weights_random(&mut rand::thread_rng())
+    }
+    #[text_signature = "()"]
+    pub fn set_weights_uniform(&mut self){
+        self.pop.set_weights_uniform()
+    }
+    #[text_signature = "(weight)"]
+    pub fn set_weights_const(&mut self, weight:f32){
+        self.pop.set_weights_const(weight)
+    }
+    #[text_signature = "(scale)"]
+    pub fn set_weights_scaled(&mut self, scale:f32){
+        self.pop.set_weights_scaled(scale)
+    }
+    #[text_signature = "()"]
+    pub fn get_weights_sum(&mut self)->f32{
+        self.pop.get_weights_sum()
+    }
+    #[text_signature = "()"]
+    pub fn set_weights_normalized(&mut self){
+        self.pop.set_weights_normalized()
+    }
+    #[text_signature = "()"]
+    pub fn total_synapses(&mut self)->usize{
+        self.pop.total_synapses()
+    }
+    #[text_signature = "()"]
+    pub fn get_weights_mean(&mut self)->f32{
+        self.pop.get_weights_mean()
+    }
+
     #[text_signature = "(other)"]
     pub fn zip_join(&mut self,other:&Population) {
         self.pop.zip_join(&other.pop)
@@ -583,7 +632,53 @@ impl Neuron {
     pub fn add_uniform_rand_inputs_from_range(&mut self, input_range:(usize,usize),synapse_count:usize) -> PyResult<()> {
         Ok(self.n.add_uniform_rand_inputs_from_range(input_range.0..input_range.1,synapse_count,&mut rand::thread_rng()))
     }
+    #[text_signature = "()"]
+    pub fn set_weights_random(&mut self){
+        self.n.set_weights_random(&mut rand::thread_rng())
+    }
+    #[text_signature = "()"]
+    pub fn set_weights_uniform(&mut self){
+        self.n.set_weights_uniform()
+    }
+    #[text_signature = "(weight)"]
+    pub fn set_weights_const(&mut self, weight:f32){
+        self.n.set_weights_const(weight)
+    }
+    #[text_signature = "(scale)"]
+    pub fn set_weights_scaled(&mut self, scale:f32){
+        self.n.set_weights_scaled(scale)
+    }
+    #[text_signature = "()"]
+    pub fn get_weights_sum(&mut self)->f32{
+        self.n.get_weights_sum()
+    }
+    #[text_signature = "()"]
+    pub fn set_weights_normalized(&mut self){
+        self.n.set_weights_normalized()
+    }
+    #[text_signature = "()"]
+    pub fn total_synapses(&mut self)->usize{
+        self.n.total_synapses()
+    }
+    #[text_signature = "()"]
+    pub fn get_weights_mean(&mut self)->f32{
+        self.n.get_weights_mean()
+    }
+    #[text_signature = "(input_range,total_region,subregion_start,subregion_end)"]
+    pub fn add_all_inputs_from_area(&mut self, input_range:(usize,usize), total_region:PyObject, subregion_start:PyObject,subregion_end:PyObject) -> PyResult<()> {
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let input_range = input_range.0..input_range.1;
+        let total_region = arrX(py,&total_region,1,1,input_range.len())?;
+        let subregion_start = arrX(py,&subregion_start,0,0,0)?;
+        let subregion_end = arrX(py,&subregion_end,total_region[0],total_region[1],total_region[2])?;
+        Ok(self.n.add_all_inputs_from_area(input_range,total_region,subregion_start..subregion_end,&mut rand::thread_rng()))
+    }
 
+    #[text_signature = "(input_range)"]
+    pub fn add_all_inputs_from_range(&mut self, input_range:(usize,usize)) -> PyResult<()> {
+        Ok(self.n.add_all_inputs_from_range(input_range.0..input_range.1,&mut rand::thread_rng()))
+    }
     #[text_signature = "(other)"]
     pub fn zip_join(&mut self, other:&Self) {
         self.n.zip_join(&other.n)
@@ -592,6 +687,7 @@ impl Neuron {
     pub fn dedup_all(&mut self) {
         self.n.dedup_all()
     }
+
     #[text_signature = "()"]
     pub fn collapse(&mut self) {
         self.n.collapse()
@@ -620,6 +716,7 @@ impl Neuron {
     fn get_len(&self) -> usize {
         self.n.len()
     }
+
 }
 
 #[pymethods]
@@ -656,19 +753,61 @@ impl Segment {
     pub fn clone(&self) -> Self{
         Self{seg:self.seg.clone()}
     }
-    #[text_signature = "(synapse)"]
-    pub fn push(&mut self, synapse:usize) {
-        self.seg.synapses.push(synapse)
+    #[text_signature = "(neuron_idx,weight)"]
+    pub fn push(&mut self, neuron_idx:usize, weight:f32) {
+        self.seg.synapses.push(Synapse::new(neuron_idx,weight))
     }
     #[text_signature = "(index)"]
     pub fn remove(&mut self, index:usize) -> usize {
-        self.seg.synapses.swap_remove(index)
+        self.seg.synapses.swap_remove(index).input_idx
     }
     #[getter]
     fn get_len(&self) -> usize {
         self.seg.synapses.len()
     }
+    #[text_signature = "()"]
+    pub fn set_weights_random(&mut self){
+        self.seg.set_weights_random(&mut rand::thread_rng())
+    }
+    #[text_signature = "()"]
+    pub fn set_weights_uniform(&mut self){
+        self.seg.set_weights_uniform()
+    }
+    #[text_signature = "(weight)"]
+    pub fn set_weights_const(&mut self, weight:f32){
+        self.seg.set_weights_const(weight)
+    }
+    #[text_signature = "(scale)"]
+    pub fn set_weights_scaled(&mut self, scale:f32){
+        self.seg.set_weights_scaled(scale)
+    }
+    #[text_signature = "()"]
+    pub fn get_weights_sum(&mut self)->f32{
+        self.seg.get_weights_sum()
+    }
+    #[text_signature = "()"]
+    pub fn set_weights_normalized(&mut self){
+        self.seg.set_weights_normalized()
+    }
+    #[text_signature = "()"]
+    pub fn get_weights_mean(&mut self)->f32{
+        self.seg.get_weights_mean()
+    }
+    #[text_signature = "(input_range,total_region,subregion_start,subregion_end)"]
+    pub fn add_all_inputs_from_area(&mut self, input_range:(usize,usize), total_region:PyObject, subregion_start:PyObject,subregion_end:PyObject) -> PyResult<()> {
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let input_range = input_range.0..input_range.1;
+        let total_region = arrX(py,&total_region,1,1,input_range.len())?;
+        let subregion_start = arrX(py,&subregion_start,0,0,0)?;
+        let subregion_end = arrX(py,&subregion_end,total_region[0],total_region[1],total_region[2])?;
+        Ok(self.seg.add_all_inputs_from_area(input_range,total_region,subregion_start..subregion_end,&mut rand::thread_rng()))
+    }
 
+    #[text_signature = "(input_range)"]
+    pub fn add_all_inputs_from_range(&mut self, input_range:(usize,usize)) -> PyResult<()> {
+        Ok(self.seg.add_all_inputs_from_range(input_range.0..input_range.1,&mut rand::thread_rng()))
+    }
 }
 
 
@@ -729,7 +868,7 @@ impl CpuHTM {
     pub fn new(input_size: u32, n: u32, population: Option<&Population>) -> PyResult<Self> {
         let mut htm = htm::CpuHTM::new(input_size, n);
         if let Some(population) = population {
-            htm.add_population(&population.pop, &mut rand::thread_rng());
+            htm.add_population(&population.pop);
         }
         Ok(CpuHTM { htm })
     }
@@ -760,7 +899,7 @@ impl CpuHTM {
     }
     #[text_signature = "(population)"]
     pub fn add_population(&mut self, population:&Population) {
-        self.htm.add_population(&population.pop, &mut rand::thread_rng())
+        self.htm.add_population(&population.pop)
     }
     #[getter]
     fn get_synapse_count(&self) -> u32 {
@@ -1098,6 +1237,17 @@ pub fn conv_out_size(input_size: PyObject, stride: PyObject, kernel: PyObject) -
     Ok(out_size.to_vec())
 }
 
+#[pyfunction]
+#[text_signature = "(output_size,stride,kernel)"]
+pub fn conv_in_size(output_size: PyObject, stride: PyObject, kernel: PyObject) -> PyResult<Vec<u32>> {
+    let gil = Python::acquire_gil();
+    let py = gil.python();
+    let output_size = arrX(py,&output_size,1,1,1)?;
+    let stride = arrX(py,&stride,1,1,1)?;
+    let kernel = arrX(py,&kernel,1,1,1)?;
+    let in_size = output_size.conv_in_size(&stride,&kernel);
+    Ok(in_size.to_vec())
+}
 #[pyfunction]
 #[text_signature = "(input_size,output_size,kernel)"]
 pub fn conv_stride(input_size: PyObject, output_size: PyObject, kernel: PyObject) -> PyResult<Vec<u32>> {

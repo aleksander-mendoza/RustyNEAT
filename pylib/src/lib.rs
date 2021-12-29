@@ -85,6 +85,7 @@ pub fn htm(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(conv_out_size, m)?)?;
     m.add_function(wrap_pyfunction!(conv_stride, m)?)?;
     m.add_function(wrap_pyfunction!(conv_compose, m)?)?;
+    m.add_function(wrap_pyfunction!(conv_in_size, m)?)?;
     m.add_function(wrap_pyfunction!(vote, m)?)?;
     m.add_function(wrap_pyfunction!(vote_conv2d, m)?)?;
     m.add_function(wrap_pyfunction!(vote_conv2d_transpose, m)?)?;
