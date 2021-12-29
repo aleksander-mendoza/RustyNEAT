@@ -10,7 +10,7 @@ use crate::htm::*;
 use crate::cpu_bitset::CpuBitset;
 use std::cmp::Ordering;
 use serde::{Serialize, Deserialize};
-use crate::{Shape, Shape3, Shape2, resolve_range, EncoderTarget};
+use crate::{Shape, Shape3, Shape2, resolve_range, EncoderTarget, Synapse};
 use std::collections::Bound;
 use crate::vector_field::{VectorFieldOne, VectorFieldDiv, VectorFieldAdd, VectorFieldMul, ArrayCast, VectorFieldSub, VectorFieldPartialOrd};
 use crate::htm_builder::Population;
@@ -18,27 +18,51 @@ use crate::htm_builder::Population;
 #[derive(Copy, Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[repr(C)]
 pub struct AssemblyConnection {
+    /**index of the presynaptic neuron*/
     from: usize,
-    //index of the presynaptic neuron
-    weight: f32,
+    /**normalized*/
+    nw: f32,
+    /**weight*/
+    w: f32,
 }
-
+impl AssemblyConnection{
+    fn new(syn:&Synapse)->Self{
+        Self{
+            from: syn.input_idx,
+            nw: 0.0,
+            w: syn.weight
+        }
+    }
+}
 #[derive(Copy, Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[repr(C)]
 pub struct AssemblyNeuron {
+    /**beginning (inclusive) of the range of connections*/
     from: usize,
+    /**end (exclusive) of the range of connections*/
     to: usize,
     bin:u32,
+    p:f32,
 }
 
 impl AssemblyNeuron{
-    fn sum(&self, connections:&[AssemblyConnection],input:&CpuBitset)->f32{
-        let mut sum = 0.;
-        for conn in &connections[self.from..self.to] {
-            let is_in = input.contains(conn.from as u32);
-            sum += conn.weight * is_in as f32;
+    fn new(from:usize,to:usize)->Self{
+        Self{
+            from,
+            to,
+            bin: 0,
+            p: 0.0
         }
-        sum
+    }
+    fn normalize(&self, connections:&mut [AssemblyConnection]){
+        let sum = self.sum_w(connections);
+        connections[self.from..self.to].iter_mut().for_each(|c|c.nw=c.w/sum);
+    }
+    fn sum_w(&self, connections:&[AssemblyConnection])->f32{
+        connections[self.from..self.to].iter().map(|c|c.w).sum()
+    }
+    fn sum(&self, connections:&[AssemblyConnection],input:&CpuBitset)->f32{
+        connections[self.from..self.to].iter().filter(|c|input.contains(c.from as u32)).map(|c|c.nw).sum()
     }
 }
 
@@ -56,7 +80,10 @@ impl CpuAssembly {
     pub fn connections_as_mut_slice(&mut self) -> &mut [AssemblyConnection] {
         self.connections.as_mut_slice()
     }
-    pub fn normalise_weights(&mut self, val: f32) {}
+    pub fn normalize(&mut self) {
+        let Self{ connections, neurons, bins } = self;
+        neurons.iter().for_each(|n|n.normalize(connections))
+    }
     pub fn neuron_connections_range(&self, idx: usize) -> Range<usize> {
         let n = self.neurons[idx];
         n.from..n.to
@@ -75,24 +102,25 @@ impl CpuAssembly {
         let mut neurons = vec![];
         for neuron in &population.neurons {
             let conn_start = connections.len();
-            let total_synapses: usize = neuron.segments.iter().map(|s| s.synapses.len()).sum();
-            let weight = 1f32 / total_synapses as f32;
             for seg in &neuron.segments {
-                for &syn in &seg.synapses {
-                    connections.push(AssemblyConnection { from: syn, weight });
+                for syn in &seg.synapses {
+                    connections.push(AssemblyConnection::new(syn));
                 }
             }
             let conn_end = connections.len();
-            neurons.push(AssemblyNeuron { from: conn_start, to: conn_end, bin: 0 });
+            neurons.push(AssemblyNeuron::new(conn_start, conn_end));
         }
-        Self {
+        let mut slf = Self {
             connections,
             neurons,
             bins: 128
-        }
+        };
+        slf.normalize();
+        slf
     }
 
     pub fn top_n(&mut self, r: impl RangeBounds<usize>, n: u32, input: &CpuBitset, output:&mut impl EncoderTarget) {
+        if n==0{return}
         let Self{ connections, neurons, bins } = self;
         let bin_count = *bins;
         let r = resolve_range(neurons.len(), r);
@@ -100,12 +128,15 @@ impl CpuAssembly {
         let neurons = &mut neurons[r.clone()];
         let mut bins = vec![0u32; bin_count + 1];//+1 because the binning range is inclusive
         let bin_count = bin_count as f32;
-        for neuron in neurons{
+        let max_p = neurons.iter().map(|n|n.p).reduce(f32::max).unwrap();
+        for neuron in neurons.iter_mut(){
             let mut sum = neuron.sum(connections,input);
+            sum -= neuron.p-max_p;
+            assert!(sum >= 0.);
             //notice that sum might be equal 1. That's why the length of bins is self.bins + 1
             let bin = sum * bin_count;
             bins[bin as usize] += 1;
-            neuron.bin = bin as u23;
+            neuron.bin = bin as u32;
         }
         let mut min_bin_idx = 0;
         let mut total_neurons = 0;
@@ -136,10 +167,10 @@ impl CpuAssembly {
         assert!(r.len()>0);
         let neurons = &neurons[r.clone()];
         let mut max_sum = -1.;
-        let mut max_neuron = r.start;
+        let mut max_neuron = 0;
         for (neuron_idx,neuron) in neurons.iter().enumerate(){
             let sum = neuron.sum(connections,input);
-            if sum > max_sum{
+            if sum > max_sum {
                 max_sum = sum;
                 max_neuron = neuron_idx;
             }
@@ -165,7 +196,7 @@ impl CpuAssembly {
         }
     }
 
-    pub fn update(&mut self, r: impl RangeBounds<usize>, n: u32, input: &CpuBitset, output:&mut impl EncoderTarget){
+    pub fn learn(&mut self, r: impl RangeBounds<usize>, plasticity:f32, input: &CpuBitset, output:&mut impl EncoderTarget){
         
     }
 

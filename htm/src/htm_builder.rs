@@ -16,9 +16,24 @@ use std::collections::Bound;
 use crate::vector_field::{VectorFieldOne, VectorFieldDiv, VectorFieldAdd, VectorFieldMul, ArrayCast, VectorFieldSub, VectorFieldPartialOrd};
 use rand::Rng;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Synapse {
+    pub input_idx:usize,
+    pub weight:f32,
+}
+impl Synapse{
+    pub fn rand(input_idx:usize, rand_seed:&mut impl Rng)->Self{
+        Self::new(input_idx,rand_seed.gen())
+    }
+    pub fn new(input_idx:usize, weight:f32)->Self{
+        Self{input_idx,weight}
+    }
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Segment {
-    pub synapses: Vec<usize>,
+    pub synapses: Vec<Synapse>,
 }
 
 impl Segment {
@@ -31,9 +46,31 @@ impl Segment {
     pub fn len(&self) -> usize{
         self.synapses.len()
     }
+    pub fn set_weights_random(&mut self, rand_seed:&mut impl Rng){
+        self.synapses.iter_mut().for_each(|s|s.weight=rand_seed.gen())
+    }
+    pub fn set_weights_uniform(&mut self){
+        self.set_weights_const(1./self.synapses.len() as f32)
+    }
+    pub fn set_weights_const(&mut self, weight:f32){
+        self.synapses.iter_mut().for_each(|s|s.weight=weight)
+    }
+    pub fn set_weights_scaled(&mut self, scale:f32){
+        self.synapses.iter_mut().for_each(|s|s.weight*=scale)
+    }
+    pub fn get_weights_sum(&mut self)->f32{
+        self.synapses.iter().map(|s|s.weight).sum()
+    }
+    pub fn set_weights_normalized(&mut self){
+        let scale = 1./self.get_weights_sum();
+        self.set_weights_scaled(scale)
+    }
+    pub fn get_weights_mean(&mut self)->f32{
+        self.get_weights_sum()/self.len() as f32
+    }
     pub fn dedup(&mut self) {
-        self.synapses.sort();
-        self.synapses.dedup();
+        self.synapses.sort_by_key(|s|s.input_idx);
+        self.synapses.dedup_by_key(|s|s.input_idx);
     }
     pub fn add_uniform_rand_inputs(&mut self, input_size: usize, synapse_count: usize, transformation: &mut impl FnMut(usize) -> usize, rand_seed:&mut impl Rng)  {
         assert!(input_size >= synapse_count, "input_size={} < synapse_count={}", input_size, synapse_count);
@@ -47,7 +84,7 @@ impl Segment {
                 }
             }
             already_added[input_idx as usize] = true;
-            self.synapses.push(transformation(input_idx));
+            self.synapses.push(Synapse::rand(transformation(input_idx),rand_seed));
         }
     }
     pub fn add_uniform_rand_inputs_from_range(&mut self, range: Range<usize>, synapse_count: usize, rand_seed:&mut impl Rng)  {
@@ -63,9 +100,27 @@ impl Segment {
         assert_eq!(input_range.len(), total_region.product() as usize, "Input range {:?} has size {} which does not match total region {:?} of volume {}", input_range, input_range.len(), total_region, total_region.product());
         self.add_nd_uniform_rand_inputs(subregion, synapse_count, &mut |coord| input_range.start + total_region.idx(coord), rand_seed)
     }
+    pub fn add_all_inputs(&mut self, input_size: usize, transformation: &mut impl FnMut(usize) -> usize, rand_seed:&mut impl Rng)  {
+        let w = 1./input_size as f32;
+        (0..input_size).for_each(|input_idx|  {self.synapses.push(Synapse::rand(transformation(input_idx), rand_seed))})
+    }
+    pub fn add_all_inputs_from_range(&mut self, range: Range<usize>, rand_seed:&mut impl Rng)  {
+        self.add_all_inputs(range.len(), &mut |x| x + range.start, rand_seed)
+    }
+    pub fn add_nd_all_inputs<const DIM: usize>(&mut self, range: Range<[usize; DIM]>, transformation: &mut impl FnMut([usize; DIM]) -> usize, rand_seed:&mut impl Rng)  {
+        assert!(range.start.all_le(&range.end), "Area between points {:?} is negative", range);
+        let area_dim = range.end.sub(&range.start);
+        self.add_all_inputs(area_dim.product(), &mut |x| transformation(area_dim.pos(x).add(&range.start)),rand_seed)
+    }
+    pub fn add_all_inputs_from_area<const DIM: usize>(&mut self, input_range: Range<usize>, total_region: [usize; DIM], subregion: Range<[usize; DIM]>,rand_seed:&mut impl Rng)  {
+        assert!(subregion.end.all_le(&total_region), "Subregion {:?} exceeds total region {:?}", subregion, total_region);
+        assert_eq!(input_range.len(), total_region.product() as usize, "Input range {:?} has size {} which does not match total region {:?} of volume {}", input_range, input_range.len(), total_region, total_region.product());
+        self.add_nd_all_inputs(subregion, &mut |coord| input_range.start + total_region.idx(coord),rand_seed)
+    }
+
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Neuron {
     pub segments: Vec<Segment>,
 }
@@ -121,9 +176,45 @@ impl Neuron {
     pub fn add_uniform_rand_inputs_from_area<const DIM: usize>(&mut self, input_range: Range<usize>, total_region: [usize; DIM], subregion: Range<[usize; DIM]>, synapse_count: usize, rand_seed:&mut impl Rng)  {
         self.segments.iter_mut().for_each(|seg| seg.add_uniform_rand_inputs_from_area(input_range.clone(), total_region, subregion.clone(), synapse_count, rand_seed))
     }
+    pub fn add_all_inputs(&mut self, input_size: usize, transformation: &mut impl FnMut(usize) -> usize,rand_seed:&mut impl Rng)  {
+        self.segments.iter_mut().for_each(|seg| seg.add_all_inputs(input_size, transformation,rand_seed))
+    }
+    pub fn add_all_inputs_from_range(&mut self, range: Range<usize>,rand_seed:&mut impl Rng)  {
+        self.segments.iter_mut().for_each(|seg| seg.add_all_inputs_from_range(range.clone(),rand_seed))
+    }
+    pub fn add_nd_all_inputs<const DIM: usize>(&mut self, range: Range<[usize; DIM]>, transformation: &mut impl FnMut([usize; DIM]) -> usize,rand_seed:&mut impl Rng)  {
+        self.segments.iter_mut().for_each(|seg| seg.add_nd_all_inputs(range.clone(),transformation,rand_seed))
+    }
+    pub fn add_all_inputs_from_area<const DIM: usize>(&mut self, input_range: Range<usize>, total_region: [usize; DIM], subregion: Range<[usize; DIM]>,rand_seed:&mut impl Rng)  {
+        self.segments.iter_mut().for_each(|seg| seg.add_all_inputs_from_area(input_range.clone(),total_region.clone(),subregion.clone(),rand_seed))
+    }
+    pub fn set_weights_random(&mut self, rand_seed:&mut impl Rng){
+        self.segments.iter_mut().for_each(|s|s.set_weights_random(rand_seed))
+    }
+    pub fn set_weights_uniform(&mut self){
+        self.segments.iter_mut().for_each(|s|s.set_weights_uniform())
+    }
+    pub fn set_weights_const(&mut self, weight:f32){
+        self.segments.iter_mut().for_each(|s|s.set_weights_const(weight))
+    }
+    pub fn set_weights_scaled(&mut self, scale:f32){
+        self.segments.iter_mut().for_each(|s|s.set_weights_scaled(scale))
+    }
+    pub fn get_weights_sum(&mut self)->f32{
+        self.segments.iter_mut().map(|s|s.get_weights_sum()).sum()
+    }
+    pub fn set_weights_normalized(&mut self){
+        self.segments.iter_mut().for_each(|s|s.set_weights_normalized())
+    }
+    pub fn total_synapses(&mut self)->usize{
+        self.segments.iter_mut().map(|s|s.len()).sum()
+    }
+    pub fn get_weights_mean(&mut self)->f32{
+        self.get_weights_sum()/self.total_synapses() as f32
+    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Population {
     pub neurons: Vec<Neuron>,
 }
@@ -179,6 +270,42 @@ impl Population {
     }
     pub fn add_uniform_rand_inputs_from_area<const DIM: usize>(&mut self, input_range: Range<usize>, total_region: [usize; DIM], subregion: Range<[usize; DIM]>, synapse_count: usize, rand_seed:&mut impl Rng)  {
         self.neurons.iter_mut().for_each(|n| n.add_uniform_rand_inputs_from_area(input_range.clone(), total_region, subregion.clone(), synapse_count, rand_seed))
+    }
+    pub fn add_all_inputs(&mut self, input_size: usize, transformation: &mut impl FnMut(usize) -> usize,rand_seed:&mut impl Rng)  {
+        self.neurons.iter_mut().for_each(|seg| seg.add_all_inputs(input_size, transformation,rand_seed))
+    }
+    pub fn add_all_inputs_from_range(&mut self, range: Range<usize>,rand_seed:&mut impl Rng)  {
+        self.neurons.iter_mut().for_each(|seg| seg.add_all_inputs_from_range(range.clone(),rand_seed))
+    }
+    pub fn add_nd_all_inputs<const DIM: usize>(&mut self, range: Range<[usize; DIM]>, transformation: &mut impl FnMut([usize; DIM]) -> usize,rand_seed:&mut impl Rng)  {
+        self.neurons.iter_mut().for_each(|seg| seg.add_nd_all_inputs(range.clone(),transformation,rand_seed))
+    }
+    pub fn add_all_inputs_from_area<const DIM: usize>(&mut self, input_range: Range<usize>, total_region: [usize; DIM], subregion: Range<[usize; DIM]>,rand_seed:&mut impl Rng)  {
+        self.neurons.iter_mut().for_each(|seg| seg.add_all_inputs_from_area(input_range.clone(),total_region.clone(),subregion.clone(),rand_seed))
+    }
+    pub fn set_weights_random(&mut self, rand_seed:&mut impl Rng){
+        self.neurons.iter_mut().for_each(|s|s.set_weights_random(rand_seed))
+    }
+    pub fn set_weights_uniform(&mut self){
+        self.neurons.iter_mut().for_each(|s|s.set_weights_uniform())
+    }
+    pub fn set_weights_const(&mut self, weight:f32){
+        self.neurons.iter_mut().for_each(|s|s.set_weights_const(weight))
+    }
+    pub fn set_weights_scaled(&mut self, scale:f32){
+        self.neurons.iter_mut().for_each(|s|s.set_weights_scaled(scale))
+    }
+    pub fn get_weights_sum(&mut self)->f32{
+        self.neurons.iter_mut().map(|s|s.get_weights_sum()).sum()
+    }
+    pub fn set_weights_normalized(&mut self){
+        self.neurons.iter_mut().for_each(|s|s.set_weights_normalized())
+    }
+    pub fn total_synapses(&mut self)->usize{
+        self.neurons.iter_mut().map(|s|s.total_synapses()).sum()
+    }
+    pub fn get_weights_mean(&mut self)->f32{
+        self.get_weights_sum()/self.total_synapses() as f32
     }
     /** intervals holds a vector of intervals. Each interval is defined as a triple (f,c,t),
     where f is the (inclusive) beginning of the input interval, c is the number of neurons that will be chosen from this particular interval,

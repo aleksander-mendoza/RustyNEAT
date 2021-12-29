@@ -79,18 +79,16 @@ impl CpuHTM {
     pub fn add_globally_uniform_prob(&mut self,minicolumn_count:usize,synapses_per_column:u32,  rand_seed:&mut impl Rng){
         let mut pop = Population::new(minicolumn_count,1);
         pop.add_uniform_rand_inputs_from_range(0..self.input_size as usize,synapses_per_column as usize,rand_seed);
-        self.add_population(&pop,rand_seed)
+        self.add_population(&pop)
     }
 
-    pub fn add_population(&mut self, population:&Population, rand_seed:&mut impl Rng){
+    pub fn add_population(&mut self, population:&Population){
         let Self{ feedforward_connections, minicolumns, max_overlap, .. } = self;
         for neuron in &population.neurons{
             let conn_start = feedforward_connections.len() as u32;
             for seg in &neuron.segments{
-                for &syn in &seg.synapses{
-                    let permanence = rand_seed.gen();
-                    feedforward_connections.push(HtmFeedforwardConnection { permanence, input_id:syn as u32 });
-
+                for syn in &seg.synapses{
+                    feedforward_connections.push(HtmFeedforwardConnection { permanence:syn.weight, input_id:syn.input_idx as u32 });
                 }
             }
             let conn_end = feedforward_connections.len() as u32;
@@ -145,7 +143,7 @@ impl CpuHTM {
     number_of_minicolumns_per_overlap_that_made_it_to_top_n.
     number_of_minicolumns_per_overlap_that_made_it_to_top_n holds rubbish for any overlap lower than smallest_overlap_that_made_it_to_top_n
     */
-    fn neurons_in_binhtm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n(&self, number_of_minicolumns_per_overlap: &mut [i32]) -> u32 {
+    fn htm_find_number_of_minicolumns_per_overlap_that_made_it_to_top_n(&self, number_of_minicolumns_per_overlap: &mut [i32]) -> u32 {
         let mut total_minicolumns = 0;
         for overlap in (0..number_of_minicolumns_per_overlap.len()).rev() {
             let number_of_minicolumns = number_of_minicolumns_per_overlap[overlap as usize];

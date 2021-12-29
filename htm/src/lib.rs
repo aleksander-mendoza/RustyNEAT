@@ -62,7 +62,7 @@ mod tests {
         let mut pop = Population::new(16,1);
         pop.add_uniform_rand_inputs_from_range(0..16,12,&mut r);
         let mut htm2 = CpuHTM::new(16, 4);
-        htm2.add_population(&pop,&mut r);
+        htm2.add_population(&pop);
         let output_sdr2 = htm2.infer(sdr.get_dense(), false);
 
         let mut ocl_sdr = OclInput::new(p.clone(), 16,16)?;
@@ -600,7 +600,7 @@ mod tests {
         let mut r = rand::rngs::StdRng::from_seed([123;32]);
         let mut pop = Population::new_2d_column_grid_with_3d_input(mini_per_col,stride ,kernel,i,1);
         pop.add_2d_column_grid_with_3d_input(0..htm.input_size() as usize,mini_per_col,inp_per_mini,stride ,kernel,i,&mut r);
-        htm.add_population(&pop,&mut r);
+        htm.add_population(&pop);
         let mut htms:Vec<CpuHTM> = (0..columns.size()).map(|_| CpuHTM::new(i.size() as u32, n)).collect();
         let mut r = rand::rngs::StdRng::from_seed([123;32]);
         let column_area = [i[0],kernel[0],kernel[1]];
@@ -618,7 +618,7 @@ mod tests {
             for x in 0..columns[1] {
                 let h= &mut htms[columns.index(y,x) as usize];
                 let pop= &mut pops[columns.index(y,x) as usize];
-                h.add_population(pop,&mut r);
+                h.add_population(pop);
             }
         }
         for y in 0..columns[0] {

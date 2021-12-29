@@ -5,7 +5,7 @@ use std::ops::{Add, Sub, Div, Mul, Rem, Index, IndexMut, RangeBounds, Range};
 use std::mem::MaybeUninit;
 use crate::vector_field::{VectorField, VectorFieldNum};
 use std::collections::Bound;
-use num_traits::Num;
+use num_traits::{Num, One, Zero};
 
 pub trait Shape<T:Num + Copy + Debug + PartialOrd,const DIM: usize>: Eq + PartialEq + Copy + Clone + Debug + VectorFieldNum<T> {
     fn pos(&self, mut index: T) -> [T; DIM] {
@@ -196,18 +196,18 @@ mod tests {
         }
     }
 }
-pub fn resolve_range<T:Add<Output=T>>(input_size:T,input_range:impl RangeBounds<T>)->Range<T>{
+pub fn resolve_range<T:Add<Output=T>+Copy+One+Zero+PartialOrd+Debug>(input_size:T,input_range:impl RangeBounds<T>)->Range<T>{
     let b = match input_range.start_bound(){
         Bound::Included(&x) => x,
-        Bound::Excluded(&x) => x+1,
-        Bound::Unbounded => 0
+        Bound::Excluded(&x) => x+T::one(),
+        Bound::Unbounded => T::zero()
     };
     let e = match input_range.end_bound(){
-        Bound::Included(&x) => x+1,
+        Bound::Included(&x) => x+T::one(),
         Bound::Excluded(&x) => x,
         Bound::Unbounded => input_size
     };
-    assert!(b <= e, "Input range {}..{} starts later than it ends", b,e);
-    assert!(e <= input_size, "Input range {}..{} exceeds input size {}", b,e,input_size);
+    assert!(b <= e, "Input range {:?}..{:?} starts later than it ends", b,e);
+    assert!(e <= input_size, "Input range {:?}..{:?} exceeds input size {:?}", b,e,input_size);
     b..e
 }
