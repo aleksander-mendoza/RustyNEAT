@@ -7,13 +7,13 @@ use crate::ocl_err_to_py_ex;
 use std::any::Any;
 use ndalgebra::{Platform, Device};
 use ndalgebra::context::Context as C;
-use htm::HtmProgram;
+use htm::EccProgram;
 use ndalgebra::lin_alg_program::LinAlgProgram;
 
 #[pyclass]
 pub struct Context {
     pub(crate) c: C,
-    pub(crate) htm: Option<htm::HtmProgram>,
+    pub(crate) htm: Option<htm::EccProgram>,
     pub(crate) lin_alg: Option<ndalgebra::lin_alg_program::LinAlgProgram>,
 }
 
@@ -25,9 +25,9 @@ impl Context{
             lin_alg: None
         }
     }
-    pub fn compile_htm_program(&mut self) -> PyResult<&HtmProgram> {
+    pub fn compile_htm_program(&mut self) -> PyResult<&EccProgram> {
         if self.htm.is_none(){
-            let htm = htm::HtmProgram::new(self.c.clone()).map_err(ocl_err_to_py_ex)?;
+            let htm = htm::EccProgram::new(self.c.clone()).map_err(ocl_err_to_py_ex)?;
             self.htm.insert(htm);
         }
         Ok(self.htm.as_ref().unwrap())

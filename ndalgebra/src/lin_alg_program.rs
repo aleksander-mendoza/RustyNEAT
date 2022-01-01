@@ -239,7 +239,7 @@ fn source_for_all_types(fmt: &mut Formatter<'_>) -> std::fmt::Result {
     // source::<i16>(fmt, PhantomData)?;
     source::<i32>(fmt, PhantomData)?;
     source::<i64>(fmt, PhantomData)?;
-    // source::<u8>(fmt, PhantomData)?;
+    source::<u8>(fmt, PhantomData)?;
     // source::<u16>(fmt, PhantomData)?;
     source::<u32>(fmt, PhantomData)?;
     source::<u64>(fmt, PhantomData)

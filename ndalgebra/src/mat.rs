@@ -629,7 +629,7 @@ impl<T: Num> Mat<T> {
     fn mat_cmp_scalar(&self, scalar: T, mode: &'static str) -> Result<Mat<u8>, MatError> {
         if let Some(buff) = self.buffer() {
             let out = unsafe { Mat::<u8>::empty(&self.lin_alg, self.shape())? };
-            self.lin_alg.kernel_builder(format!("{}_scalar_cmp_{}", T::OPENCL_TYPE_STR, mode))?
+            self.lin_alg.kernel_builder(format!("{}_mat_cmp_scalar_{}", T::OPENCL_TYPE_STR, mode))?
                 .add_buff(buff)?
                 .add_num(scalar)?
                 .add_buff(out.buffer().unwrap())?

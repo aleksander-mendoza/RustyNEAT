@@ -1,16 +1,16 @@
-use crate::{CpuSDR, EncoderTarget, HtmProgram, OclSDR};
+use crate::{CpuSDR, EncoderTarget, EccProgram, OclSDR};
 use crate::cpu_bitset::{CpuBitset, bit_count_to_vec_size};
 use ndalgebra::buffer::Buffer;
 use ocl::{MemFlags, Error, Queue};
 
 pub struct OclBitset {
-    prog: HtmProgram,
+    prog: EccProgram,
     bits: Buffer<u32>,
     shape: [u32;3]
 }
 
 impl OclBitset {
-    pub fn prog(&self)->&HtmProgram{
+    pub fn prog(&self)->&EccProgram {
         &self.prog
     }
     pub fn buffer(&self)->&Buffer<u32>{
@@ -36,11 +36,11 @@ impl OclBitset {
         bitset.set_bits_on(sdr)?;
         Ok(bitset)
     }
-    pub fn from_cpu(bitset: &CpuBitset, prog: HtmProgram) -> Result<OclBitset, Error> {
+    pub fn from_cpu(bitset: &CpuBitset, prog: EccProgram) -> Result<OclBitset, Error> {
         prog.buffer_from_slice(MemFlags::READ_WRITE,bitset.as_slice())
             .map(|bits|Self{ prog, bits, shape:bitset.shape().clone() })
     }
-    pub fn new(input_size: u32, prog: HtmProgram) -> Result<OclBitset, Error> {
+    pub fn new(input_size: u32, prog: EccProgram) -> Result<OclBitset, Error> {
         prog.buffer_filled(MemFlags::READ_WRITE,bit_count_to_vec_size(input_size), 0).map(|bits|Self { prog, bits,shape:[1,1,input_size] })
     }
 

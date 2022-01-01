@@ -1,5 +1,6 @@
 import rusty_neat
 from rusty_neat import ndalgebra as nd
+from rusty_neat import htm
 import pandas as pd
 import copy
 from matplotlib import pyplot as plt
@@ -13,6 +14,13 @@ from scipy.special import entr
 MNIST, LABELS = torch.load('htm/data/mnist.pt')
 
 activity_epsilon = 0.0001
+
+
+def input_size(kernels, strides, output_size):
+    input_size = output_size
+    for stride, kernel in zip(reversed(strides), reversed(kernels)):
+        input_size = htm.conv_in_size(input_size, stride, kernel)
+    return input_size
 
 
 def sparse_weights(input_size, output_size, sparsity):
@@ -215,6 +223,8 @@ class ExclusiveCoincidenceMachineConv:
         prev_grid_dim = self.conv.column_grid_dim
         self.channels = channels
         self.extra = []
+        self.strides = strides.copy()
+        self.kernels = kernels.copy()
         for kernel, stride, in_channels, out_channels in zip(kernels[1:], strides[1:], channels[2:], channels[3:]):
             extra_layer = ConvolveConverge(input_size=prev_grid_dim,
                                            kernel=kernel,
@@ -434,7 +444,12 @@ def experiment5():
     for a in axs:
         for b in a:
             b.set_axis_off()
-    PATCH_SIZE = np.array([11, 11])
+
+    kernels = [np.array([5, 5]), np.array([3, 3]), np.array([3, 3]), np.array([3, 3])]
+    strides = [np.array([2, 2]), np.array([2, 2]), np.array([1, 1]), np.array([1, 1])]
+    PATCH_SIZE = input_size(kernels, strides, np.array([1, 1]))
+    PATCH_SIZE = np.array(PATCH_SIZE[1:])
+    print("PATCH_SIZE=",PATCH_SIZE)
     test_patches = [normalise_img(rand_patch(PATCH_SIZE)) for _ in range(20000)]
     POP_SIZE2 = 20
     POP_SIZE1 = 64
@@ -442,17 +457,19 @@ def experiment5():
     m = ExclusiveCoincidenceMachineConv(input_size=PATCH_SIZE,
                                         connection_sparsity=sep_sparsity,
                                         channels=[1, POP_SIZE1, POP_SIZE2, 40, 64, 100],
-                                        kernels=[np.array([5, 5]), np.array([3, 3]), np.array([3, 3]), np.array([3, 3])],
-                                        strides=[np.array([2, 2]), np.array([2, 2]), np.array([2, 2]), np.array([1, 1])],
+                                        kernels=kernels,
+                                        strides=strides,
                                         k=15)
+
     assert (m.last().output_shape == np.array([m.channels[-1],1,1])).all()
     m.set_threshold(2, 0.02)
     m.set_threshold(3, 0.02)
+    m.set_threshold(4, 0.01)
     for s in tqdm(range(1000000), desc="training"):
         img = normalise_img(rand_patch(PATCH_SIZE))
         m.run(np.expand_dims(img, 0))
         m.learn()
-        if s % 10000 == 0:
+        if s % 100000 == 0:
             stats = np.zeros((m.channels[-1], PATCH_SIZE[0], PATCH_SIZE[1]))
             for img in tqdm(test_patches, desc="eval"):
                 # img = normalise_img(rand_patch())
@@ -467,4 +484,4 @@ def experiment5():
             plt.pause(0.01)
     plt.show()
 
-experiment4()
+experiment5()

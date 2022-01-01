@@ -26,11 +26,11 @@ use std::io::BufWriter;
 use std::fs::{File, OpenOptions};
 use serde_pickle::SerOptions;
 use serde::Serialize;
-use htm_vis::visualise_cpu_htm2;
+use crate::util::*;
 
 #[pyclass]
 pub struct CpuSDR {
-    sdr: htm::CpuSDR,
+    pub(crate) sdr: htm::CpuSDR,
 }
 
 #[pyclass]
@@ -49,29 +49,6 @@ pub struct CpuInput {
 }
 
 
-// ///
-// /// CpuBigHTM(input_size:int, minicolumns:int, n: int, rand_seed:int)
-// ///
-// ///
-// #[pyclass]
-// pub struct CpuBigHTM {
-//     htm: htm::CpuBigHTM,
-// }
-
-///
-/// CpuHTM2(input_size:int, n:int, population:Optional[Population], rand_seed:Optional[int])
-///
-///
-/// The standard implementation of spacial pooler.
-///  Randomly generate a new Spacial Pooler. You can provide a random seed manually.
-///  Otherwise the millisecond part of system time is used as a seed. Seed is a 32-bit number.
-///
-///
-#[pyclass]
-pub struct CpuHTM {
-    htm: htm::CpuHTM,
-}
-
 #[pyclass]
 pub struct OclSDR {
     sdr: htm::OclSDR,
@@ -85,11 +62,6 @@ pub struct OclBitset {
 #[pyclass]
 pub struct OclInput {
     inp: htm::OclInput,
-}
-
-#[pyclass]
-pub struct OclHTM {
-    htm: htm::OclHTM,
 }
 
 
@@ -811,241 +783,6 @@ impl Segment {
 }
 
 
-fn arr3<'py, T:Element+Copy+FromPyObject<'py>>(py: Python<'py>, t: &'py PyObject) -> PyResult<[T; 3]> {
-    Ok(if let Ok(t) = t.extract::<(T, T, T)>(py) {
-        [t.0, t.1, t.2]
-    } else if let Ok(t) = t.extract::<Vec<T>>(py) {
-        [t[0], t[1], t[2]]
-    } else {
-        let array = py_any_as_numpy(t.as_ref(py))?;
-        let t = unsafe { array.as_slice()? };
-        [t[0], t[1], t[2]]
-    })
-}
-
-fn arrX<'py,T:Element+Copy+FromPyObject<'py>>(py: Python<'py>, t: &'py PyObject, default0: T, default1: T, default2: T) -> PyResult<[T; 3]> {
-    Ok(if t.is_none(py) {
-        [default0, default1, default2]
-    } else if let Ok(t) = t.extract::<T>(py) {
-        [default0, default1, t]
-    } else if let Ok(t) = t.extract::<(T, T)>(py) {
-        [default0, t.0, t.1]
-    } else if let Ok(t) = t.extract::<(T, T, T)>(py) {
-        [t.0, t.1, t.2]
-    } else {
-        let d = [default0, default1, default2];
-        fn to3<T:Element+Copy>(arr: &[T], mut d: [T; 3]) -> [T; 3] {
-            for i in 0..arr.len().min(3) {
-                d[3 - arr.len() + i] = arr[i];
-            }
-            d
-        }
-        if let Ok(t) = t.extract::<Vec<T>>(py) {
-            to3(&t, d)
-        } else {
-            let array = py_any_as_numpy(t.as_ref(py))?;
-            let t = unsafe { array.as_slice()? };
-            to3(&t, d)
-        }
-    })
-}
-
-fn arr2<'py,T:Element+Copy+FromPyObject<'py>>(py: Python<'py>, t: &'py PyObject) -> PyResult<[T; 2]> {
-    Ok(if let Ok(t) = t.extract::<(T, T)>(py) {
-        [t.0, t.1]
-    } else if let Ok(t) = t.extract::<Vec<T>>(py) {
-        [t[0], t[1]]
-    } else {
-        let array = py_any_as_numpy(t.as_ref(py))?;
-        let t = unsafe { array.as_slice()? };
-        [t[0], t[1]]
-    })
-}
-
-#[pymethods]
-impl CpuHTM {
-    #[new]
-    pub fn new(input_size: u32, n: u32, population: Option<&Population>) -> PyResult<Self> {
-        let mut htm = htm::CpuHTM::new(input_size, n);
-        if let Some(population) = population {
-            htm.add_population(&population.pop);
-        }
-        Ok(CpuHTM { htm })
-    }
-    #[text_signature = "(input_shapes,output_shapes,input,output,input_cell_margin, output_cell_margin)"]
-    pub fn visualise(&mut self, input_shapes:Vec<PyObject>, output_shapes:Vec<PyObject>,input:Option<&CpuSDR>,output:Option<&CpuSDR>,input_cell_margin: Option<f32>, output_cell_margin: Option<f32>) -> PyResult<()> {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-        let input_cell_margin = input_cell_margin.unwrap_or(0.2);
-        let output_cell_margin = output_cell_margin.unwrap_or(0.2);
-        let input_shapes:PyResult<Vec<[u32;3]>> = input_shapes.into_iter().map(|o|arrX(py,&o,1,1,self.htm.input_size())).collect();
-        let output_shapes:PyResult<Vec<[u32;3]>> = output_shapes.into_iter().map(|o|arrX(py,&o,1,1,self.htm.minicolumns_as_slice().len() as u32)).collect();
-        let input = input.map(|s|s.sdr.as_slice()).unwrap_or(&[]);
-        let output = output.map(|s|s.sdr.as_slice()).unwrap_or(&[]);
-        Ok(visualise_cpu_htm2(&self.htm, &input_shapes?,&output_shapes?,input,output,input_cell_margin,output_cell_margin))
-    }
-
-    #[text_signature = "(file)"]
-    pub fn pickle(&mut self, file: String) -> PyResult<()> {
-        pickle(&self.htm, file)
-    }
-    #[text_signature = "(permenence)"]
-    pub fn set_all_permanences(&mut self, val: f32) {
-        self.htm.set_all_permanences(val)
-    }
-    #[text_signature = "(permenence)"]
-    pub fn multiply_all_permanences(&mut self, val: f32) {
-        self.htm.multiply_all_permanences(val)
-    }
-    #[text_signature = "(population)"]
-    pub fn add_population(&mut self, population:&Population) {
-        self.htm.add_population(&population.pop)
-    }
-    #[getter]
-    fn get_synapse_count(&self) -> u32 {
-        self.htm.feedforward_connections_as_slice().len() as u32
-    }
-    #[text_signature = "(column_idx)"]
-    fn get_synapses(&self, column_idx: Option<u32>) -> Vec<(u32, f32)> {
-        if let Some(column_idx) = column_idx {
-            let s = self.htm.minicolumns_as_slice()[column_idx as usize];
-            self.htm.feedforward_connections_as_slice()[s.connection_offset as usize..(s.connection_offset + s.connection_len) as usize].iter().map(|c| (c.input_id, c.permanence)).collect()
-        } else {
-            self.htm.feedforward_connections_as_slice().iter().map(|c| (c.input_id, c.permanence)).collect()
-        }
-    }
-    #[text_signature = "( /)"]
-    fn clone(&self) -> CpuHTM {
-        CpuHTM { htm: self.htm.clone() }
-    }
-    #[getter]
-    fn get_input_size(&self) -> u32 {
-        self.htm.input_size()
-    }
-    #[getter]
-    fn get_minicolumn_count(&self) -> u32 {
-        self.htm.minicolumns_as_slice().len() as u32
-    }
-
-    #[getter]
-    fn get_n(&self) -> u32 {
-        self.htm.n
-    }
-
-    #[setter]
-    fn set_n(&mut self, n: u32) {
-        self.htm.n = n
-    }
-
-    #[getter]
-    fn get_permanence_decrement(&self) -> f32 {
-        self.htm.permanence_decrement_increment[0]
-    }
-
-    #[setter]
-    fn set_permanence_decrement(&mut self, permanence_decrement: f32) {
-        self.htm.permanence_decrement_increment[0] = permanence_decrement
-    }
-
-    #[getter]
-    fn get_permanence_increment(&self) -> f32 {
-        self.htm.permanence_decrement_increment[1]
-    }
-
-    #[setter]
-    fn set_permanence_increment(&mut self, permanence_increment: f32) {
-        self.htm.permanence_decrement_increment[1] = permanence_increment
-    }
-
-    #[getter]
-    fn get_permanence_threshold(&self) -> f32 {
-        self.htm.permanence_threshold
-    }
-
-    #[setter]
-    fn set_permanence_threshold(&mut self, permanence_threshold: f32) {
-        self.htm.permanence_threshold = permanence_threshold
-    }
-
-    #[getter]
-    fn get_max_overlap(&self) -> u32 {
-        self.htm.max_overlap
-    }
-
-    #[setter]
-    fn set_max_overlap(&mut self, max_overlap: u32) {
-        self.htm.max_overlap = max_overlap
-    }
-
-    #[call]
-    fn __call__(&mut self, bitset_input: &CpuBitset, learn: Option<bool>) -> CpuSDR {
-        self.infer(bitset_input, learn)
-    }
-    #[text_signature = "(bitset_input, learn)"]
-    fn infer(&mut self, bitset_input: &CpuBitset, learn: Option<bool>) -> CpuSDR {
-        CpuSDR { sdr: self.htm.infer(&bitset_input.bits, learn.unwrap_or(false)) }
-    }
-    #[text_signature = "(minicolumns_per_column,minicolumn_stride,bitset_input, learn)"]
-    fn infer_and_group_into_columns(&mut self, minicolumns_per_column: usize, minicolumn_stride:usize, bitset_input: &CpuBitset, learn: Option<bool>) -> CpuSDR {
-        CpuSDR { sdr: self.htm.infer_and_group_into_columns(minicolumns_per_column, minicolumn_stride,&bitset_input.bits, learn.unwrap_or(false)) }
-    }
-    #[text_signature = "(active_columns,bitset_input)"]
-    fn update_permanence(&mut self, active_columns: &CpuSDR, bitset_input: &CpuBitset) {
-        self.htm.update_permanence(&active_columns.sdr, &bitset_input.bits)
-    }
-    #[text_signature = "(top_n_minicolumns,active_columns,bitset_input)"]
-    fn update_permanence_ltd(&mut self, top_n_minicolumns: &CpuSDR, active_columns: &CpuBitset, bitset_input: &CpuBitset) {
-        self.htm.update_permanence_ltd(&top_n_minicolumns.sdr, &active_columns.bits, &bitset_input.bits)
-    }
-    #[text_signature = "(top_n_minicolumns,active_columns,bitset_input,penalty_multiplier)"]
-    fn update_permanence_and_penalize(&mut self, active_columns: &CpuBitset, bitset_input: &CpuBitset, penalty_multiplier: Option<f32>) {
-        self.htm.update_permanence_and_penalize(&active_columns.bits, &bitset_input.bits, penalty_multiplier.unwrap_or(-1.))
-    }
-    #[text_signature = "(top_n_minicolumns,active_columns,bitset_input,activity_threshold,penalty_multiplier)"]
-    fn update_permanence_and_penalize_thresholded(&mut self, active_columns: &CpuBitset, bitset_input: &CpuBitset, activity_threshold: u32, penalty_multiplier: Option<f32>) {
-        self.htm.update_permanence_and_penalize_thresholded(&active_columns.bits, &bitset_input.bits, activity_threshold, penalty_multiplier.unwrap_or(-1.))
-    }
-    #[text_signature = "(bitset_input)"]
-    fn compute(&mut self, bitset_input: &CpuBitset) -> CpuSDR {
-        CpuSDR { sdr: self.htm.compute(&bitset_input.bits) }
-    }
-
-    #[text_signature = "(minicolumns_per_column,bitset_input)"]
-    fn compute_and_group_into_columns(&mut self, minicolumns_per_column: usize, minicolumn_stride:usize, bitset_input: &CpuBitset) -> CpuSDR {
-        CpuSDR { sdr: self.htm.compute_and_group_into_columns(minicolumns_per_column, minicolumn_stride,&bitset_input.bits) }
-    }
-
-    #[text_signature = "(minicolumn_id)"]
-    fn get_overlap(&self, minicolumn_id: u32) -> i32 {
-        self.htm.minicolumns_as_slice()[minicolumn_id as usize].overlap
-    }
-
-    #[text_signature = "(minicolumn_id)"]
-    fn get_synapses_range(&self, minicolumn_id: u32) -> (u32, u32) {
-        let range = &self.htm.minicolumns_as_slice()[minicolumn_id as usize];
-        (range.connection_offset, range.connection_len)
-    }
-
-    #[text_signature = "(synapse_id)"]
-    fn get_synapse_input_and_permanence(&self, synapse_id: u32) -> (u32, f32) {
-        let s = &self.htm.feedforward_connections_as_slice()[synapse_id as usize];
-        (s.input_id, s.permanence)
-    }
-
-    #[text_signature = "(synapse_id, input_id)"]
-    fn set_synapse_input(&mut self, synapse_id: u32, input_id: u32) {
-        self.htm.feedforward_connections_as_mut_slice()[synapse_id as usize].input_id = input_id;
-    }
-    #[text_signature = "(synapse_id, permanence)"]
-    fn set_synapse_permanence(&mut self, synapse_id: u32, permanence: f32) {
-        self.htm.feedforward_connections_as_mut_slice()[synapse_id as usize].permanence = permanence;
-    }
-    #[text_signature = "(context)"]
-    fn to_ocl(&self, context: &mut Context) -> PyResult<OclHTM> {
-        OclHTM::new(context, self)
-    }
-}
-
 
 #[pymethods]
 impl OclSDR {
@@ -1068,16 +805,6 @@ impl OclSDR {
     fn get_active_neurons(&self) -> PyResult<Vec<u32>> {
         self.sdr.get().map_err(ocl_err_to_py_ex)
     }
-}
-
-pub fn pickle<T: Serialize>(val: &T, file: String) -> PyResult<()> {
-    let o = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(file)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
-    serde_pickle::to_writer(&mut BufWriter::new(o), val, SerOptions::new());
-    Ok(())
 }
 
 #[pymethods]
@@ -1273,25 +1000,6 @@ pub fn conv_compose(stride1: PyObject, kernel1: PyObject,stride2: PyObject, kern
     Ok((stride.to_vec(),kernel.to_vec()))
 }
 
-fn py_any_as_numpy<T:Element>(input: &PyAny) -> Result<&PyArrayDyn<T>, PyErr> {
-    let array = unsafe {
-        if npyffi::PyArray_Check(input.as_ptr()) == 0 {
-            return Err(PyDowncastError::new(input, "PyArray<T, D>").into());
-        }
-        &*(input as *const PyAny as *const PyArrayDyn<u8>)
-    };
-    if !array.is_c_contiguous(){
-        return Err(PyValueError::new_err("Numpy array is not C contiguous"));
-    }
-    let actual_dtype = array.dtype().get_datatype().ok_or_else(|| PyValueError::new_err("No numpy array has no dtype"))?;
-    if T::DATA_TYPE != actual_dtype {
-        return Err(PyValueError::new_err(format!("Expected numpy array of dtype {:?} but got {:?}", T::DATA_TYPE, actual_dtype)));
-    }
-    let array = unsafe { &*(input as *const PyAny as *const PyArrayDyn<T>) };
-    Ok(array)
-}
-
-
 #[pyfunction]
 #[text_signature = "(numpy_array/)"]
 pub fn bitset_from_numpy(input: &PyAny) -> Result<CpuBitset, PyErr> {
@@ -1331,8 +1039,8 @@ impl CpuBitset {
         self.bits.width()
     }
     #[getter]
-    pub fn depth(&self) -> u32 {
-        self.bits.depth()
+    pub fn channels(&self) -> u32 {
+        self.bits.channels()
     }
     #[getter]
     pub fn height(&self) -> u32 {
@@ -1573,94 +1281,6 @@ impl CpuInput {
 }
 
 
-
-#[pymethods]
-impl OclHTM {
-    #[new]
-    pub fn new(context: &mut Context, htm: &CpuHTM) -> PyResult<Self> {
-        htm::OclHTM::new(&htm.htm, context.compile_htm_program()?.clone()).map(|htm| OclHTM { htm }).map_err(ocl_err_to_py_ex)
-    }
-    #[getter]
-    fn get_input_size(&self) -> u32 {
-        self.htm.input_size()
-    }
-
-    #[getter]
-    fn get_n(&self) -> u32 {
-        self.htm.n
-    }
-
-    #[setter]
-    fn set_n(&mut self, n: u32) {
-        self.htm.n = n
-    }
-
-    #[getter]
-    fn get_permanence_decrement(&self) -> f32 {
-        self.htm.permanence_decrement_increment[0]
-    }
-
-    #[setter]
-    fn set_permanence_decrement(&mut self, permanence_decrement: f32) {
-        self.htm.permanence_decrement_increment[0] = permanence_decrement
-    }
-
-    #[getter]
-    fn get_permanence_increment(&self) -> f32 {
-        self.htm.permanence_decrement_increment[1]
-    }
-
-    #[setter]
-    fn set_permanence_increment(&mut self, permanence_increment: f32) {
-        self.htm.permanence_decrement_increment[1] = permanence_increment
-    }
-
-    #[getter]
-    fn get_permanence_threshold(&self) -> f32 {
-        self.htm.permanence_threshold
-    }
-
-    #[setter]
-    fn set_permanence_threshold(&mut self, permanence_threshold: f32) {
-        self.htm.permanence_threshold = permanence_threshold
-    }
-
-    #[getter]
-    fn get_max_overlap(&self) -> u32 {
-        self.htm.max_overlap
-    }
-
-    #[setter]
-    fn set_max_overlap(&mut self, max_overlap: u32) {
-        self.htm.max_overlap = max_overlap
-    }
-
-    #[call]
-    fn __call__(&mut self, bitset_input: &OclBitset, learn: Option<bool>) -> PyResult<OclSDR> {
-        self.infer(bitset_input, learn)
-    }
-    #[text_signature = "(bitset_input, learn)"]
-    fn infer(&mut self, bitset_input: &OclBitset, learn: Option<bool>) -> Result<OclSDR, PyErr> {
-        self.htm.infer(&bitset_input.bits, learn.unwrap_or(false)).map(|sdr| OclSDR { sdr }).map_err(ocl_err_to_py_ex)
-    }
-    #[text_signature = "(minicolumns_per_column, minicolumn_stride, bitset_input, learn)"]
-    fn infer_and_group_into_columns(&mut self, minicolumns_per_column: usize,minicolumn_stride:usize, bitset_input: &OclBitset, learn: Option<bool>) -> PyResult<OclSDR> {
-        self.htm.infer_and_group_into_columns(minicolumns_per_column,minicolumn_stride, &bitset_input.bits, learn.unwrap_or(false)).map(|sdr| OclSDR { sdr }).map_err(ocl_err_to_py_ex)
-    }
-
-    #[text_signature = "(bitset_input)"]
-    fn compute(&mut self, bitset_input: &OclBitset) -> Result<OclSDR, PyErr> {
-        self.htm.compute(&bitset_input.bits).map(|sdr| OclSDR { sdr }).map_err(ocl_err_to_py_ex)
-    }
-    #[text_signature = "(minicolumns_per_column,minicolumn_stride, bitset_input)"]
-    fn compute_and_group_into_columns(&mut self, minicolumns_per_column: usize, minicolumn_stride:usize, bitset_input: &OclBitset) -> PyResult<OclSDR> {
-        self.htm.compute_and_group_into_columns(minicolumns_per_column, minicolumn_stride,&bitset_input.bits).map(|sdr| OclSDR { sdr }).map_err(ocl_err_to_py_ex)
-    }
-    #[text_signature = "(active_minicolumns, bitset_input)"]
-    fn update_permanence(&mut self, active_minicolumns: &OclSDR, bitset_input: &OclBitset) -> PyResult<()> {
-        self.htm.update_permanence(&active_minicolumns.sdr, &bitset_input.bits).map_err(ocl_err_to_py_ex)
-    }
-}
 
 #[pyproto]
 impl PySequenceProtocol for CpuSDR {

@@ -174,6 +174,12 @@ pub trait DynMatTrait: Display {
     fn sub(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
     fn swapped_sub(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
     fn mul(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
+    fn lt(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
+    fn le(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
+    fn eq(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
+    fn gt(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
+    fn ge(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
+    fn ne(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
     fn div(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
     fn swapped_div(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
     fn min(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>;
@@ -367,6 +373,20 @@ impl ToDtype for isize {
     }
 }
 
+fn dyn_mat_op_to_different_type<T: PyNum,T2:PyNum>(slf: &Mat<T>, scalar_or_tensor: &PyAny, op: fn(&Mat<T>, T) -> Result<Mat<T2>, MatError>, mat: fn(&Mat<T>, &Mat<T>) -> Result<Mat<T2>, MatError>) -> PyResult<DynMat> {
+    if PyFloat::is_type_of(scalar_or_tensor) || PyInt::is_type_of(scalar_or_tensor) || PyBool::is_type_of(scalar_or_tensor) {
+        let scalar = T::extract_from(scalar_or_tensor).map_err(ocl_err_to_py_ex)?;
+        let out = op(slf, scalar).map_err(ocl_err_to_py_ex)?;
+        Ok(DynMat::from(out))
+    } else if let Ok(tensor) = scalar_or_tensor.cast_as::<PyCell<DynMat>>() {
+        let tensor = tensor.try_borrow()?;
+        let out = mat(slf, tensor.try_as_dtype()?).map_err(ocl_err_to_py_ex)?;
+        Ok(DynMat::from(out))
+    } else {
+        Err(PyValueError::new_err(format!("Could not perform this operation on {}", scalar_or_tensor.get_type())))
+    }
+}
+
 fn dyn_mat_op<T: PyNum>(slf: &Mat<T>, scalar_or_tensor: &PyAny, op: fn(&mut Mat<T>, T) -> Result<(), MatError>, mat: fn(&mut Mat<T>, &Mat<T>) -> Result<(), MatError>) -> PyResult<DynMat> {
     if PyFloat::is_type_of(scalar_or_tensor) || PyInt::is_type_of(scalar_or_tensor) || PyBool::is_type_of(scalar_or_tensor) {
         let scalar = T::extract_from(scalar_or_tensor).map_err(ocl_err_to_py_ex)?;
@@ -472,6 +492,25 @@ impl<T: PyNum> DynMatTrait for Mat<T> {
 
     fn mul(&self, scalar: &PyAny) -> PyResult<DynMat> {
         dyn_mat_op(self, scalar, Mat::mul_scalar, Mat::mul_mat)
+    }
+
+    fn lt(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>{
+        dyn_mat_op_to_different_type(self, scalar_or_tensor, Mat::lt_scalar, Mat::lt_mat)
+    }
+    fn le(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>{
+        dyn_mat_op_to_different_type(self, scalar_or_tensor, Mat::le_scalar, Mat::le_mat)
+    }
+    fn eq(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>{
+        dyn_mat_op_to_different_type(self, scalar_or_tensor, Mat::eq_scalar, Mat::eq_mat)
+    }
+    fn gt(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>{
+        dyn_mat_op_to_different_type(self, scalar_or_tensor, Mat::gt_scalar, Mat::gt_mat)
+    }
+    fn ge(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>{
+        dyn_mat_op_to_different_type(self, scalar_or_tensor, Mat::ge_scalar, Mat::ge_mat)
+    }
+    fn ne(&self, scalar_or_tensor: &PyAny) -> PyResult<DynMat>{
+        dyn_mat_op_to_different_type(self, scalar_or_tensor, Mat::ne_scalar, Mat::ne_mat)
     }
 
     fn div(&self, scalar: &PyAny) -> PyResult<DynMat> {
@@ -973,6 +1012,16 @@ impl PyObjectProtocol for DynMat {
     }
     fn __repr__(&self) -> PyResult<String> {
         self.__str__()
+    }
+    fn __richcmp__(&self, scalar_or_tensor: &PyAny, op: CompareOp) -> PyResult<DynMat> {
+        match op {
+            CompareOp::Eq => self.m.eq(scalar_or_tensor),
+            CompareOp::Ne => self.m.ne(scalar_or_tensor),
+            CompareOp::Lt => self.m.lt(scalar_or_tensor),
+            CompareOp::Le => self.m.le(scalar_or_tensor),
+            CompareOp::Gt => self.m.gt(scalar_or_tensor),
+            CompareOp::Ge => self.m.ge(scalar_or_tensor),
+        }
     }
 }
 

@@ -6,5 +6,5 @@ members = [
     "pylib",
     "envs",
     "htm",
-    "htm_vis",
+#    "htm_vis",
 ]

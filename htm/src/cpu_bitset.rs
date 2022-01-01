@@ -1,4 +1,4 @@
-use crate::{CpuSDR, EncoderTarget, Shape3, Shape, resolve_range};
+use crate::{CpuSDR, EncoderTarget, Shape, resolve_range, Shape3};
 use std::fmt::{Debug, Formatter};
 use serde::{Serialize, Deserialize};
 use crate::vector_field::{VectorFieldOne, VectorFieldAdd, VectorFieldPartialOrd};
@@ -28,7 +28,7 @@ impl Debug for CpuBitset{
                     if row == self.height(){
                         row = 0;
                         slice += 1;
-                        if slice == self.depth() {
+                        if slice == self.channels() {
                             break 'outer;
                         }
                         all_bits.push('\n');
@@ -80,8 +80,8 @@ impl CpuBitset {
     pub fn height(&self)->u32{
         self.shape.height()
     }
-    pub fn depth(&self)->u32{
-        self.shape.depth()
+    pub fn channels(&self)->u32{
+        self.shape.channels()
     }
     pub fn cardinality_in_range(&self, from: u32, to: u32) -> u32 {
         assert!(from<=to,"Range's left bound {} is greater than right bound {}", from,to);
@@ -271,13 +271,13 @@ impl CpuBitset {
         self.is_bit_on3d(0,y,x)
     }
     pub fn is_bit_on3d(&self,z:u32, y:u32,x:u32)->bool{
-        self.is_bit_on(self.shape.index(z,y,x))
+        self.is_bit_on(self.shape.idx([z,y,x]))
     }
     pub fn set_bit_on2d(&mut self, y:u32,x:u32){
         self.set_bit_on3d(0,y,x)
     }
     pub fn set_bit_on3d(&mut self, z:u32,y:u32,x:u32){
-        self.set_bit_on(self.shape.index(z,y,x))
+        self.set_bit_on(self.shape.idx([z,y,x]))
     }
     pub fn set_bits_on(&mut self, sdr: &[u32]) {
         for &index in sdr.iter() {
@@ -307,11 +307,11 @@ impl CpuBitset {
         }
     }
     pub fn set_bits_on2d(&mut self,offset:[u32;2],size:[u32;2],sdr:&[u32]){
-        assert_eq!(self.depth(),1, "This bitset has depth dimension! Use set_bits_on3d instead");
-        let sub_shape = [self.height(),self.width()];
-        assert!(offset.add(&size).all_le(&sub_shape), "The subregion {:?}..{:?} is out of bounds {:?}",offset,size,self.shape);
+        assert_eq!(self.channels(),1, "This bitset has depth dimension! Use set_bits_on3d instead");
+        assert!(offset.add(&size).all_le(self.shape().grid()), "The subregion {:?}..{:?} is out of bounds {:?}",offset,size,self.shape);
         for &neuron in sdr{
-            self.set_bit_on(sub_shape.idx(offset.add(&size.pos(neuron))));
+            let o = self.shape().grid().idx(offset.add(&size.pos(neuron)));
+            self.set_bit_on(o);
         }
     }
 

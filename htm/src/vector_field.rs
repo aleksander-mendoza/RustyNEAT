@@ -10,8 +10,11 @@ use rand::distributions::{Standard, Distribution};
 pub trait VectorField<Scalar: Copy>: Sized {
     fn fold(&self, zero: Scalar, f: impl FnMut(Scalar, Scalar) -> Scalar) -> Scalar;
     fn map(&self, f: impl FnMut(Scalar) -> Scalar) -> Self;
+    fn new_const(s:Scalar) -> Self;
     fn all(&self, f: impl FnMut(Scalar) -> bool) -> bool;
+    fn any(&self, f: impl FnMut(Scalar) -> bool) -> bool;
     fn all_zip(&self, other: &Self, f: impl FnMut(Scalar, Scalar) -> bool) -> bool;
+    fn any_zip(&self, other: &Self, f: impl FnMut(Scalar, Scalar) -> bool) -> bool;
     fn zip(&self, other: &Self, f: impl FnMut(Scalar, Scalar) -> Scalar) -> Self;
 }
 
@@ -79,6 +82,20 @@ pub trait VectorFieldPartialOrd<Scalar: PartialOrd + Copy>: VectorField<Scalar> 
     fn min_scalar(&self, rhs: Scalar) -> Self {
         self.map(|l| if l < rhs { l } else { rhs })
     }
+    fn any_le(&self, rhs: &Self) -> bool {
+        self.any_zip(rhs, |l, r| l <= r)
+    }
+    fn any_le_scalar(&self, rhs: Scalar) -> bool { self.any( |l| l <= rhs) }
+    fn any_lt(&self, rhs: &Self) -> bool { self.any_zip(rhs, |l, r| l < r) }
+    fn any_lt_scalar(&self, rhs: Scalar) -> bool { self.any( |l| l < rhs) }
+    fn any_gt(&self, rhs: &Self) -> bool { self.any_zip(rhs, |l, r| l > r) }
+    fn any_gt_scalar(&self, rhs: Scalar) -> bool { self.any( |l| l > rhs) }
+    fn any_ge(&self, rhs: &Self) -> bool { self.any_zip(rhs, |l, r| l >= r) }
+    fn any_ge_scalar(&self, rhs: Scalar) -> bool { self.any( |l| l >= rhs) }
+    fn any_eq(&self, rhs: &Self) -> bool { self.any_zip(rhs, |l, r| l == r) }
+    fn any_eq_scalar(&self, rhs: Scalar) -> bool { self.any(|l| l == rhs) }
+    fn any_neq(&self, rhs: &Self) -> bool { self.any_zip(rhs, |l, r| l != r) }
+    fn any_neq_scalar(&self, rhs: Scalar) -> bool { self.any( |l| l != rhs) }
 }
 
 pub trait VectorFieldAbs<Scalar: Neg<Output=Scalar> + Zero + PartialOrd + Copy>: VectorField<Scalar> {
@@ -111,6 +128,11 @@ pub trait VectorFieldDiv<Scalar: Div<Output=Scalar> + Copy>: VectorField<Scalar>
     }
 }
 
+pub trait VectorFieldDivDefaultZero<Scalar: Div<Output=Scalar> + Copy + Zero>: VectorFieldDiv<Scalar> {
+    fn div_default_zero(&self, rhs: &Self, defult_value_for_division_by_zero:Scalar) -> Self {
+        self.zip(&rhs, |a, b| if b.is_zero() {defult_value_for_division_by_zero}else{a / b})
+    }
+}
 pub trait VectorFieldMul<Scalar: Mul<Output=Scalar> + Copy>: VectorField<Scalar> {
     fn mul(&self, rhs: &Self) -> Self {
         self.zip(&rhs, |a, b| a * b)
@@ -134,14 +156,21 @@ pub trait VectorFieldRem<Scalar: Rem<Output=Scalar> + Copy>: VectorField<Scalar>
         self.map(|a| a % scalar)
     }
 }
-
+pub trait VectorFieldRemDefaultZero<Scalar: Rem<Output=Scalar> + Copy + Zero>: VectorFieldRem<Scalar> {
+    fn rem_default_zero(&self, rhs: &Self, default_value_for_division_by_zero:Scalar) -> Self {
+        self.zip(&rhs, |a, b| if b.is_zero(){default_value_for_division_by_zero}else{a % b})
+    }
+}
 pub trait VectorFieldRng<Scalar: rand::Fill + Copy>: VectorField<Scalar> {
     fn rand(&mut self, rng: &mut impl rand::Rng);
 }
 
 
-pub trait VectorFieldNum<S: Num + Copy + PartialOrd>: VectorField<S> + VectorFieldAdd<S> + VectorFieldSub<S> +
-VectorFieldMul<S> + VectorFieldDiv<S> + VectorFieldPartialOrd<S> + VectorFieldRem<S> +
+pub trait VectorFieldNum<S: Num + Copy + PartialOrd>: VectorField<S> +
+VectorFieldAdd<S> + VectorFieldSub<S> +
+VectorFieldMul<S> + VectorFieldDiv<S> +
+VectorFieldDivDefaultZero<S> + VectorFieldRemDefaultZero<S> +
+VectorFieldPartialOrd<S> + VectorFieldRem<S> +
 VectorFieldOne<S> + VectorFieldZero<S> {}
 
 impl<T: Copy, const DIM: usize> VectorField<T> for [T; DIM] {
@@ -156,12 +185,24 @@ impl<T: Copy, const DIM: usize> VectorField<T> for [T; DIM] {
         }
         arr
     }
+
+    fn new_const(s: T) -> Self {
+        [s;DIM]
+    }
+
     fn all(&self, mut f: impl FnMut(T) -> bool) -> bool {
         self.iter().cloned().all(f)
+    }
+    fn any(&self, mut f: impl FnMut(T) -> bool) -> bool {
+        self.iter().cloned().any(f)
     }
 
     fn all_zip(&self, other: &Self, mut f: impl FnMut(T, T) -> bool) -> bool {
         self.iter().zip(other.iter()).all(|(&a, &b)| f(a, b))
+    }
+
+    fn any_zip(&self, other: &Self, mut f: impl FnMut(T, T) -> bool) -> bool {
+        self.iter().zip(other.iter()).any(|(&a, &b)| f(a, b))
     }
 
     fn zip(&self, other: &Self, mut f: impl FnMut(T, T) -> T) -> Self {
@@ -180,6 +221,10 @@ impl<T: Copy + Add<Output=T> + Zero, const DIM: usize> VectorFieldZero<T> for [T
 impl<T: Copy + Sub<Output=T>, const DIM: usize> VectorFieldSub<T> for [T; DIM] {}
 
 impl<T: Copy + Div<Output=T>, const DIM: usize> VectorFieldDiv<T> for [T; DIM] {}
+
+impl<T: Copy + Div<Output=T> + Zero, const DIM: usize> VectorFieldDivDefaultZero<T> for [T; DIM] {}
+
+impl<T: Copy + Rem<Output=T> + Zero, const DIM: usize> VectorFieldRemDefaultZero<T> for [T; DIM] {}
 
 impl<T: Copy + Mul<Output=T>, const DIM: usize> VectorFieldMul<T> for [T; DIM] {}
 

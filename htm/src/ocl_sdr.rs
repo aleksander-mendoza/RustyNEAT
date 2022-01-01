@@ -4,19 +4,19 @@ use std::ops::{Index, IndexMut, Mul, Add, Range, Sub, Div, AddAssign, DivAssign,
 use std::fmt::{Display, Formatter, Debug};
 use ocl::core::{MemInfo, MemInfoResult, BufferRegion, Mem, ArgVal};
 use ndalgebra::buffer::Buffer;
-use crate::htm_program::HtmProgram;
+use crate::ecc_program::EccProgram;
 use ndalgebra::context::Context;
 use crate::{CpuSDR, OclBitset};
 
 #[derive(Clone)]
 pub struct OclSDR {
-    prog:HtmProgram,
+    prog: EccProgram,
     buffer:Buffer<u32>,
     cardinality:u32,
 }
 
 impl OclSDR {
-    pub fn prog(&self)->&HtmProgram{
+    pub fn prog(&self)->&EccProgram {
         &self.prog
     }
     pub fn buffer(&self)->&Buffer<u32>{
@@ -46,7 +46,7 @@ impl OclSDR {
     pub fn max_active_neurons(&self)->usize{
         self.buffer.len()
     }
-    pub fn from_cpu(prog:HtmProgram, sdr:&CpuSDR, max_cardinality:u32) -> Result<Self,Error>{
+    pub fn from_cpu(prog: EccProgram, sdr:&CpuSDR, max_cardinality:u32) -> Result<Self,Error>{
         Self::from_slice(prog, &sdr[0..sdr.cardinality() as usize], max_cardinality)
     }
     pub fn in_place_from_bitset(&mut self, bits:&OclBitset) -> Result<(),Error>{
@@ -61,19 +61,19 @@ impl OclSDR {
         cardinality_buffer.read(prog.queue(),0,std::slice::from_mut(cardinality))?;
         Ok(())
     }
-    pub fn from_slice(prog:HtmProgram,sdr:&[u32],max_cardinality:u32) -> Result<Self,Error>{
+    pub fn from_slice(prog: EccProgram, sdr:&[u32], max_cardinality:u32) -> Result<Self,Error>{
         let mut ocl_sdr = Self::new(prog,max_cardinality)?;
         ocl_sdr.set(sdr)?;
         Ok(ocl_sdr)
     }
-    pub fn from_buff(prog:HtmProgram,buffer:Buffer<u32>, cardinality:u32) -> Self{
+    pub fn from_buff(prog: EccProgram, buffer:Buffer<u32>, cardinality:u32) -> Self{
         Self{
             prog,
             buffer,
             cardinality
         }
     }
-    pub fn new(prog:HtmProgram,max_cardinality:u32) -> Result<Self,Error>{
+    pub fn new(prog: EccProgram, max_cardinality:u32) -> Result<Self,Error>{
         let buffer = unsafe{Buffer::empty(prog.context(),flags::MEM_READ_WRITE,max_cardinality as usize)}?;
         Ok(Self{buffer,prog, cardinality:0})
     }

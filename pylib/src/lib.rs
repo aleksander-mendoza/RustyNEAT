@@ -5,6 +5,8 @@ mod py_ndalgebra;
 mod py_rustyneat;
 mod py_ocl;
 mod py_htm;
+mod py_ecc;
+mod util;
 
 use pyo3::prelude::*;
 use pyo3::{wrap_pyfunction, wrap_pymodule, PyObjectProtocol};
@@ -78,6 +80,15 @@ pub fn ndalgebra(py: Python, m: &PyModule) -> PyResult<()> {
 }
 
 #[pymodule]
+pub fn ecc(py: Python, m: &PyModule) -> PyResult<()> {
+    use py_ecc::*;
+    m.add_class::<CpuEccDense>()?;
+    m.add_class::<CpuEccSparse>()?;
+    // m.add_class::<CpuHOM>()?;
+    Ok(())
+}
+
+#[pymodule]
 pub fn htm(py: Python, m: &PyModule) -> PyResult<()> {
     use py_htm::*;
     m.add_function(wrap_pyfunction!(bitset_from_bools, m)?)?;
@@ -94,9 +105,6 @@ pub fn htm(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<CpuInput>()?;
     m.add_class::<OclBitset>()?;
     m.add_class::<OclInput>()?;
-    m.add_class::<CpuHTM>()?;
-    // m.add_class::<CpuBigHTM>()?;
-    // m.add_class::<CpuHOM>()?;
     m.add_class::<Population>()?;
     m.add_class::<Neuron>()?;
     m.add_class::<Segment>()?;
@@ -113,7 +121,6 @@ pub fn htm(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<IsWeekendEncoder>()?;
     m.add_class::<CircularIntegerEncoder>()?;
     m.add_class::<OclSDR>()?;
-    m.add_class::<OclHTM>()?;
     Ok(())
 }
 
@@ -130,6 +137,7 @@ fn rusty_neat(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(make_cpu_context, m)?)?;
     m.add_wrapped(wrap_pymodule!(ndalgebra))?;
     m.add_wrapped(wrap_pymodule!(htm))?;
+    m.add_wrapped(wrap_pymodule!(ecc))?;
     m.add_class::<py_ocl::Context>()?;
     m.add_class::<CPPN32>()?;
     m.add_class::<CPPN32>()?;
