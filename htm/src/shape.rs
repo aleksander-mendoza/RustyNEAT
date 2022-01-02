@@ -304,7 +304,8 @@ pub fn resolve_range<T: Add<Output=T> + Copy + One + Zero + PartialOrd + Debug>(
 }
 
 pub fn top_small_k_indices<V:Copy>(mut k: usize, n:usize, f: impl Fn(usize) -> V, gt:fn(V,V)->bool) -> Vec<(usize,V)>{
-    let mut heap:Vec<(usize,V)> = (0..k.min(n)).map(&f).enumerate().collect();
+    debug_assert!(k<=n);
+    let mut heap:Vec<(usize,V)> = (0..k).map(&f).enumerate().collect();
     heap.sort_by(|v1,v2|if gt(v1.1,v2.1){Greater}else{Less});
     for (idx,v) in (k..n).map(f).enumerate(){
         let idx = idx+1;

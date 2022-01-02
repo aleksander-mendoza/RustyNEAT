@@ -150,11 +150,11 @@ impl CpuEccDense {
     }
     #[getter]
     pub fn get_k(&self) -> usize {
-        self.ecc.k
+        self.ecc.k()
     }
     #[setter]
     pub fn set_k(&mut self, k: usize) {
-        self.ecc.k = k
+        self.ecc.set_k(k)
     }
     #[getter]
     pub fn get_threshold(&self) -> f32 {
@@ -257,11 +257,11 @@ impl CpuEccSparse {
     }
     #[getter]
     pub fn get_k(&self) -> usize {
-        self.ecc.k
+        self.ecc.k()
     }
     #[setter]
     pub fn set_k(&mut self, k: usize) {
-        self.ecc.k = k
+        self.ecc.set_k(k)
     }
     #[getter]
     pub fn get_threshold(&self) -> u16 {

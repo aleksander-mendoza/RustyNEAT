@@ -331,7 +331,7 @@ class ExclusiveCoincidenceMachineConv:
         plt.show()
 
 
-EXPERIMENT = 2
+EXPERIMENT = 1
 n = "predictive_coding_stacked3_experiment"+str(EXPERIMENT)
 if EXPERIMENT == 1:
     ExclusiveCoincidenceMachineConv(

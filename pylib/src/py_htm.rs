@@ -901,6 +901,27 @@ impl CpuSDR {
     fn subsample(&mut self, number_of_bits_to_retain: usize) {
         self.sdr.shrink(number_of_bits_to_retain)
     }
+    #[text_signature = "(idx)"]
+    pub fn get(&self, idx: usize)->u32 {
+        self.sdr[idx]
+    }
+    #[text_signature = "(idx, value)"]
+    pub fn set(&mut self, idx: usize, value:u32) {
+        self.sdr[idx] = value
+    }
+    #[text_signature = "()"]
+    pub fn item(&self) -> u32 {
+        assert_eq!(self.sdr.len(),1,"The SDR is not a singleton");
+        self.sdr[0]
+    }
+    #[text_signature = "(idx)"]
+    pub fn remove(&mut self, idx: usize) -> u32 {
+        self.sdr.remove(idx)
+    }
+    #[text_signature = "(idx)"]
+    pub fn swap_remove(&mut self, idx: usize) -> u32 {
+        self.sdr.swap_remove(idx)
+    }
     #[text_signature = "(other_sdr)"]
     pub fn extend(&mut self, other: &CpuSDR) {
         self.sdr.extend(&other.sdr)
@@ -1365,6 +1386,23 @@ impl PySequenceProtocol for CpuSDR {
     }
 }
 
+// #[pyproto]
+// impl PySequenceProtocol for CpuSDR{
+// fn __getitem__(&self, idx: usize) -> u32{
+//     self.sdr[idx]
+// }
+//
+//     fn __setitem__(&mut self, idx: usize, value: u32) -> u32{
+//         let prev = self.sdr[idx];
+//         self.sdr[idx] = value;
+//         prev
+//     }
+//     fn __delitem__(&mut self, idx: usize) -> u32{
+//         self.sdr.remove(idx)
+//     }
+//
+// }
+
 #[pyproto]
 impl PyObjectProtocol for CpuSDR {
     fn __str__(&self) -> PyResult<String> {
@@ -1396,7 +1434,6 @@ pub struct CpuSDRIter {
     inner: Py<CpuSDR>,
     idx: usize,
 }
-
 #[pyproto]
 impl PyIterProtocol for CpuSDRIter {
     fn __iter__(slf: PyRef<Self>) -> PyRef<Self> {

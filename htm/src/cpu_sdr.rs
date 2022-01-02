@@ -81,6 +81,12 @@ impl CpuSDR {
             *i = new_i as u32;
         }
     }
+    pub fn swap_remove(&mut self, idx:usize) -> u32 {
+        self.0.swap_remove(idx)
+    }
+    pub fn remove(&mut self, idx:usize) -> u32 {
+        self.0.remove(idx)
+    }
     pub fn as_mut_slice(&mut self) -> &mut [u32] {
         self.0.as_mut_slice()
     }

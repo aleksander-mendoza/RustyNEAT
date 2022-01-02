@@ -15,6 +15,7 @@ MNIST, LABELS = torch.load('htm/data/mnist.pt')
 
 activity_epsilon = 0.0001
 
+
 def rand_patch(patch_size):
     r = np.random.rand(2)
     img = MNIST[int(np.random.rand() * len(MNIST))]
@@ -85,7 +86,7 @@ class ExclusiveCoincidenceMachineConv:
         return self.top[layer]
 
     def top_output(self, layer):
-        return self.top[layer + 1]
+        return self.top[layer if layer < 0 else layer + 1]
 
     @property
     def input_size(self):
@@ -117,12 +118,12 @@ class ExclusiveCoincidenceMachineConv:
             if s % interval == 0:
                 # with open(save_file + ".model", "wb+") as f:
                 #     self.
-                stats = np.zeros(patch_size)
+                stats = torch.zeros([patch_size[0],patch_size[1],self.channels[-1]])
                 for img, sdr in tqdm(test_patches, desc="eval"):
                     # img = normalise_img(rand_patch())
                     top = self.run(sdr)
                     if top:
-                        stats[top] += img
+                        stats[:,:,top.item()] += img
 
                 for i in range(w):
                     for j in range(h):
@@ -134,7 +135,7 @@ class ExclusiveCoincidenceMachineConv:
 
 
 EXPERIMENT = 1
-n = "predictive_coding_stacked3_experiment" + str(EXPERIMENT)
+n = "predictive_coding_stacked4_experiment" + str(EXPERIMENT)
 if EXPERIMENT == 1:
     ExclusiveCoincidenceMachineConv(
         output_size=np.array([1, 1]),
@@ -143,6 +144,6 @@ if EXPERIMENT == 1:
         channels=[1, 50, 20, 20],
         k=[10, 1, 1],
         conn_sparsity=[4, None, None]
-    ).experiment(4, 5, n)
+    ).experiment(4, 5, n, interval=20000)
 elif EXPERIMENT == 2:
     pass
