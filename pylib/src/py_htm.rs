@@ -7,11 +7,11 @@ use rusty_neat_core::activations::{STR_TO_IDX, ALL_ACT_FN};
 use pyo3::exceptions::PyValueError;
 use rusty_neat_core::cppn::CPPN;
 use std::iter::FromIterator;
-use pyo3::types::{PyString, PyDateTime, PyDateAccess, PyTimeAccess, PyList, PyInt};
+use pyo3::types::{PyString, PyDateTime, PyDateAccess, PyTimeAccess, PyList, PyInt, PyFloat};
 use rusty_neat_core::num::Num;
 use rusty_neat_core::gpu::{FeedForwardNetOpenCL, FeedForwardNetPicbreeder, FeedForwardNetSubstrate};
 use pyo3::basic::CompareOp;
-use numpy::{PyReadonlyArrayDyn, PyArrayDyn, IntoPyArray, PyArray, PY_ARRAY_API, npyffi, Element, ToNpyDims, DataType};
+use numpy::{PyReadonlyArrayDyn, PyArrayDyn, IntoPyArray, PyArray, PY_ARRAY_API, npyffi, Element, ToNpyDims, DataType, PyReadonlyArray, PyArray3, PyArray1};
 use numpy::npyffi::{NPY_ORDER, npy_intp, NPY_ARRAY_WRITEABLE};
 use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
@@ -27,6 +27,8 @@ use std::fs::{File, OpenOptions};
 use serde_pickle::SerOptions;
 use serde::Serialize;
 use crate::util::*;
+use std::any::{Any, TypeId};
+use pyo3::ffi::PyFloat_Type;
 
 #[pyclass]
 pub struct CpuSDR {
@@ -76,23 +78,25 @@ pub struct EncoderBuilder {
 ///
 #[pyclass]
 pub struct Population {
-    pop:htm::Population,
+    pop: htm::Population,
 }
+
 ///
 /// Neuron(num_of_segments:int)
 ///
 ///
 #[pyclass]
 pub struct Neuron {
-    n:htm::Neuron,
+    n: htm::Neuron,
 }
+
 ///
 /// Segment()
 ///
 ///
 #[pyclass]
 pub struct Segment {
-    seg:htm::Segment,
+    seg: htm::Segment,
 }
 
 #[pyclass]
@@ -103,6 +107,13 @@ pub struct CategoricalEncoder {
 #[pyclass]
 pub struct BitsEncoder {
     enc: htm::BitsEncoder,
+}
+
+#[pyclass]
+pub struct ImageEncoder {
+    enc: htm::ImageEncoder,
+    threshold_f32:f32,
+    threshold_i32:i32,
 }
 
 #[pyclass]
@@ -176,6 +187,16 @@ impl EncoderBuilder {
     pub fn add_bits(&mut self, size: u32) -> BitsEncoder {
         BitsEncoder { enc: self.enc.add_bits(size) }
     }
+    #[text_signature = "(width,height,channels, threshold)"]
+    pub fn add_image(&mut self, width: usize, height:usize, channels:usize, threshold:&PyAny) -> PyResult<ImageEncoder> {
+        Ok(if PyFloat::is_type_of(threshold){
+            let threshold:f32 = threshold.extract()?;
+            ImageEncoder::new_f32(self.enc.add_image(width,height,channels), threshold)
+        }else{
+            let threshold:i32 = threshold.extract()?;
+            ImageEncoder::new_i32(self.enc.add_image(width,height,channels), threshold)
+        })
+    }
     #[text_signature = "(from_inclusive,to_exclusive,size,cardinality)"]
     pub fn add_integer(&mut self, from: u32, to: u32, size: u32, cardinality: u32) -> IntegerEncoder {
         IntegerEncoder { enc: self.enc.add_integer(from..to, size, cardinality) }
@@ -226,6 +247,59 @@ fn encode_err<T, U>(sdr: PyObject, scalar: T, f1: impl FnOnce(&mut htm::CpuSDR, 
         f1(&mut sdr.sdr, scalar)
     };
     o
+}
+impl ImageEncoder{
+    pub fn new_f32(enc:htm::ImageEncoder,threshold:f32)->Self{
+        Self{
+            enc,
+            threshold_f32: threshold,
+            threshold_i32: (256.*threshold) as i32,
+        }
+    }
+    pub fn new_i32(enc:htm::ImageEncoder,threshold:i32)->Self{
+        Self{
+            enc,
+            threshold_f32: threshold as f32 / 256.,
+            threshold_i32: threshold,
+        }
+    }
+    fn enc<T:Copy+numpy::Element>(&self, sdr: PyObject, input: &PyAny, convert:impl Fn(T)->bool) -> PyResult<()> {
+        let array = unsafe { &*(input as *const PyAny as *const PyArray3<T>) };
+        let array_shape = array.shape();
+        if array_shape.len() != 3 || !self.enc.shape().iter().zip(array_shape.iter()).all(|(&a, &b)| a == b) {
+            return Err(PyValueError::new_err(format!("Expected numpy array of shape {:?} but got {:?}", self.enc.shape(), array_shape)));
+        }
+        encode(sdr, array,
+               |x, s| self.enc.encode(x, |x, y, c| convert(*unsafe{array.get([x, y, c])}.unwrap())),
+               |x, s| self.enc.encode(x, |x, y, c| convert(*unsafe{array.get([x, y, c])}.unwrap())),
+               |x, s| self.enc.encode(x, |x, y, c| convert(*unsafe{array.get([x, y, c])}.unwrap())))
+    }
+}
+#[pymethods]
+impl ImageEncoder {
+    pub fn encode(&self, sdr: PyObject, input: &PyAny) -> PyResult<()> {
+        let array = unsafe {
+            if npyffi::PyArray_Check(input.as_ptr()) == 0 {
+                return Err(PyDowncastError::new(input, "PyArray<T, D>").into());
+            }
+            &*(input as *const PyAny as *const PyArrayDyn<u8>)
+        };
+        let actual_dtype = array.dtype().get_datatype().ok_or_else(|| PyValueError::new_err("No numpy array has no dtype"))?;
+        match actual_dtype{
+            DataType::Bool => self.enc(sdr,input,|f:bool|f),
+            DataType::Int8 => self.enc(sdr,input,|f:i8|f as i32>self.threshold_i32),
+            DataType::Int16 => self.enc(sdr,input,|f:i16|f as i32>self.threshold_i32),
+            DataType::Int32 => self.enc(sdr,input,|f:i32|f as i32>self.threshold_i32),
+            DataType::Int64 => self.enc(sdr,input,|f:i64|f as i32>self.threshold_i32),
+            DataType::Uint8 => self.enc(sdr,input,|f:u8|f as i32>self.threshold_i32),
+            DataType::Uint16 => self.enc(sdr,input,|f:u16|f as i32>self.threshold_i32),
+            DataType::Uint32 => self.enc(sdr,input,|f:u32|f as i32>self.threshold_i32),
+            DataType::Uint64 => self.enc(sdr,input,|f:u64|f as i32>self.threshold_i32),
+            DataType::Float32 => self.enc(sdr,input,|f:f32|f as f32>self.threshold_f32),
+            DataType::Float64 => self.enc(sdr,input,|f:f64|f as f32>self.threshold_f32),
+            _ => Err(PyValueError::new_err(format!("Unsupported data type {:?}", actual_dtype)))
+        }
+    }
 }
 
 #[pymethods]
@@ -449,133 +523,133 @@ impl BoolEncoder {
 #[pymethods]
 impl Population {
     #[new]
-    pub fn new(population_size:Option<usize>,num_of_segments:Option<usize>) -> Self {
-        Self{pop:htm::Population::new(population_size.unwrap_or(0),num_of_segments.unwrap_or(1))}
+    pub fn new(population_size: Option<usize>, num_of_segments: Option<usize>) -> Self {
+        Self { pop: htm::Population::new(population_size.unwrap_or(0), num_of_segments.unwrap_or(1)) }
     }
 
     #[text_signature = "(input_range,total_region,subregion_start,subregion_end,synapse_count)"]
-    pub fn add_uniform_rand_inputs_from_area(&mut self, input_range:(usize,usize), total_region:PyObject, subregion_start:PyObject,subregion_end:PyObject,synapse_count:usize) -> PyResult<()> {
+    pub fn add_uniform_rand_inputs_from_area(&mut self, input_range: (usize, usize), total_region: PyObject, subregion_start: PyObject, subregion_end: PyObject, synapse_count: usize) -> PyResult<()> {
         let gil = Python::acquire_gil();
         let py = gil.python();
         let input_range = input_range.0..input_range.1;
-        let total_region = arrX(py,&total_region,1,1,input_range.len())?;
-        let subregion_start = arrX(py,&subregion_start,0,0,0)?;
-        let subregion_end = arrX(py,&subregion_end,total_region[0],total_region[1],total_region[2])?;
-        Ok(self.pop.add_uniform_rand_inputs_from_area(input_range,total_region,subregion_start..subregion_end,synapse_count,&mut rand::thread_rng()))
+        let total_region = arrX(py, &total_region, 1, 1, input_range.len())?;
+        let subregion_start = arrX(py, &subregion_start, 0, 0, 0)?;
+        let subregion_end = arrX(py, &subregion_end, total_region[0], total_region[1], total_region[2])?;
+        Ok(self.pop.add_uniform_rand_inputs_from_area(input_range, total_region, subregion_start..subregion_end, synapse_count, &mut rand::thread_rng()))
     }
 
     #[text_signature = "(input_range,synapse_count)"]
-    pub fn add_uniform_rand_inputs_from_range(&mut self, input_range:(usize,usize),synapse_count:usize) -> PyResult<()> {
-        Ok(self.pop.add_uniform_rand_inputs_from_range(input_range.0..input_range.1,synapse_count,&mut rand::thread_rng()))
+    pub fn add_uniform_rand_inputs_from_range(&mut self, input_range: (usize, usize), synapse_count: usize) -> PyResult<()> {
+        Ok(self.pop.add_uniform_rand_inputs_from_range(input_range.0..input_range.1, synapse_count, &mut rand::thread_rng()))
     }
 
     #[text_signature = "(input_range,total_region,subregion_start,subregion_end)"]
-    pub fn add_all_inputs_from_area(&mut self, input_range:(usize,usize), total_region:PyObject, subregion_start:PyObject,subregion_end:PyObject) -> PyResult<()> {
+    pub fn add_all_inputs_from_area(&mut self, input_range: (usize, usize), total_region: PyObject, subregion_start: PyObject, subregion_end: PyObject) -> PyResult<()> {
         let gil = Python::acquire_gil();
         let py = gil.python();
         let input_range = input_range.0..input_range.1;
-        let total_region = arrX(py,&total_region,1,1,input_range.len())?;
-        let subregion_start = arrX(py,&subregion_start,0,0,0)?;
-        let subregion_end = arrX(py,&subregion_end,total_region[0],total_region[1],total_region[2])?;
-        Ok(self.pop.add_all_inputs_from_area(input_range,total_region,subregion_start..subregion_end,&mut rand::thread_rng()))
+        let total_region = arrX(py, &total_region, 1, 1, input_range.len())?;
+        let subregion_start = arrX(py, &subregion_start, 0, 0, 0)?;
+        let subregion_end = arrX(py, &subregion_end, total_region[0], total_region[1], total_region[2])?;
+        Ok(self.pop.add_all_inputs_from_area(input_range, total_region, subregion_start..subregion_end, &mut rand::thread_rng()))
     }
 
     #[text_signature = "(input_range)"]
-    pub fn add_all_inputs_from_range(&mut self, input_range:(usize,usize)) -> PyResult<()> {
-        Ok(self.pop.add_all_inputs_from_range(input_range.0..input_range.1,&mut rand::thread_rng()))
+    pub fn add_all_inputs_from_range(&mut self, input_range: (usize, usize)) -> PyResult<()> {
+        Ok(self.pop.add_all_inputs_from_range(input_range.0..input_range.1, &mut rand::thread_rng()))
     }
 
     #[text_signature = "(input_range,neurons_per_column,synapses_per_segment,stride,kernel,input_size)"]
-    pub fn add_2d_column_grid_with_3d_input(&mut self, input_range:(usize,usize),neurons_per_column: usize,synapses_per_segment: usize, stride:PyObject, kernel:PyObject,input_size:PyObject) -> PyResult<()> {
+    pub fn add_2d_column_grid_with_3d_input(&mut self, input_range: (usize, usize), neurons_per_column: usize, synapses_per_segment: usize, stride: PyObject, kernel: PyObject, input_size: PyObject) -> PyResult<()> {
         let gil = Python::acquire_gil();
         let py = gil.python();
-        let stride = arr2(py,&stride)?;
-        let kernel = arr2(py,&kernel)?;
-        let input_size = arr3(py,&input_size)?;
-        Ok(self.pop.add_2d_column_grid_with_3d_input(input_range.0..input_range.1,neurons_per_column,synapses_per_segment,stride,kernel,input_size,&mut rand::thread_rng()))
+        let stride = arr2(py, &stride)?;
+        let kernel = arr2(py, &kernel)?;
+        let input_size = arr3(py, &input_size)?;
+        Ok(self.pop.add_2d_column_grid_with_3d_input(input_range.0..input_range.1, neurons_per_column, synapses_per_segment, stride, kernel, input_size, &mut rand::thread_rng()))
     }
     #[text_signature = "(input_range,neurons_per_column,segments_per_neuron,synapses_per_segment,stride,kernel,input_size)"]
-    pub fn push_add_2d_column_grid_with_3d_input(&mut self, input_range:(usize,usize),neurons_per_column: usize,segments_per_neuron: usize,synapses_per_segment: usize, stride:PyObject, kernel:PyObject,input_size:PyObject) -> PyResult<()> {
+    pub fn push_add_2d_column_grid_with_3d_input(&mut self, input_range: (usize, usize), neurons_per_column: usize, segments_per_neuron: usize, synapses_per_segment: usize, stride: PyObject, kernel: PyObject, input_size: PyObject) -> PyResult<()> {
         let gil = Python::acquire_gil();
         let py = gil.python();
-        let stride = arr2(py,&stride)?;
-        let kernel = arr2(py,&kernel)?;
-        let input_size = arr3(py,&input_size)?;
-        let output = [input_size[1],input_size[2]].conv_out_size(&stride,&kernel);
-        self.pop.push_neurons((output.product()*neurons_per_column) as usize,segments_per_neuron);
-        Ok(self.pop.add_2d_column_grid_with_3d_input(input_range.0..input_range.1,neurons_per_column,synapses_per_segment,stride,kernel,input_size,&mut rand::thread_rng()))
+        let stride = arr2(py, &stride)?;
+        let kernel = arr2(py, &kernel)?;
+        let input_size = arr3(py, &input_size)?;
+        let output = [input_size[1], input_size[2]].conv_out_size(&stride, &kernel);
+        self.pop.push_neurons((output.product() * neurons_per_column) as usize, segments_per_neuron);
+        Ok(self.pop.add_2d_column_grid_with_3d_input(input_range.0..input_range.1, neurons_per_column, synapses_per_segment, stride, kernel, input_size, &mut rand::thread_rng()))
     }
     #[text_signature = "(neurons_per_column,segments_per_neuron,stride,kernel,input_size)"]
-    pub fn push_2d_column_grid_with_3d_input(&mut self, neurons_per_column: usize,segments_per_neuron: usize, stride:PyObject, kernel:PyObject,input_size:PyObject) -> PyResult<()> {
+    pub fn push_2d_column_grid_with_3d_input(&mut self, neurons_per_column: usize, segments_per_neuron: usize, stride: PyObject, kernel: PyObject, input_size: PyObject) -> PyResult<()> {
         let gil = Python::acquire_gil();
         let py = gil.python();
-        let stride = arr2::<usize>(py,&stride)?;
-        let kernel = arr2(py,&kernel)?;
-        let input_size = arr3(py,&input_size)?;
-        let output = [input_size[1],input_size[2]].conv_out_size(&stride,&kernel);
-        self.pop.push_neurons(output.product()*neurons_per_column,segments_per_neuron);
+        let stride = arr2::<usize>(py, &stride)?;
+        let kernel = arr2(py, &kernel)?;
+        let input_size = arr3(py, &input_size)?;
+        let output = [input_size[1], input_size[2]].conv_out_size(&stride, &kernel);
+        self.pop.push_neurons(output.product() * neurons_per_column, segments_per_neuron);
         Ok(())
     }
     #[text_signature = "()"]
-    pub fn set_weights_random(&mut self){
+    pub fn set_weights_random(&mut self) {
         self.pop.set_weights_random(&mut rand::thread_rng())
     }
     #[text_signature = "()"]
-    pub fn set_weights_uniform(&mut self){
+    pub fn set_weights_uniform(&mut self) {
         self.pop.set_weights_uniform()
     }
     #[text_signature = "(weight)"]
-    pub fn set_weights_const(&mut self, weight:f32){
+    pub fn set_weights_const(&mut self, weight: f32) {
         self.pop.set_weights_const(weight)
     }
     #[text_signature = "(scale)"]
-    pub fn set_weights_scaled(&mut self, scale:f32){
+    pub fn set_weights_scaled(&mut self, scale: f32) {
         self.pop.set_weights_scaled(scale)
     }
     #[text_signature = "()"]
-    pub fn get_weights_sum(&mut self)->f32{
+    pub fn get_weights_sum(&mut self) -> f32 {
         self.pop.get_weights_sum()
     }
     #[text_signature = "()"]
-    pub fn set_weights_normalized(&mut self){
+    pub fn set_weights_normalized(&mut self) {
         self.pop.set_weights_normalized()
     }
     #[text_signature = "()"]
-    pub fn total_synapses(&mut self)->usize{
+    pub fn total_synapses(&mut self) -> usize {
         self.pop.total_synapses()
     }
     #[text_signature = "()"]
-    pub fn get_weights_mean(&mut self)->f32{
+    pub fn get_weights_mean(&mut self) -> f32 {
         self.pop.get_weights_mean()
     }
 
     #[text_signature = "(other)"]
-    pub fn zip_join(&mut self,other:&Population) {
+    pub fn zip_join(&mut self, other: &Population) {
         self.pop.zip_join(&other.pop)
     }
     #[text_signature = "(other)"]
-    pub fn append(&mut self,other:&Population) {
+    pub fn append(&mut self, other: &Population) {
         self.pop.append(&mut other.pop.clone())
     }
     #[text_signature = "(other)"]
-    pub fn zip_append(&mut self,other:&Population) {
+    pub fn zip_append(&mut self, other: &Population) {
         self.pop.zip_append(&mut other.pop.clone())
     }
     #[text_signature = "()"]
-    pub fn clone(&self) -> Self{
-        Self{pop:self.pop.clone()}
+    pub fn clone(&self) -> Self {
+        Self { pop: self.pop.clone() }
     }
     #[text_signature = "(neuron)"]
-    pub fn push(&mut self, neuron:&Neuron) {
+    pub fn push(&mut self, neuron: &Neuron) {
         self.pop.push(neuron.n.clone())
     }
     #[text_signature = "(population_size,segments_per_neuron)"]
-    pub fn push_neurons(&mut self, population_size: usize, segments_per_neuron: Option<usize>){
-        self.pop.push_neurons(population_size,segments_per_neuron.unwrap_or(1))
+    pub fn push_neurons(&mut self, population_size: usize, segments_per_neuron: Option<usize>) {
+        self.pop.push_neurons(population_size, segments_per_neuron.unwrap_or(1))
     }
     #[text_signature = "(index)"]
-    pub fn remove(&mut self, index:usize) -> Neuron {
-        Neuron{n:self.pop.remove(index)}
+    pub fn remove(&mut self, index: usize) -> Neuron {
+        Neuron { n: self.pop.remove(index) }
     }
     #[getter]
     fn get_len(&self) -> usize {
@@ -586,73 +660,73 @@ impl Population {
 #[pymethods]
 impl Neuron {
     #[new]
-    pub fn new(num_of_segments:usize) -> Self {
-        Self{n:htm::Neuron::new(num_of_segments)}
+    pub fn new(num_of_segments: usize) -> Self {
+        Self { n: htm::Neuron::new(num_of_segments) }
     }
     #[text_signature = "(input_range,total_region,subregion_start,subregion_end,synapse_count)"]
-    pub fn add_uniform_rand_inputs_from_area(&mut self, input_range:(usize,usize), total_region:PyObject, subregion_start:PyObject,subregion_end:PyObject,synapse_count:usize) -> PyResult<()> {
+    pub fn add_uniform_rand_inputs_from_area(&mut self, input_range: (usize, usize), total_region: PyObject, subregion_start: PyObject, subregion_end: PyObject, synapse_count: usize) -> PyResult<()> {
         let gil = Python::acquire_gil();
         let py = gil.python();
         let input_range = input_range.0..input_range.1;
-        let total_region = arrX(py,&total_region,1,1,input_range.len())?;
-        let subregion_start = arrX(py,&subregion_start,0,0,0)?;
-        let subregion_end = arrX(py,&subregion_end,total_region[0],total_region[1],total_region[2])?;
-        Ok(self.n.add_uniform_rand_inputs_from_area(input_range,total_region,subregion_start..subregion_end,synapse_count,&mut rand::thread_rng()))
+        let total_region = arrX(py, &total_region, 1, 1, input_range.len())?;
+        let subregion_start = arrX(py, &subregion_start, 0, 0, 0)?;
+        let subregion_end = arrX(py, &subregion_end, total_region[0], total_region[1], total_region[2])?;
+        Ok(self.n.add_uniform_rand_inputs_from_area(input_range, total_region, subregion_start..subregion_end, synapse_count, &mut rand::thread_rng()))
     }
 
     #[text_signature = "(input_range,synapse_count)"]
-    pub fn add_uniform_rand_inputs_from_range(&mut self, input_range:(usize,usize),synapse_count:usize) -> PyResult<()> {
-        Ok(self.n.add_uniform_rand_inputs_from_range(input_range.0..input_range.1,synapse_count,&mut rand::thread_rng()))
+    pub fn add_uniform_rand_inputs_from_range(&mut self, input_range: (usize, usize), synapse_count: usize) -> PyResult<()> {
+        Ok(self.n.add_uniform_rand_inputs_from_range(input_range.0..input_range.1, synapse_count, &mut rand::thread_rng()))
     }
     #[text_signature = "()"]
-    pub fn set_weights_random(&mut self){
+    pub fn set_weights_random(&mut self) {
         self.n.set_weights_random(&mut rand::thread_rng())
     }
     #[text_signature = "()"]
-    pub fn set_weights_uniform(&mut self){
+    pub fn set_weights_uniform(&mut self) {
         self.n.set_weights_uniform()
     }
     #[text_signature = "(weight)"]
-    pub fn set_weights_const(&mut self, weight:f32){
+    pub fn set_weights_const(&mut self, weight: f32) {
         self.n.set_weights_const(weight)
     }
     #[text_signature = "(scale)"]
-    pub fn set_weights_scaled(&mut self, scale:f32){
+    pub fn set_weights_scaled(&mut self, scale: f32) {
         self.n.set_weights_scaled(scale)
     }
     #[text_signature = "()"]
-    pub fn get_weights_sum(&mut self)->f32{
+    pub fn get_weights_sum(&mut self) -> f32 {
         self.n.get_weights_sum()
     }
     #[text_signature = "()"]
-    pub fn set_weights_normalized(&mut self){
+    pub fn set_weights_normalized(&mut self) {
         self.n.set_weights_normalized()
     }
     #[text_signature = "()"]
-    pub fn total_synapses(&mut self)->usize{
+    pub fn total_synapses(&mut self) -> usize {
         self.n.total_synapses()
     }
     #[text_signature = "()"]
-    pub fn get_weights_mean(&mut self)->f32{
+    pub fn get_weights_mean(&mut self) -> f32 {
         self.n.get_weights_mean()
     }
     #[text_signature = "(input_range,total_region,subregion_start,subregion_end)"]
-    pub fn add_all_inputs_from_area(&mut self, input_range:(usize,usize), total_region:PyObject, subregion_start:PyObject,subregion_end:PyObject) -> PyResult<()> {
+    pub fn add_all_inputs_from_area(&mut self, input_range: (usize, usize), total_region: PyObject, subregion_start: PyObject, subregion_end: PyObject) -> PyResult<()> {
         let gil = Python::acquire_gil();
         let py = gil.python();
         let input_range = input_range.0..input_range.1;
-        let total_region = arrX(py,&total_region,1,1,input_range.len())?;
-        let subregion_start = arrX(py,&subregion_start,0,0,0)?;
-        let subregion_end = arrX(py,&subregion_end,total_region[0],total_region[1],total_region[2])?;
-        Ok(self.n.add_all_inputs_from_area(input_range,total_region,subregion_start..subregion_end,&mut rand::thread_rng()))
+        let total_region = arrX(py, &total_region, 1, 1, input_range.len())?;
+        let subregion_start = arrX(py, &subregion_start, 0, 0, 0)?;
+        let subregion_end = arrX(py, &subregion_end, total_region[0], total_region[1], total_region[2])?;
+        Ok(self.n.add_all_inputs_from_area(input_range, total_region, subregion_start..subregion_end, &mut rand::thread_rng()))
     }
 
     #[text_signature = "(input_range)"]
-    pub fn add_all_inputs_from_range(&mut self, input_range:(usize,usize)) -> PyResult<()> {
-        Ok(self.n.add_all_inputs_from_range(input_range.0..input_range.1,&mut rand::thread_rng()))
+    pub fn add_all_inputs_from_range(&mut self, input_range: (usize, usize)) -> PyResult<()> {
+        Ok(self.n.add_all_inputs_from_range(input_range.0..input_range.1, &mut rand::thread_rng()))
     }
     #[text_signature = "(other)"]
-    pub fn zip_join(&mut self, other:&Self) {
+    pub fn zip_join(&mut self, other: &Self) {
         self.n.zip_join(&other.n)
     }
     #[text_signature = "()"]
@@ -665,7 +739,7 @@ impl Neuron {
         self.n.collapse()
     }
     #[text_signature = "(other)"]
-    pub fn append(&mut self,other:&Neuron) {
+    pub fn append(&mut self, other: &Neuron) {
         self.n.append(&mut other.n.clone())
     }
     #[getter]
@@ -673,48 +747,47 @@ impl Neuron {
         self.n.is_empty()
     }
     #[text_signature = "()"]
-    pub fn clone(&self) -> Self{
-        Self{n:self.n.clone()}
+    pub fn clone(&self) -> Self {
+        Self { n: self.n.clone() }
     }
     #[text_signature = "(segment)"]
-    pub fn push(&mut self, segment:&Segment) {
+    pub fn push(&mut self, segment: &Segment) {
         self.n.push(segment.seg.clone())
     }
     #[text_signature = "(index)"]
-    pub fn remove(&mut self, index:usize) -> Segment {
-        Segment{seg:self.n.remove(index)}
+    pub fn remove(&mut self, index: usize) -> Segment {
+        Segment { seg: self.n.remove(index) }
     }
     #[getter]
     fn get_len(&self) -> usize {
         self.n.len()
     }
-
 }
 
 #[pymethods]
 impl Segment {
     #[new]
     pub fn new() -> Self {
-        Self{seg:htm::Segment::new()}
+        Self { seg: htm::Segment::new() }
     }
     #[text_signature = "(input_range,total_region,subregion_start,subregion_end,synapse_count)"]
-    pub fn add_uniform_rand_inputs_from_area(&mut self, input_range:(usize,usize), total_region:PyObject, subregion_start:PyObject,subregion_end:PyObject,synapse_count:usize) -> PyResult<()> {
+    pub fn add_uniform_rand_inputs_from_area(&mut self, input_range: (usize, usize), total_region: PyObject, subregion_start: PyObject, subregion_end: PyObject, synapse_count: usize) -> PyResult<()> {
         let gil = Python::acquire_gil();
         let py = gil.python();
         let input_range = input_range.0..input_range.1;
-        let total_region = arrX(py,&total_region,1,1,input_range.len())?;
-        let subregion_start = arrX(py,&subregion_start,0,0,0)?;
-        let subregion_end = arrX(py,&subregion_end,total_region[0],total_region[1],total_region[2])?;
-        Ok(self.seg.add_uniform_rand_inputs_from_area(input_range,total_region,subregion_start..subregion_end,synapse_count,&mut rand::thread_rng()))
+        let total_region = arrX(py, &total_region, 1, 1, input_range.len())?;
+        let subregion_start = arrX(py, &subregion_start, 0, 0, 0)?;
+        let subregion_end = arrX(py, &subregion_end, total_region[0], total_region[1], total_region[2])?;
+        Ok(self.seg.add_uniform_rand_inputs_from_area(input_range, total_region, subregion_start..subregion_end, synapse_count, &mut rand::thread_rng()))
     }
 
     #[text_signature = "(input_range,synapse_count)"]
-    pub fn add_uniform_rand_inputs_from_range(&mut self, input_range:(usize,usize),synapse_count:usize) -> PyResult<()> {
-        Ok(self.seg.add_uniform_rand_inputs_from_range(input_range.0..input_range.1,synapse_count,&mut rand::thread_rng()))
+    pub fn add_uniform_rand_inputs_from_range(&mut self, input_range: (usize, usize), synapse_count: usize) -> PyResult<()> {
+        Ok(self.seg.add_uniform_rand_inputs_from_range(input_range.0..input_range.1, synapse_count, &mut rand::thread_rng()))
     }
 
     #[text_signature = "(other)"]
-    pub fn join(&mut self, other:&Self) {
+    pub fn join(&mut self, other: &Self) {
         self.seg.join(&other.seg)
     }
     #[text_signature = "()"]
@@ -722,15 +795,15 @@ impl Segment {
         self.seg.dedup()
     }
     #[text_signature = "()"]
-    pub fn clone(&self) -> Self{
-        Self{seg:self.seg.clone()}
+    pub fn clone(&self) -> Self {
+        Self { seg: self.seg.clone() }
     }
     #[text_signature = "(neuron_idx,weight)"]
-    pub fn push(&mut self, neuron_idx:usize, weight:f32) {
-        self.seg.synapses.push(Synapse::new(neuron_idx,weight))
+    pub fn push(&mut self, neuron_idx: usize, weight: f32) {
+        self.seg.synapses.push(Synapse::new(neuron_idx, weight))
     }
     #[text_signature = "(index)"]
-    pub fn remove(&mut self, index:usize) -> usize {
+    pub fn remove(&mut self, index: usize) -> usize {
         self.seg.synapses.swap_remove(index).input_idx
     }
     #[getter]
@@ -738,50 +811,49 @@ impl Segment {
         self.seg.synapses.len()
     }
     #[text_signature = "()"]
-    pub fn set_weights_random(&mut self){
+    pub fn set_weights_random(&mut self) {
         self.seg.set_weights_random(&mut rand::thread_rng())
     }
     #[text_signature = "()"]
-    pub fn set_weights_uniform(&mut self){
+    pub fn set_weights_uniform(&mut self) {
         self.seg.set_weights_uniform()
     }
     #[text_signature = "(weight)"]
-    pub fn set_weights_const(&mut self, weight:f32){
+    pub fn set_weights_const(&mut self, weight: f32) {
         self.seg.set_weights_const(weight)
     }
     #[text_signature = "(scale)"]
-    pub fn set_weights_scaled(&mut self, scale:f32){
+    pub fn set_weights_scaled(&mut self, scale: f32) {
         self.seg.set_weights_scaled(scale)
     }
     #[text_signature = "()"]
-    pub fn get_weights_sum(&mut self)->f32{
+    pub fn get_weights_sum(&mut self) -> f32 {
         self.seg.get_weights_sum()
     }
     #[text_signature = "()"]
-    pub fn set_weights_normalized(&mut self){
+    pub fn set_weights_normalized(&mut self) {
         self.seg.set_weights_normalized()
     }
     #[text_signature = "()"]
-    pub fn get_weights_mean(&mut self)->f32{
+    pub fn get_weights_mean(&mut self) -> f32 {
         self.seg.get_weights_mean()
     }
     #[text_signature = "(input_range,total_region,subregion_start,subregion_end)"]
-    pub fn add_all_inputs_from_area(&mut self, input_range:(usize,usize), total_region:PyObject, subregion_start:PyObject,subregion_end:PyObject) -> PyResult<()> {
+    pub fn add_all_inputs_from_area(&mut self, input_range: (usize, usize), total_region: PyObject, subregion_start: PyObject, subregion_end: PyObject) -> PyResult<()> {
         let gil = Python::acquire_gil();
         let py = gil.python();
         let input_range = input_range.0..input_range.1;
-        let total_region = arrX(py,&total_region,1,1,input_range.len())?;
-        let subregion_start = arrX(py,&subregion_start,0,0,0)?;
-        let subregion_end = arrX(py,&subregion_end,total_region[0],total_region[1],total_region[2])?;
-        Ok(self.seg.add_all_inputs_from_area(input_range,total_region,subregion_start..subregion_end,&mut rand::thread_rng()))
+        let total_region = arrX(py, &total_region, 1, 1, input_range.len())?;
+        let subregion_start = arrX(py, &subregion_start, 0, 0, 0)?;
+        let subregion_end = arrX(py, &subregion_end, total_region[0], total_region[1], total_region[2])?;
+        Ok(self.seg.add_all_inputs_from_area(input_range, total_region, subregion_start..subregion_end, &mut rand::thread_rng()))
     }
 
     #[text_signature = "(input_range)"]
-    pub fn add_all_inputs_from_range(&mut self, input_range:(usize,usize)) -> PyResult<()> {
-        Ok(self.seg.add_all_inputs_from_range(input_range.0..input_range.1,&mut rand::thread_rng()))
+    pub fn add_all_inputs_from_range(&mut self, input_range: (usize, usize)) -> PyResult<()> {
+        Ok(self.seg.add_all_inputs_from_range(input_range.0..input_range.1, &mut rand::thread_rng()))
     }
 }
-
 
 
 #[pymethods]
@@ -917,6 +989,10 @@ impl CpuSDR {
         CpuInput { inp: htm::CpuInput::from_sparse(self.sdr.clone(), input_size) }
     }
     #[text_signature = "()"]
+    pub fn to_numpy_indices<'py>(&self, py: Python<'py>) -> &'py PyArray1<u32> {
+        PyArray1::from_slice(py,self.sdr.as_slice())
+    }
+    #[text_signature = "()"]
     pub fn clone(&self) -> Self {
         CpuSDR { sdr: self.sdr.clone() }
     }
@@ -957,10 +1033,10 @@ pub fn vote(sdrs: Vec<PyRef<CpuSDR>>, n: usize, threshold: u32) -> CpuSDR {
 pub fn conv_out_size(input_size: PyObject, stride: PyObject, kernel: PyObject) -> PyResult<Vec<u32>> {
     let gil = Python::acquire_gil();
     let py = gil.python();
-    let input_size = arrX(py,&input_size,1,1,1)?;
-    let stride = arrX(py,&stride,1,1,1)?;
-    let kernel = arrX(py,&kernel,1,1,1)?;
-    let out_size = input_size.conv_out_size(&stride,&kernel);
+    let input_size = arrX(py, &input_size, 1, 1, 1)?;
+    let stride = arrX(py, &stride, 1, 1, 1)?;
+    let kernel = arrX(py, &kernel, 1, 1, 1)?;
+    let out_size = input_size.conv_out_size(&stride, &kernel);
     Ok(out_size.to_vec())
 }
 
@@ -969,35 +1045,36 @@ pub fn conv_out_size(input_size: PyObject, stride: PyObject, kernel: PyObject) -
 pub fn conv_in_size(output_size: PyObject, stride: PyObject, kernel: PyObject) -> PyResult<Vec<u32>> {
     let gil = Python::acquire_gil();
     let py = gil.python();
-    let output_size = arrX(py,&output_size,1,1,1)?;
-    let stride = arrX(py,&stride,1,1,1)?;
-    let kernel = arrX(py,&kernel,1,1,1)?;
-    let in_size = output_size.conv_in_size(&stride,&kernel);
+    let output_size = arrX(py, &output_size, 1, 1, 1)?;
+    let stride = arrX(py, &stride, 1, 1, 1)?;
+    let kernel = arrX(py, &kernel, 1, 1, 1)?;
+    let in_size = output_size.conv_in_size(&stride, &kernel);
     Ok(in_size.to_vec())
 }
+
 #[pyfunction]
 #[text_signature = "(input_size,output_size,kernel)"]
 pub fn conv_stride(input_size: PyObject, output_size: PyObject, kernel: PyObject) -> PyResult<Vec<u32>> {
     let gil = Python::acquire_gil();
     let py = gil.python();
-    let input_size = arrX(py,&input_size,1,1,1)?;
-    let output_size = arrX(py,&output_size,1,1,1)?;
-    let kernel = arrX(py,&kernel,1,1,1)?;
-    let stride = input_size.conv_stride(&output_size,&kernel);
+    let input_size = arrX(py, &input_size, 1, 1, 1)?;
+    let output_size = arrX(py, &output_size, 1, 1, 1)?;
+    let kernel = arrX(py, &kernel, 1, 1, 1)?;
+    let stride = input_size.conv_stride(&output_size, &kernel);
     Ok(stride.to_vec())
 }
 
 #[pyfunction]
 #[text_signature = "(stride1,kernel1,stride2,kernel2)"]
-pub fn conv_compose(stride1: PyObject, kernel1: PyObject,stride2: PyObject, kernel2: PyObject) -> PyResult<(Vec<u32>,Vec<u32>)> {
+pub fn conv_compose(stride1: PyObject, kernel1: PyObject, stride2: PyObject, kernel2: PyObject) -> PyResult<(Vec<u32>, Vec<u32>)> {
     let gil = Python::acquire_gil();
     let py = gil.python();
-    let stride1 = arrX(py,&stride1,1,1,1)?;
-    let kernel1 = arrX(py,&kernel1,1,1,1)?;
-    let stride2 = arrX(py,&stride2,1,1,1)?;
-    let kernel2 = arrX(py,&kernel2,1,1,1)?;
-    let (stride,kernel) = stride1.conv_compose(&kernel1,&stride2,&kernel2);
-    Ok((stride.to_vec(),kernel.to_vec()))
+    let stride1 = arrX(py, &stride1, 1, 1, 1)?;
+    let kernel1 = arrX(py, &kernel1, 1, 1, 1)?;
+    let stride2 = arrX(py, &stride2, 1, 1, 1)?;
+    let kernel2 = arrX(py, &kernel2, 1, 1, 1)?;
+    let (stride, kernel) = stride1.conv_compose(&kernel1, &stride2, &kernel2);
+    Ok((stride.to_vec(), kernel.to_vec()))
 }
 
 #[pyfunction]
@@ -1136,10 +1213,10 @@ impl CpuBitset {
         self.bits.set_bit_off(bit_idx)
     }
     #[text_signature = "(sdr,input_range)"]
-    pub fn set_bits_on(&mut self, sdr: &CpuSDR,input_range:Option<(u32,u32)>) {
-        if let Some(input_range) = input_range{
-            self.bits.set_bits_on_in_range(input_range.0..input_range.1,&sdr.sdr)
-        }else{
+    pub fn set_bits_on(&mut self, sdr: &CpuSDR, input_range: Option<(u32, u32)>) {
+        if let Some(input_range) = input_range {
+            self.bits.set_bits_on_in_range(input_range.0..input_range.1, &sdr.sdr)
+        } else {
             self.bits.set_bits_on(&sdr.sdr)
         }
     }
@@ -1156,10 +1233,10 @@ impl CpuBitset {
         Ok(self.bits.set_bits_on2d(arr2(py, &offset)?, arr2(py, &size)?, &sdr.sdr))
     }
     #[text_signature = "(sdr,input_range)"]
-    pub fn set_bits_off(&mut self, sdr: &CpuSDR,input_range:Option<(u32,u32)>) {
-        if let Some(input_range) = input_range{
-            self.bits.set_bits_off_in_range(input_range.0..input_range.1,&sdr.sdr)
-        }else{
+    pub fn set_bits_off(&mut self, sdr: &CpuSDR, input_range: Option<(u32, u32)>) {
+        if let Some(input_range) = input_range {
+            self.bits.set_bits_off_in_range(input_range.0..input_range.1, &sdr.sdr)
+        } else {
             self.bits.set_bits_off(&sdr.sdr)
         }
     }
@@ -1279,7 +1356,6 @@ impl CpuInput {
         self.inp.clear_range(from, to)
     }
 }
-
 
 
 #[pyproto]
@@ -1433,22 +1509,22 @@ impl PySequenceProtocol for Segment {
 }
 
 
-
 #[pyproto]
 impl PyNumberProtocol for Neuron {
     fn __add__(lhs: PyRef<Self>, rhs: PyRef<Self>) -> Self {
-        Self{n:lhs.n.clone()+rhs.n.clone()}
+        Self { n: lhs.n.clone() + rhs.n.clone() }
     }
     fn __mul__(lhs: PyRef<Self>, rhs: PyRef<Self>) -> Self {
-        Self{n:lhs.n.clone()*rhs.n.clone()}
+        Self { n: lhs.n.clone() * rhs.n.clone() }
     }
 }
+
 #[pyproto]
 impl PyNumberProtocol for Population {
     fn __add__(lhs: PyRef<Self>, rhs: PyRef<Self>) -> Self {
-        Self{pop:lhs.pop.clone()+rhs.pop.clone()}
+        Self { pop: lhs.pop.clone() + rhs.pop.clone() }
     }
     fn __mul__(lhs: PyRef<Self>, rhs: PyRef<Self>) -> Self {
-        Self{pop:lhs.pop.clone()*rhs.pop.clone()}
+        Self { pop: lhs.pop.clone() * rhs.pop.clone() }
     }
 }

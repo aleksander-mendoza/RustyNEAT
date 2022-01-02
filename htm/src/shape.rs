@@ -67,7 +67,8 @@ pub trait Shape<T: Num + Copy + Debug + PartialOrd, const DIM: usize>: Eq + Part
         //round_down((in_position +1 - kernel + stride - 1)/stride) == out_position_from
         //round_down((in_position - kernel + stride)/stride) == out_position_from
         //
-        //(in_position - kernel + stride)/stride .. in_position / stride
+        //(in_position - kernel + stride)/stride ..= in_position / stride
+        //(in_position - kernel + stride)/stride .. in_position / stride + 1
         let to = in_position.div(stride).add_scalar(T::one());
         let from = in_position.add(stride).sub(kernel_size).div(stride);
         from..to
@@ -76,7 +77,7 @@ pub trait Shape<T: Num + Copy + Debug + PartialOrd, const DIM: usize>: Eq + Part
     output range is clipped to 0, so that you don't get overflow on negative values when dealing with unsigned integers.*/
     fn conv_out_range_clipped(&self, stride: &Self, kernel_size: &Self) -> Range<Self> {
         let in_position = self;//position of an input neuron.
-        let to = in_position.div(stride);
+        let to = in_position.div(stride).add_scalar(T::one());
         let from = in_position.add(stride).max(kernel_size).sub(kernel_size).div(stride);
         from..to
     }
@@ -306,6 +307,7 @@ pub fn top_small_k_indices<V:Copy>(mut k: usize, n:usize, f: impl Fn(usize) -> V
     let mut heap:Vec<(usize,V)> = (0..k.min(n)).map(&f).enumerate().collect();
     heap.sort_by(|v1,v2|if gt(v1.1,v2.1){Greater}else{Less});
     for (idx,v) in (k..n).map(f).enumerate(){
+        let idx = idx+1;
         if gt(v, heap[0].1) {
             let mut i = 1;
             while i < k && gt(v, heap[i].1){

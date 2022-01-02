@@ -1,4 +1,4 @@
-use crate::{CpuSDR, CpuBitset};
+use crate::{CpuSDR, CpuBitset, VectorFieldOne, Shape3, Shape, from_xyz};
 use std::ops::{RangeBounds, Range};
 use chrono::{DateTime, Utc, TimeZone, Datelike, Timelike, NaiveTime};
 use itertools::Itertools;
@@ -114,7 +114,39 @@ impl EncoderRange for CategoricalEncoder{
         self.neuron_range_begin+self.sdr_cardinality*self.num_of_categories
     }
 }
+pub struct ImageEncoder{
+    neuron_range_begin:u32,
+    shape:[usize;3],
+}
+impl ImageEncoder{
+    pub fn shape(&self)->&[usize;3]{
+        &self.shape
+    }
+}
+impl <F:Fn(usize,usize,usize)->bool> Encoder<F> for ImageEncoder{
+    fn encode(&self, sdr:&mut impl EncoderTarget, image:F) {
+        for x in 0..self.shape.width(){
+            for y in 0..self.shape.height() {
+                for c in 0..self.shape.channels() {
+                    let val = image(x,y,c);
+                    if val{
+                        let neuron_idx = self.shape.idx(from_xyz(x,y,c));
+                        sdr.push(self.neuron_range_begin + neuron_idx as u32)
+                    }
+                }
+            }
+        }
+    }
+}
+impl EncoderRange for ImageEncoder{
+    fn neuron_range_begin(&self) -> u32 {
+        self.neuron_range_begin
+    }
 
+    fn neuron_range_end(&self) -> u32 {
+        self.neuron_range_begin+self.shape.product() as u32
+    }
+}
 pub struct BitsEncoder{
     neuron_range_begin:u32,//inclusive
     neuron_range_length:u32,
@@ -364,6 +396,15 @@ impl EncoderBuilder{
         BitsEncoder{
             neuron_range_begin,
             neuron_range_length: sdr_size
+        }
+    }
+    pub fn add_image(&mut self, width:usize, height:usize, channels:usize)->ImageEncoder{
+        let neuron_range_begin = self.len;
+        let shape = [width,height,channels];
+        self.len += shape.product() as u32;
+        ImageEncoder{
+            neuron_range_begin,
+            shape,
         }
     }
     /**size=total number of bits (on and off) in an SDR.
