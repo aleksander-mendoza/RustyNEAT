@@ -9,7 +9,7 @@ use ndalgebra::buffer::Buffer;
 use crate::cpu_bitset::CpuBitset;
 use std::cmp::Ordering;
 use serde::{Serialize, Deserialize};
-use crate::{Shape, resolve_range, Shape3};
+use crate::{Shape, resolve_range, Shape3, Shape2, from_xyz, from_xy};
 use std::collections::Bound;
 use crate::vector_field::{VectorFieldOne, VectorFieldDiv, VectorFieldAdd, VectorFieldMul, ArrayCast, VectorFieldSub, VectorFieldPartialOrd};
 use rand::Rng;
@@ -324,18 +324,18 @@ impl Population {
         })
     }
     pub fn add_2d_column_grid_with_3d_input(&mut self, input_range: Range<usize>, neurons_per_column: usize, synapses_per_segment: usize, stride: [usize; 2], kernel: [usize; 2], input_size: [usize; 3], rand_seed:&mut impl Rng)  {
-        let column_grid = [input_size.height(), input_size.width()].conv_out_size(&stride, &kernel);
+        let column_grid = input_size.grid().conv_out_size(&stride, &kernel);
         assert_eq!(self.len() ,column_grid.product()*neurons_per_column,"The stride {:?} and kernel {:?} produce column grid {:?} with {} neurons per column giving in total {} neurons but the population has {} neurons",stride, kernel, column_grid,neurons_per_column,column_grid.product()*neurons_per_column,self.len());
-        let input_subregion_size = [input_size[0], kernel[0], kernel[1]];
-        let output_grid = [neurons_per_column,column_grid[0],column_grid[1]];
-        for col0 in 0..column_grid[0] {
-            for col1 in 0..column_grid[1] {
-                let input_offset = [0, col0 * stride[0], col1 * stride[1]];
+        let input_subregion_size = kernel.add_channels(input_size.channels());
+        let output_grid = column_grid.add_channels(neurons_per_column);
+        for col0 in 0..column_grid.width() {
+            for col1 in 0..column_grid.height() {
+                let input_offset = from_xy(col0, col1).mul(&stride).add_channels(0);
                 debug_assert!(input_offset.all_lt(&input_size));
                 let input_end = input_offset.add(&input_subregion_size);
                 let subregion = input_offset..input_end;
                 for neuron in 0..neurons_per_column {
-                    let idx = output_grid.idx([neuron,col0,col1]) as usize;
+                    let idx = output_grid.idx(from_xyz(col0,col1,neuron)) as usize;
                     self.neurons[idx].add_uniform_rand_inputs_from_area(input_range.clone(), input_size, subregion.clone(), synapses_per_segment, rand_seed)
                 }
             }

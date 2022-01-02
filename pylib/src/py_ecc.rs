@@ -28,12 +28,20 @@ use serde_pickle::SerOptions;
 use serde::Serialize;
 use crate::util::*;
 use crate::py_htm::CpuSDR;
+use rand::SeedableRng;
 
+///
+/// CpuEccDense(output: list[int], kernel: list[int], stride: list[int], in_channels: int, out_channels: int, k: int)
+///
+///
 #[pyclass]
 pub struct CpuEccDense {
     ecc: htm::EccDense,
 }
-
+///
+/// CpuEccSparse(output: list[int], kernel: list[int], stride: list[int], in_channels: int, out_channels: int, k: int, connections_per_output: int)
+///
+///
 #[pyclass]
 pub struct CpuEccSparse {
     ecc: htm::EccSparse,
@@ -42,7 +50,7 @@ pub struct CpuEccSparse {
 #[pymethods]
 impl CpuEccDense {
     #[new]
-    pub fn new(output: PyObject, kernel: PyObject, stride: PyObject, in_channels: usize, out_channels: usize, k: usize, ) -> PyResult<Self> {
+    pub fn new(output: PyObject, kernel: PyObject, stride: PyObject, in_channels: usize, out_channels: usize, k: usize ) -> PyResult<Self> {
         let gil = Python::acquire_gil();
         let py = gil.python();
         let output = arr2(py, &output)?;
@@ -84,9 +92,26 @@ impl CpuEccDense {
         self.ecc.plasticity = plasticity
     }
 
+    #[getter]
+    pub fn get_rand_seed(&self) -> usize {
+        self.ecc.rand_seed
+    }
+    #[setter]
+    pub fn set_rand_seed(&mut self, rand_seed: usize) {
+        self.ecc.rand_seed = rand_seed
+    }
+
     #[text_signature = "(input_sdr)"]
-    pub fn run(&self, input: &CpuSDR) -> CpuSDR {
+    pub fn run(&mut self, input: &CpuSDR) -> CpuSDR {
         CpuSDR { sdr: self.ecc.run(&input.sdr) }
+    }
+    #[text_signature = "()"]
+    pub fn min_activity(&self) -> f32 {
+        self.ecc.min_activity()
+    }
+    #[text_signature = "(output_idx)"]
+    pub fn activity(&self, output_idx:usize) -> f32 {
+        self.ecc.activity(output_idx)
     }
     #[text_signature = "(input_pos,output_pos)"]
     pub fn w_index(&self, input_pos:PyObject, output_pos:PyObject)->PyResult<usize>{
@@ -97,14 +122,26 @@ impl CpuEccDense {
         Ok(self.ecc.w_index(&input_pos,&output_pos))
     }
 
-    #[text_signature = "(input_sdr,output_sdr)"]
+    #[text_signature = "(input_sdr,output_sdr,rand_seed)"]
     pub fn learn(&mut self, input: &CpuSDR, output:&CpuSDR){
-        self.ecc.learn(&input.sdr, &output.sdr,&mut rand::thread_rng())
+        self.ecc.learn(&input.sdr, &output.sdr)
     }
 
     #[text_signature = "(file)"]
     pub fn save(&self, file: String) -> PyResult<()> {
         pickle(&self.ecc,file)
+    }
+    #[text_signature = "(output_neuron_idx)"]
+    pub fn incoming_weight_sum(&self,output_neuron_idx:usize)->f32{
+        self.ecc.incoming_weight_sum(output_neuron_idx)
+    }
+    #[text_signature = "(output_neuron_idx)"]
+    pub fn normalise_weights(&mut self, output_neuron_idx:usize){
+        self.ecc.normalise_weights(output_neuron_idx)
+    }
+    #[text_signature = "()"]
+    pub fn normalise_all_weights(&mut self){
+        self.ecc.normalise_all_weights()
     }
 }
 

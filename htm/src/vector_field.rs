@@ -34,67 +34,95 @@ pub trait VectorFieldZero<Scalar: Zero + Add<Output=Scalar> + Copy>: VectorField
 }
 
 pub trait VectorFieldPartialOrd<Scalar: PartialOrd + Copy>: VectorField<Scalar> {
+    #[inline]
     fn all_le(&self, rhs: &Self) -> bool {
         self.all_zip(rhs, |l, r| l <= r)
     }
+    #[inline]
     fn all_le_scalar(&self, rhs: Scalar) -> bool {
         self.all( |l| l <= rhs)
     }
+    #[inline]
     fn all_lt(&self, rhs: &Self) -> bool {
         self.all_zip(rhs, |l, r| l < r)
     }
+    #[inline]
     fn all_lt_scalar(&self, rhs: Scalar) -> bool {
         self.all( |l| l < rhs)
     }
+    #[inline]
     fn all_gt(&self, rhs: &Self) -> bool {
         self.all_zip(rhs, |l, r| l > r)
     }
+    #[inline]
     fn all_gt_scalar(&self, rhs: Scalar) -> bool {
         self.all( |l| l > rhs)
     }
+    #[inline]
     fn all_ge(&self, rhs: &Self) -> bool {
         self.all_zip(rhs, |l, r| l >= r)
     }
+    #[inline]
     fn all_ge_scalar(&self, rhs: Scalar) -> bool {
         self.all( |l| l >= rhs)
     }
+    #[inline]
     fn all_eq(&self, rhs: &Self) -> bool {
         self.all_zip(rhs, |l, r| l == r)
     }
+    #[inline]
     fn all_eq_scalar(&self, rhs: Scalar) -> bool {
         self.all(|l| l == rhs)
     }
+    #[inline]
     fn all_neq(&self, rhs: &Self) -> bool {
         self.all_zip(rhs, |l, r| l != r)
     }
+    #[inline]
     fn all_neq_scalar(&self, rhs: Scalar) -> bool {
         self.all( |l| l != rhs)
     }
+    #[inline]
     fn max(&self, rhs: &Self) -> Self {
         self.zip(rhs, |l, r| if l > r { l } else { r })
     }
+    #[inline]
     fn min(&self, rhs: &Self) -> Self {
         self.zip(rhs, |l, r| if l < r { l } else { r })
     }
+    #[inline]
     fn max_scalar(&self, rhs: Scalar) -> Self {
         self.map(|l| if l > rhs { l } else { rhs })
     }
+    #[inline]
     fn min_scalar(&self, rhs: Scalar) -> Self {
         self.map(|l| if l < rhs { l } else { rhs })
     }
+    #[inline]
     fn any_le(&self, rhs: &Self) -> bool {
         self.any_zip(rhs, |l, r| l <= r)
     }
+    #[inline]
     fn any_le_scalar(&self, rhs: Scalar) -> bool { self.any( |l| l <= rhs) }
+    #[inline]
     fn any_lt(&self, rhs: &Self) -> bool { self.any_zip(rhs, |l, r| l < r) }
+    #[inline]
     fn any_lt_scalar(&self, rhs: Scalar) -> bool { self.any( |l| l < rhs) }
+    #[inline]
     fn any_gt(&self, rhs: &Self) -> bool { self.any_zip(rhs, |l, r| l > r) }
+    #[inline]
     fn any_gt_scalar(&self, rhs: Scalar) -> bool { self.any( |l| l > rhs) }
+    #[inline]
     fn any_ge(&self, rhs: &Self) -> bool { self.any_zip(rhs, |l, r| l >= r) }
+    #[inline]
     fn any_ge_scalar(&self, rhs: Scalar) -> bool { self.any( |l| l >= rhs) }
+    #[inline]
     fn any_eq(&self, rhs: &Self) -> bool { self.any_zip(rhs, |l, r| l == r) }
+    #[inline]
     fn any_eq_scalar(&self, rhs: Scalar) -> bool { self.any(|l| l == rhs) }
+    #[inline]
     fn any_neq(&self, rhs: &Self) -> bool { self.any_zip(rhs, |l, r| l != r) }
+    #[inline]
     fn any_neq_scalar(&self, rhs: Scalar) -> bool { self.any( |l| l != rhs) }
 }
 
@@ -174,10 +202,11 @@ VectorFieldPartialOrd<S> + VectorFieldRem<S> +
 VectorFieldOne<S> + VectorFieldZero<S> {}
 
 impl<T: Copy, const DIM: usize> VectorField<T> for [T; DIM] {
+    #[inline]
     fn fold(&self, zero: T, mut f: impl FnMut(T, T) -> T) -> T {
         self.iter().fold(zero, |a, b| f(a, *b))
     }
-
+    #[inline]
     fn map(&self, mut f: impl FnMut(T) -> T) -> Self {
         let mut arr: [T; DIM] = unsafe { MaybeUninit::uninit().assume_init() };
         for i in 0..DIM {
@@ -185,26 +214,27 @@ impl<T: Copy, const DIM: usize> VectorField<T> for [T; DIM] {
         }
         arr
     }
-
+    #[inline]
     fn new_const(s: T) -> Self {
         [s;DIM]
     }
-
+    #[inline]
     fn all(&self, mut f: impl FnMut(T) -> bool) -> bool {
         self.iter().cloned().all(f)
     }
+    #[inline]
     fn any(&self, mut f: impl FnMut(T) -> bool) -> bool {
         self.iter().cloned().any(f)
     }
-
+    #[inline]
     fn all_zip(&self, other: &Self, mut f: impl FnMut(T, T) -> bool) -> bool {
         self.iter().zip(other.iter()).all(|(&a, &b)| f(a, b))
     }
-
+    #[inline]
     fn any_zip(&self, other: &Self, mut f: impl FnMut(T, T) -> bool) -> bool {
         self.iter().zip(other.iter()).any(|(&a, &b)| f(a, b))
     }
-
+    #[inline]
     fn zip(&self, other: &Self, mut f: impl FnMut(T, T) -> T) -> Self {
         let mut arr: [T; DIM] = unsafe { MaybeUninit::uninit().assume_init() };
         for i in 0..DIM {

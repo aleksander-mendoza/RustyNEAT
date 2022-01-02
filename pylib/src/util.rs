@@ -106,4 +106,3 @@ pub fn py_any_as_numpy<T:Element>(input: &PyAny) -> Result<&PyArrayDyn<T>, PyErr
     let array = unsafe { &*(input as *const PyAny as *const PyArrayDyn<T>) };
     Ok(array)
 }
-

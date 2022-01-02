@@ -14,6 +14,7 @@ mod vector_field;
 mod population;
 mod cpu_assembly;
 mod cpu_ecc;
+mod xorshift;
 
 pub use cpu_ecc::*;
 pub use population::*;

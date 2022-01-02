@@ -29,7 +29,7 @@ pub trait Shape<T: Num + Copy + Debug + PartialOrd, const DIM: usize>: Eq + Part
         let mut idx = T::zero();
         for dim in 0..DIM {
             let dim_size = self.dim(dim);
-            assert!(pos[dim] < dim_size, "position[{:?}]=={:?} >= shape[{:?}]=={:?}", dim, pos[dim], dim, dim_size);
+            assert!(pos[dim] < dim_size, "at dim={}, position=={:?} >= shape=={:?}", dim, pos, self);
             idx = idx * dim_size + pos[dim];
         }
         idx
@@ -362,14 +362,46 @@ impl <T:Copy> Shape3 for [T;3]{
     }
 
     fn width(&self) -> T {
-        self[1]
+        self[0]
     }
 
     fn height(&self) -> T {
-        self[0]
+        self[1]
     }
 
     fn channels(&self) -> T {
         self[2]
     }
+}
+pub trait Shape2{
+    type T:Copy;
+    type A3:Shape3<T=Self::T>;
+    fn add_channels(&self,channels:Self::T) -> Self::A3;
+
+    fn width(&self) -> Self::T;
+
+    fn height(&self) -> Self::T;
+}
+impl <T:Copy> Shape2 for [T;2] {
+    type T = T;
+    type A3 = [T;3];
+
+    fn add_channels(&self,channels: T) -> Self::A3 {
+        [self[0],self[1],channels]
+    }
+
+    fn width(&self) -> T {
+        self[0]
+    }
+
+    fn height(&self) -> T {
+        self[1]
+    }
+}
+
+pub fn from_xy<T>(width:T,height:T) -> [T;2]{
+    [width,height]
+}
+pub fn from_xyz<T>(width:T,height:T,channels:T) -> [T;3]{
+    [width,height,channels]
 }
