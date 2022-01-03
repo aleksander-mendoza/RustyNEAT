@@ -55,7 +55,7 @@ pub struct CpuEccSparse {
 ///
 #[pyclass]
 pub struct CpuEccMachine {
-    ecc: Vec<SparseOrDense>,
+    ecc: htm::CpuEccMachine
 }
 
 #[pymethods]
@@ -79,50 +79,82 @@ impl CpuEccMachine {
         let py = gil.python();
         let output = arr2(py, &output)?;
         let mut rng = rand::thread_rng();
-        let layers:PyResult<Vec<SparseOrDense>> = (0..layers).map(|i| {
-            let in_channels = channels[i];
-            let out_channels = channels[i + 1];
-            let k = k[i];
-            let kernel = arr2(py, &kernels[i])?;
-            let stride = arr2(py, &strides[i])?;
-            Ok(if let Some(connections_per_output) = connections_per_output[i] {
-                SparseOrDense::Sparse(htm::EccSparse::new(output, kernel, stride, in_channels, out_channels, k, connections_per_output, &mut rng))
-            } else {
-                SparseOrDense::Dense(htm::EccDense::new(output, kernel, stride, in_channels, out_channels, k, &mut rng))
-            })
-        }).collect();
-        Ok(Self { ecc: layers? })
+        let kernels:PyResult<Vec<[usize;2]>> = kernels.into_iter().map(|k|arr2(py, &k)).collect();
+        let strides:PyResult<Vec<[usize;2]>> = strides.into_iter().map(|k|arr2(py, &k)).collect();
+        Ok(Self{ecc:htm::CpuEccMachine::new(output,&kernels?,&strides?,&channels,&k,&connections_per_output,&mut rng)})
     }
 
-    // #[getter]
-    // pub fn get_in_shape(&self) -> Vec<usize> {
-    //     self.ecc.in_shape().to_vec()
-    // }
-    // #[getter]
-    // pub fn get_out_shape(&self) -> Vec<usize> {
-    //     self.ecc.out_shape().to_vec()
-    // }
-    // #[text_signature = "(layer)"]
-    // pub fn get_k(&self,layer:usize) -> usize {
-    //     self.ecc[layer].k
-    // }
-    // #[text_signature = "(layer, k)"]
-    // pub fn set_k(&mut self, layer:usize,k: usize) {
-    //     self.ecc[layer].k = k
-    // }
-    // #[text_signature = "(layer)"]
-    // pub fn get_threshold(&self, layer:usize) -> u16 {
-    //     self.ecc[layer].threshold
-    // }
-    // #[text_signature = "(layer, threshold)"]
-    // pub fn set_threshold(&mut self, layer:usize, threshold: PyAny) {
-    //     self.ecc[layer].threshold = threshold
-    // }
-    //
-    // #[text_signature = "(input_sdr)"]
-    // pub fn run(&mut self, input: &CpuSDR) -> CpuSDR {
-    //     CpuSDR { sdr: self.ecc.run(&input.sdr) }
-    // }
+    #[text_signature = "(layer)"]
+    pub fn get_in_shape(&self,layer:usize) -> Vec<usize> {
+        self.ecc[layer].in_shape().to_vec()
+    }
+    #[text_signature = "(layer)"]
+    pub fn get_out_shape(&self,layer:usize) -> Vec<usize> {
+        self.ecc[layer].in_shape().to_vec()
+    }
+    #[text_signature = "(layer)"]
+    pub fn get_kernel(&self,layer:usize) -> Vec<usize> {
+        self.ecc[layer].kernel().to_vec()
+    }
+    #[text_signature = "(layer)"]
+    pub fn get_stride(&self,layer:usize) -> Vec<usize> {
+        self.ecc[layer].stride().to_vec()
+    }
+    #[text_signature = "(layer)"]
+    pub fn get_sums(&self,py:Python,layer:usize) -> PyObject {
+        match &self.ecc[layer]{
+            SparseOrDense::Sparse(a) => a.sums.to_object(py),
+            SparseOrDense::Dense(a) => a.sums.to_object(py)
+        }
+    }
+    #[text_signature = "(layer)"]
+    pub fn get_k(&self,layer:usize) -> usize {
+        self.ecc[layer].k()
+    }
+    #[text_signature = "(layer, k)"]
+    pub fn set_k(&mut self, layer:usize,k: usize) {
+        self.ecc[layer].set_k(k)
+    }
+    #[text_signature = "(layer)"]
+    pub fn get_threshold(&self,py: Python, layer:usize) -> PyObject {
+        match &self.ecc[layer]{
+            SparseOrDense::Sparse(a) => a.threshold.to_object(py),
+            SparseOrDense::Dense(a) => a.threshold.to_object(py),
+        }
+    }
+    #[text_signature = "(layer, threshold)"]
+    pub fn set_threshold(&mut self, py: Python, layer:usize, threshold: PyObject) -> PyResult<()>{
+        match &mut self.ecc[layer]{
+            SparseOrDense::Sparse(a) => a.threshold = threshold.extract(py)?,
+            SparseOrDense::Dense(a) => a.threshold = threshold.extract(py)?,
+        }
+        Ok(())
+    }
+
+    #[text_signature = "(input_sdr)"]
+    pub fn run(&mut self, input: &CpuSDR){
+        self.ecc.run(&input.sdr);
+    }
+    #[text_signature = "()"]
+    pub fn learn(&mut self){
+        self.ecc.learn();
+    }
+    #[text_signature = "()"]
+    pub fn last_output_sdr(&self)->CpuSDR{
+        CpuSDR{sdr:self.ecc.last_output_sdr().clone()}
+    }
+    #[text_signature = "()"]
+    pub fn item(&self)->u32{
+        self.ecc.last_output_sdr().item()
+    }
+    #[text_signature = "(layer_index)"]
+    pub fn output_sdr(&self, layer_index:usize)->CpuSDR{
+        CpuSDR{sdr:self.ecc.output_sdr(layer_index).clone()}
+    }
+    #[text_signature = "(layer_index)"]
+    pub fn input_sdr(&self, layer_index:usize)->CpuSDR{
+        CpuSDR{sdr:self.ecc.output_sdr(layer_index).clone()}
+    }
     #[text_signature = "(file)"]
     pub fn save(&self, file: String) -> PyResult<()> {
         pickle(&self.ecc, file)
@@ -182,7 +214,10 @@ impl CpuEccDense {
     pub fn set_rand_seed(&mut self, rand_seed: usize) {
         self.ecc.rand_seed = rand_seed
     }
-
+    #[text_signature = "(input_sdr,output_sdr)"]
+    pub fn run_in_place(&mut self, input: &CpuSDR, output:&mut CpuSDR){
+        self.ecc.run_in_place(&input.sdr,&mut output.sdr)
+    }
     #[text_signature = "(input_sdr)"]
     pub fn run(&mut self, input: &CpuSDR) -> CpuSDR {
         CpuSDR { sdr: self.ecc.run(&input.sdr) }
@@ -275,6 +310,10 @@ impl CpuEccSparse {
     #[text_signature = "(input_sdr)"]
     pub fn run(&mut self, input: &CpuSDR) -> CpuSDR {
         CpuSDR { sdr: self.ecc.run(&input.sdr) }
+    }
+    #[text_signature = "(input_sdr,output_sdr)"]
+    pub fn run_in_place(&mut self, input: &CpuSDR, output:&mut CpuSDR){
+        self.ecc.run_in_place(&input.sdr,&mut output.sdr)
     }
     #[text_signature = "(file)"]
     pub fn save(&self, file: String) -> PyResult<()> {

@@ -2,9 +2,8 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_extra)]
 #![feature(array_map)]
-#![feature(const_generics)]
-#![feature(const_evaluatable_checked)]
 #![feature(new_uninit)]
+#![feature(generic_const_exprs)]
 #[macro_use]
 extern crate failure;
 

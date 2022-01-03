@@ -911,8 +911,7 @@ impl CpuSDR {
     }
     #[text_signature = "()"]
     pub fn item(&self) -> u32 {
-        assert_eq!(self.sdr.len(),1,"The SDR is not a singleton");
-        self.sdr[0]
+        self.sdr.item()
     }
     #[text_signature = "(idx)"]
     pub fn remove(&mut self, idx: usize) -> u32 {

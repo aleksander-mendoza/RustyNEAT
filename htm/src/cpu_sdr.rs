@@ -100,8 +100,12 @@ impl CpuSDR {
     pub fn retain(&mut self, mut predicate:impl FnMut(u32)->bool) {
         self.0.retain(|&x|predicate(x))
     }
+    pub fn item(&self)->u32{
+        assert_eq!(self.len(),1,"The SDR is not a singleton");
+        self.0[0]
+    }
     pub fn set(&mut self, active_neurons: &[u32]) {
-        unsafe { self.0.set_len(0) }
+        self.clear();
         self.0.extend_from_slice(active_neurons)
     }
     pub fn cardinality(&self) -> u32 {

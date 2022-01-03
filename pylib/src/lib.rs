@@ -84,6 +84,7 @@ pub fn ecc(py: Python, m: &PyModule) -> PyResult<()> {
     use py_ecc::*;
     m.add_class::<CpuEccDense>()?;
     m.add_class::<CpuEccSparse>()?;
+    m.add_class::<CpuEccMachine>()?;
     // m.add_class::<CpuHOM>()?;
     Ok(())
 }
