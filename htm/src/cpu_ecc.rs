@@ -331,7 +331,9 @@ impl EccDense {
     pub fn w(&self, input_pos: &[usize; 3], output_pos: &[usize; 3]) -> u32 {
         self.w[self.w_index(input_pos, output_pos)]
     }
-
+    pub fn incoming_weight_sum_f32(&self, output_neuron_idx: usize) -> f32 {
+        w_to_f32(self.incoming_weight_sum(output_neuron_idx))
+    }
     pub fn incoming_weight_sum(&self, output_neuron_idx: usize) -> u32 {
         let kv = self.kernel_column().product();
         let v = self.out_volume();
@@ -345,8 +347,14 @@ impl EccDense {
     pub fn min_activity(&self) -> u32 {
         self.activity.iter().cloned().reduce(|a, b| if a < b { a } else { b }).unwrap()
     }
+    pub fn min_activity_f32(&self) -> f32 {
+        w_to_f32(self.min_activity())
+    }
     pub fn activity(&self, output_idx: usize) -> u32 {
         self.activity[output_idx]
+    }
+    pub fn activity_f32(&self, output_idx: usize) -> f32 {
+        w_to_f32(self.activity(output_idx))
     }
 }
 

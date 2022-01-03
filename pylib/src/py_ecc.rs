@@ -190,20 +190,20 @@ impl CpuEccDense {
     }
     #[getter]
     pub fn get_threshold(&self) -> f32 {
-        self.ecc.threshold
+        self.ecc.get_threshold()
     }
     #[setter]
     pub fn set_threshold(&mut self, threshold: f32) {
-        self.ecc.threshold = threshold
+        self.ecc.set_threshold(threshold)
     }
 
     #[getter]
     pub fn get_plasticity(&self) -> f32 {
-        self.ecc.plasticity
+        self.ecc.get_plasticity()
     }
     #[setter]
     pub fn set_plasticity(&mut self, plasticity: f32) {
-        self.ecc.plasticity = plasticity
+        self.ecc.set_plasticity( plasticity)
     }
 
     #[getter]
@@ -223,12 +223,20 @@ impl CpuEccDense {
         CpuSDR { sdr: self.ecc.run(&input.sdr) }
     }
     #[text_signature = "()"]
-    pub fn min_activity(&self) -> f32 {
+    pub fn min_activity(&self) -> u32 {
         self.ecc.min_activity()
     }
+    #[text_signature = "()"]
+    pub fn min_activity_f32(&self) -> f32 {
+        self.ecc.min_activity_f32()
+    }
     #[text_signature = "(output_idx)"]
-    pub fn activity(&self, output_idx: usize) -> f32 {
+    pub fn activity(&self, output_idx: usize) -> u32 {
         self.ecc.activity(output_idx)
+    }
+    #[text_signature = "(output_idx)"]
+    pub fn activity_f32(&self, output_idx: usize) -> f32 {
+        self.ecc.activity_f32(output_idx)
     }
     #[text_signature = "(input_pos,output_pos)"]
     pub fn w_index(&self, input_pos: PyObject, output_pos: PyObject) -> PyResult<usize> {
@@ -239,7 +247,7 @@ impl CpuEccDense {
         Ok(self.ecc.w_index(&input_pos, &output_pos))
     }
     #[getter]
-    pub fn get_sums(&self) -> Vec<f32> {
+    pub fn get_sums(&self) -> Vec<u32> {
         self.ecc.sums.clone()
     }
 
@@ -253,16 +261,12 @@ impl CpuEccDense {
         pickle(&self.ecc, file)
     }
     #[text_signature = "(output_neuron_idx)"]
-    pub fn incoming_weight_sum(&self, output_neuron_idx: usize) -> f32 {
+    pub fn incoming_weight_sum(&self, output_neuron_idx: usize) -> u32 {
         self.ecc.incoming_weight_sum(output_neuron_idx)
     }
     #[text_signature = "(output_neuron_idx)"]
-    pub fn normalise_weights(&mut self, output_neuron_idx: usize) {
-        self.ecc.normalise_weights(output_neuron_idx)
-    }
-    #[text_signature = "()"]
-    pub fn normalise_all_weights(&mut self) {
-        self.ecc.normalise_all_weights()
+    pub fn incoming_weight_sum_f32(&self, output_neuron_idx: usize) -> f32 {
+        self.ecc.incoming_weight_sum_f32(output_neuron_idx)
     }
 }
 
