@@ -26,8 +26,8 @@ def rand_patch(patch_size):
 
 
 def experiment(ecc, w, h, save_file, iterations=1000000, interval=100000, test_patches=20000):
-    patch_size = ecc.input_size
-    print("PATCH_SIZE=", patch_size)
+    patch_size = np.array(ecc.get_in_shape(0))
+    print("PATCH_SIZE=", patch_size, "Params=", ecc.learnable_paramemters())
     fig, axs = plt.subplots(w, h)
     for a in axs:
         for b in a:
@@ -43,20 +43,21 @@ def experiment(ecc, w, h, save_file, iterations=1000000, interval=100000, test_p
 
     test_patches = [normalise_img(rand_patch(patch_size[:2])) for _ in range(test_patches)]
 
-    assert (self.last().out_shape == np.array([1, 1, self.channels[-1]])).all()
     for s in tqdm(range(iterations), desc="training"):
         img, sdr = normalise_img(rand_patch(patch_size[:2]))
-        self.run(sdr)
-        self.learn()
+        ecc.run(sdr)
+        ecc.learn()
         if s % interval == 0:
             # with open(save_file + ".model", "wb+") as f:
             #     self.
-            stats = torch.zeros([patch_size[0], patch_size[1], self.channels[-1]])
+            stats = torch.zeros([patch_size[0], patch_size[1], ecc.last_output_channels()])
             for img, sdr in tqdm(test_patches, desc="eval"):
                 # img = normalise_img(rand_patch())
-                top = self.run(sdr)
+                ecc.run(sdr)
+                # assert 0 not in ecc.output_sdr(2)
+                top = ecc.item()
                 if top:
-                    stats[:, :, top.item()] += img
+                    stats[:, :, top] += img
 
             for i in range(w):
                 for j in range(h):
@@ -67,8 +68,8 @@ def experiment(ecc, w, h, save_file, iterations=1000000, interval=100000, test_p
     plt.show()
 
 
-EXPERIMENT = 1
-n = "predictive_coding_stacked4_experiment" + str(EXPERIMENT)
+EXPERIMENT = 2
+n = "predictive_coding_stacked5_experiment" + str(EXPERIMENT)
 if EXPERIMENT == 1:
     experiment(ecc.CpuEccMachine(
         output=np.array([1, 1]),
@@ -79,4 +80,11 @@ if EXPERIMENT == 1:
         connections_per_output=[4, None, None]
     ), 4, 5, n, interval=20000)
 elif EXPERIMENT == 2:
-    pass
+    experiment(ecc.CpuEccMachine(
+        output=np.array([1, 1]),
+        kernels=[np.array([5, 5]), np.array([3, 3]), np.array([3, 3]), np.array([4, 4]), np.array([3, 3])],
+        strides=[np.array([2, 2]), np.array([1, 1]), np.array([1, 1]), np.array([1, 1]), np.array([1, 1])],
+        channels=[1, 50, 20, 20, 80, 40],
+        k=[10, 1, 1, 15, 1],
+        connections_per_output=[4, None, None, 7, None]
+    ), 8, 5, n, interval=20000)

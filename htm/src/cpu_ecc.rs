@@ -25,6 +25,7 @@ pub trait EccLayer {
     fn in_shape(&self) -> &[usize; 3];
     fn kernel(&self) -> &[usize; 2];
     fn stride(&self) -> &[usize; 2];
+    fn learnable_paramemters(&self) -> usize;
     fn run(&mut self, input: &CpuSDR) -> CpuSDR {
         let k = self.k();
         let a = self.out_area();
@@ -124,6 +125,13 @@ impl EccSparse {
         debug_assert_eq!(slf.max_incoming_synapses, connections_per_output);
         slf
     }
+    pub fn get_threshold_f32(&self) -> f32{
+        self.threshold as f32 / self.max_incoming_synapses as f32
+    }
+    pub fn set_threshold_f32(&mut self,threshold:f32){
+        assert!(threshold>0.,"Negative threshold!");
+        self.threshold = (self.max_incoming_synapses as f32 * threshold).round() as u16
+    }
     fn new_from_pop(k: usize, input_shape: [usize; 3], output_shape: [usize; 3], kernel: [usize; 2], stride: [usize; 2], population: &Population) -> Self {
         let mut connections: Vec<Vec<usize>> = (0..input_shape.product()).map(|_| vec![]).collect();
         let mut max_incoming_synapses = population.neurons.iter().map(|n| n.total_synapses()).max().unwrap();
@@ -164,6 +172,10 @@ impl EccLayer for EccSparse {
     fn kernel(&self) -> &[usize; 2] { &self.kernel }
 
     fn stride(&self) -> &[usize; 2] { &self.stride }
+
+    fn learnable_paramemters(&self) -> usize {
+        0
+    }
 
     fn run_in_place(&mut self, input: &CpuSDR, output: &mut CpuSDR) {
         self.sums.fill(0);
@@ -377,6 +389,11 @@ impl EccLayer for EccDense {
     fn stride(&self) -> &[usize; 2] {
         &self.stride
     }
+
+    fn learnable_paramemters(&self) -> usize {
+        self.w.len()
+    }
+
     fn run_in_place(&mut self, input: &CpuSDR, output: &mut CpuSDR) {
         self.sums.fill(0);
         let kernel_column = self.kernel_column();
@@ -536,6 +553,13 @@ impl EccLayer for SparseOrDense {
         }
     }
 
+    fn learnable_paramemters(&self) -> usize {
+        match self {
+            SparseOrDense::Sparse(a) => a.learnable_paramemters(),
+            SparseOrDense::Dense(a) => a.learnable_paramemters()
+        }
+    }
+
     fn run_in_place(&mut self, input: &CpuSDR, output: &mut CpuSDR) {
         match self {
             SparseOrDense::Sparse(a) => a.run_in_place(input, output),
@@ -607,6 +631,9 @@ impl CpuEccMachine {
             }
         }
         Self { ecc: layers_vec, inputs: (0..channels.len()).map(|_| CpuSDR::new()).collect() }
+    }
+    pub fn learnable_paramemters(&self) -> usize {
+        self.ecc.iter().map(|w|w.learnable_paramemters()).sum()
     }
     pub fn input_sdr(&self, layer_index: usize) -> &CpuSDR {
         &self.inputs[layer_index]

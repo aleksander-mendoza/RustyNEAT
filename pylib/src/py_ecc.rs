@@ -97,6 +97,22 @@ impl CpuEccMachine {
         self.ecc[layer].kernel().to_vec()
     }
     #[text_signature = "(layer)"]
+    pub fn get_in_channels(&self,layer:usize) -> usize {
+        self.ecc[layer].in_channels()
+    }
+    #[text_signature = "(layer)"]
+    pub fn get_out_channels(&self,layer:usize) -> usize {
+        self.ecc[layer].out_channels()
+    }
+    #[text_signature = "(layer)"]
+    pub fn get_in_volume(&self,layer:usize) -> usize {
+        self.ecc[layer].in_volume()
+    }
+    #[text_signature = "(layer)"]
+    pub fn get_out_volume(&self,layer:usize) -> usize {
+        self.ecc[layer].out_volume()
+    }
+    #[text_signature = "(layer)"]
     pub fn get_stride(&self,layer:usize) -> Vec<usize> {
         self.ecc[layer].stride().to_vec()
     }
@@ -130,7 +146,25 @@ impl CpuEccMachine {
         }
         Ok(())
     }
-
+    #[text_signature = "(layer)"]
+    pub fn get_threshold_f32(&self, layer:usize) -> f32 {
+        match &self.ecc[layer]{
+            SparseOrDense::Sparse(a) => a.get_threshold_f32(),
+            SparseOrDense::Dense(a) => a.get_threshold(),
+        }
+    }
+    #[text_signature = "(layer, threshold)"]
+    pub fn set_threshold_f32(&mut self, layer:usize, threshold: f32) -> PyResult<()>{
+        match &mut self.ecc[layer]{
+            SparseOrDense::Sparse(a) => a.set_threshold_f32(threshold),
+            SparseOrDense::Dense(a) => a.set_threshold(threshold),
+        }
+        Ok(())
+    }
+    #[text_signature = "(input_sdr)"]
+    pub fn learnable_paramemters(&self) -> usize {
+        self.ecc.learnable_paramemters()
+    }
     #[text_signature = "(input_sdr)"]
     pub fn run(&mut self, input: &CpuSDR){
         self.ecc.run(&input.sdr);
@@ -144,8 +178,17 @@ impl CpuEccMachine {
         CpuSDR{sdr:self.ecc.last_output_sdr().clone()}
     }
     #[text_signature = "()"]
-    pub fn item(&self)->u32{
-        self.ecc.last_output_sdr().item()
+    pub fn last_output_shape(&self)->Vec<usize>{
+        self.ecc.last().unwrap().out_shape().to_vec()
+    }
+    #[text_signature = "()"]
+    pub fn last_output_channels(&self)->usize{
+        self.ecc.last().unwrap().out_channels()
+    }
+    #[text_signature = "()"]
+    pub fn item(&self)->Option<u32>{
+        let o = self.ecc.last_output_sdr();
+        if o.is_empty(){None}else{Some(o.item())}
     }
     #[text_signature = "(layer_index)"]
     pub fn output_sdr(&self, layer_index:usize)->CpuSDR{
