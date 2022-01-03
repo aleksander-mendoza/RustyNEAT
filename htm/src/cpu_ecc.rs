@@ -9,13 +9,14 @@ use ndalgebra::buffer::Buffer;
 use crate::cpu_bitset::CpuBitset;
 use std::cmp::Ordering;
 use serde::{Serialize, Deserialize};
-use crate::{Shape, resolve_range, EncoderTarget, Synapse, top_large_k_indices, top_small_k_indices, Shape3, from_xyz, Shape2, from_xy};
-use std::collections::Bound;
+use crate::{Shape, resolve_range, EncoderTarget, Synapse, top_large_k_indices, top_small_k_indices, Shape3, from_xyz, Shape2, from_xy, range_contains};
+use std::collections::{Bound, HashSet};
 use crate::vector_field::{VectorFieldOne, VectorFieldDiv, VectorFieldAdd, VectorFieldMul, ArrayCast, VectorFieldSub, VectorFieldPartialOrd};
 use crate::population::Population;
 use rand::{Rng, SeedableRng};
 use crate::xorshift::{auto_gen_seed64, xorshift64, auto_gen_seed, xorshift};
 use itertools::{Itertools, assert_equal};
+use std::iter::Sum;
 
 pub trait EccLayer {
     fn k(&self) -> usize;
@@ -24,14 +25,14 @@ pub trait EccLayer {
     fn in_shape(&self) -> &[usize; 3];
     fn kernel(&self) -> &[usize; 2];
     fn stride(&self) -> &[usize; 2];
-    fn run(&mut self, input: &CpuSDR)->CpuSDR{
+    fn run(&mut self, input: &CpuSDR) -> CpuSDR {
         let k = self.k();
         let a = self.out_area();
-        let mut output = CpuSDR::with_capacity(a*k);
-        self.run_in_place(input,&mut output);
+        let mut output = CpuSDR::with_capacity(a * k);
+        self.run_in_place(input, &mut output);
         output
     }
-    fn run_in_place(&mut self, input: &CpuSDR, output:&mut CpuSDR);
+    fn run_in_place(&mut self, input: &CpuSDR, output: &mut CpuSDR);
     fn learn(&mut self, input: &CpuSDR, output: &CpuSDR);
     fn in_grid(&self) -> &[usize; 2] {
         let [ref grid @ .., _] = self.in_shape();
@@ -76,7 +77,7 @@ pub trait EccLayer {
         }
         top_k
     }
-    fn top_small_k_by_channel<V: Copy>(&self, f: impl Fn(usize) -> V, filter: impl Fn(usize, V) -> bool, gt: fn(V, V) -> bool,output:&mut CpuSDR) {
+    fn top_small_k_by_channel<V: Copy+Debug>(&self, f: impl Fn(usize) -> V, filter: impl Fn(usize, V) -> bool, gt: fn(V, V) -> bool, output: &mut CpuSDR) {
         let a = self.out_area();
         let c = self.out_channels();
         let k = self.k();
@@ -85,7 +86,9 @@ pub trait EccLayer {
             let r = c * column_idx;
             for (i, v) in top_small_k_indices(k, c, |i| f(i + r), gt) {
                 if filter(i, v) {
-                    output.push((r + i) as u32);
+                    let e = (r+i) as u32;
+                    debug_assert!(!output.as_slice().contains(&e),"{:?}<-{}={}+{}",output,e,r,i);
+                    output.push(e);
                 }
             }
         }
@@ -162,7 +165,7 @@ impl EccLayer for EccSparse {
 
     fn stride(&self) -> &[usize; 2] { &self.stride }
 
-    fn run_in_place(&mut self, input: &CpuSDR, output:&mut CpuSDR) {
+    fn run_in_place(&mut self, input: &CpuSDR, output: &mut CpuSDR) {
         self.sums.fill(0);
         for &input_idx in input.as_slice() {
             for &c in &self.connections[input_idx as usize] {
@@ -170,19 +173,40 @@ impl EccLayer for EccSparse {
             }
         }
         let t = self.threshold;
-        self.top_small_k_by_channel(|i| self.sums[i], |i, v| v >= t, |a, b| a > b,output)
+        self.top_small_k_by_channel(|i| self.sums[i], |i, v| v >= t, |a, b| a > b, output)
     }
 
     fn learn(&mut self, input: &CpuSDR, output: &CpuSDR) {}
 }
 
-pub const ACTIVITY_PENALTY: f32 = 0.0001;
+pub const MARGIN_OF_SAFETY: u8 = 2;
+pub const ACTIVITY_PENALTY: u32 = 1 << MARGIN_OF_SAFETY;
+pub const TOTAL_SUM: u32 = 1 << (10 + MARGIN_OF_SAFETY);
+// ACTIVITY_PENALTY == 2^2
+// TOTAL_SUM == 2^12
+//notice that in f32, the activity penalty becomes
+// ACTIVITY_PENALTY/TOTAL_SUM == 2^2/2^12 == 1/1024 ~= 0.0001
+pub const DEFAULT_PLASTICITY: u32 = ACTIVITY_PENALTY;
+pub const INITIAL_ACTIVITY: u32 = u32::MAX - TOTAL_SUM;
+
+// We have 21 bits of maneuver.
+// Should be good enough for now
+pub fn w_to_f32(w: u32) -> f32 {
+    (w as f64 / TOTAL_SUM as f64) as f32
+}
+
+pub fn f32_to_w(w: f32) -> u32 {
+    (w as f64 * TOTAL_SUM as f64) as u32
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct EccDense {
     /**The layout is w[output_idx+input_idx_relative_to_kernel_column*output_volume]
     where kernel column has shape [kernel[0],kernel[1],in_channels]*/
-    w: Vec<f32>,
+    w: Vec<u32>,
+    // instead of f32 we use u32 but they are equivalent. Just imagine that you divide
+    // the u32 value by some large constant and the obtain f32. Addition and subtraction factor out
+    //during division (4u32/1000f32)+(8u32/1000f32) == (4u32+8u32)/1000f32
     input_shape: [usize; 3],
     //[height, width, channels]
     output_shape: [usize; 3],
@@ -192,35 +216,80 @@ pub struct EccDense {
     stride: [usize; 2],
     //[height, width]
     k: usize,
-    pub threshold: f32,
-    pub plasticity: f32,
-    activity: Vec<f32>,
+    pub threshold: u32,
+    pub plasticity: u32,
+    activity: Vec<u32>,
     pub rand_seed: usize,
-    pub sums: Vec<f32>,
+    pub sums: Vec<u32>,
 }
 
 impl EccDense {
     pub fn new(output: [usize; 2], kernel: [usize; 2], stride: [usize; 2], in_channels: usize, out_channels: usize, k: usize, rng: &mut impl Rng) -> Self {
         let input = output.conv_in_size(&stride, &kernel);
         let output = [output[0], output[1], out_channels];
+        let v = output.product();
         let input = [input[0], input[1], in_channels];
         let kernel_column = [kernel[0], kernel[1], in_channels];
+        let kv = kernel_column.product();
         assert!(k <= output.channels(), "k is larger than layer output");
-        let mut slf = Self {
-            w: (0..kernel_column.product() * output.product()).map(|_| rng.gen()).collect(),
+        let wf: Vec<f32> = (0..kv * v).map(|_| rng.gen()).collect();
+        let mut w: Vec<u32> = vec![u32::MAX; wf.len()];
+        for output_idx in 0..v {
+            let w_sum = Self::kernel_column_weight_sum(kv, v, output_idx, &wf);
+            let mut min_w = u32::MAX;
+            let mut min_w_position = 0;
+            let mut w_new_sum = 0;
+            for input_within_kernel_column in 0..kv {
+                let w_idx = Self::w_idx(output_idx, input_within_kernel_column, v);
+                let w_f32 = wf[w_idx];
+                debug_assert_eq!(u32::MAX, w[w_idx]);
+                let w_new = f32_to_w(w_f32 / w_sum);
+                w[w_idx] = w_new;
+                w_new_sum += w_new;
+                if w_new < min_w{
+                    min_w = w_new;
+                    min_w_position = input_within_kernel_column;
+                }
+            }
+            debug_assert_ne!(min_w,u32::MAX);
+            debug_assert_eq!(w_new_sum,Self::kernel_column_weight_sum(kv, v, output_idx, &w));
+            let min_w_position = Self::w_idx(output_idx, min_w_position, v);
+            w[min_w_position] = w[min_w_position].wrapping_add(TOTAL_SUM.wrapping_sub(w_new_sum)); // we do this step just in case if f32 limited precision
+            // caused some small drifts. Safety: Addition and subtraction for both signed and unsigned types are the same operation.
+            //So overflows don't bother us.
+        }
+        debug_assert!(!w.contains(&u32::MAX));
+        let slf = Self {
+            w,
             input_shape: input,
             output_shape: output,
             kernel,
             stride,
             k,
-            threshold: 1. / out_channels as f32,
-            plasticity: 1./1024.,
-            activity: vec![0.; output.product()],
+            threshold: (TOTAL_SUM as f64 / out_channels as f64) as u32,
+            plasticity: DEFAULT_PLASTICITY,
+            activity: vec![INITIAL_ACTIVITY; output.product()],
             rand_seed: auto_gen_seed(),
-            sums: vec![0f32; output.product()],
+            sums: vec![0u32; output.product()],
         };
-        slf.normalise_all_weights();
+        #[cfg(debug_assertions)]{
+            for output_idx in 0..v {
+                assert_eq!(slf.incoming_weight_sum(output_idx),TOTAL_SUM);
+            }
+        }
         slf
+    }
+    pub fn set_threshold(&mut self, fractional: f32) {
+        self.threshold = f32_to_w(fractional)
+    }
+    pub fn set_plasticity(&mut self, fractional: f32) {
+        self.plasticity = f32_to_w(fractional)
+    }
+    pub fn get_threshold(&self) -> f32 {
+        w_to_f32(self.threshold)
+    }
+    pub fn get_plasticity(&self) -> f32 {
+        w_to_f32(self.plasticity)
     }
     pub fn kernel_column(&self) -> [usize; 3] {
         self.kernel.add_channels(self.in_channels())
@@ -229,6 +298,10 @@ impl EccDense {
         output_pos.grid().conv_in_range_begin(&self.stride)
     }
     pub fn pos_within_kernel(&self, input_pos: &[usize; 3], output_pos: &[usize; 3]) -> [usize; 3] {
+        debug_assert!(output_pos.all_lt(&self.output_shape));
+        debug_assert!(input_pos.all_lt(&self.input_shape));
+        debug_assert!(range_contains(&output_pos.grid().conv_in_range(&self.stride,&self.kernel),input_pos.grid()));
+        debug_assert!(range_contains(&input_pos.grid().conv_out_range_clipped(&self.stride,&self.kernel),output_pos.grid()));
         Self::sub_kernel_offset(input_pos, &self.kernel_offset(output_pos))
     }
     fn sub_kernel_offset(input_pos: &[usize; 3], offset: &[usize; 2]) -> [usize; 3] {
@@ -236,6 +309,7 @@ impl EccDense {
     }
     #[inline]
     fn w_idx(output_idx: usize, idx_within_kernel_column: usize, output_volume: usize) -> usize {
+        debug_assert!(output_idx<output_volume);
         output_idx + idx_within_kernel_column * output_volume
     }
     #[inline]
@@ -244,45 +318,36 @@ impl EccDense {
         Self::w_idx(output_idx, kernel_column.idx(position_within_kernel_column), output_volume)
     }
     pub fn idx_within_kernel(&self, input_pos: &[usize; 3], output_pos: &[usize; 3]) -> usize {
+
         self.kernel_column().idx(self.pos_within_kernel(input_pos, output_pos))
     }
     pub fn w_index(&self, input_pos: &[usize; 3], output_pos: &[usize; 3]) -> usize {
+        debug_assert!(output_pos.all_lt(&self.output_shape));
+        debug_assert!(input_pos.all_lt(&self.input_shape));
+        debug_assert!(range_contains(&output_pos.grid().conv_in_range(&self.stride,&self.kernel),input_pos.grid()));
+        debug_assert!(range_contains(&input_pos.grid().conv_out_range_clipped(&self.stride,&self.kernel),output_pos.grid()));
         Self::w_idx(self.out_shape().idx(*output_pos), self.idx_within_kernel(input_pos, output_pos), self.out_volume())
     }
-    pub fn w(&self, input_pos: &[usize; 3], output_pos: &[usize; 3]) -> f32 {
+    pub fn w(&self, input_pos: &[usize; 3], output_pos: &[usize; 3]) -> u32 {
         self.w[self.w_index(input_pos, output_pos)]
     }
 
-    pub fn incoming_weight_sum(&self, output_neuron_idx: usize) -> f32 {
+    pub fn incoming_weight_sum(&self, output_neuron_idx: usize) -> u32 {
         let kv = self.kernel_column().product();
         let v = self.out_volume();
-        assert!(output_neuron_idx < v);
-        (0..kv).map(|i| self.w[Self::w_idx(output_neuron_idx, i, v)]).sum()
+        Self::kernel_column_weight_sum(kv, v, output_neuron_idx, &self.w)
     }
-    pub fn normalise_weights(&mut self, output_neuron_idx: usize) {
-        let kv = self.kernel_column().product();
-        let v = self.out_volume();
-        let sum = self.incoming_weight_sum(output_neuron_idx);
-        for i in 0..kv {
-            self.w[Self::w_idx(output_neuron_idx, i, v)] /= sum;
-        }
+    fn kernel_column_weight_sum<T: Sum<T> + Copy>(kernel_column_volume: usize, out_volume: usize, output_neuron_idx: usize, w: &[T]) -> T {
+        assert!(output_neuron_idx < out_volume);
+        (0..kernel_column_volume).map(|i| w[Self::w_idx(output_neuron_idx, i, out_volume)]).sum()
     }
-    pub fn min_activity(&self) -> f32 {
+
+    pub fn min_activity(&self) -> u32 {
         self.activity.iter().cloned().reduce(|a, b| if a < b { a } else { b }).unwrap()
     }
-    pub fn activity(&self, output_idx: usize) -> f32 {
+    pub fn activity(&self, output_idx: usize) -> u32 {
         self.activity[output_idx]
     }
-    pub fn normalise_all_weights(&mut self) {
-        let v = self.out_volume();
-        for o in 0..v {
-            self.normalise_weights(o)
-        }
-    }
-}
-
-fn float_eq(a: f32, b: f32, eps: f32) {
-    debug_assert!((a - b).abs() < eps, "{}!={} +- {}", a, b, eps);
 }
 
 impl EccLayer for EccDense {
@@ -304,13 +369,19 @@ impl EccLayer for EccDense {
     fn stride(&self) -> &[usize; 2] {
         &self.stride
     }
-    fn run_in_place(&mut self, input: &CpuSDR, output:&mut CpuSDR){
-        fn min(a: f32, b: f32) -> f32 {
-            if a < b { a } else { b }
-        }
-        self.sums.fill(0.);
+    fn run_in_place(&mut self, input: &CpuSDR, output: &mut CpuSDR) {
+        self.sums.fill(0);
         let kernel_column = self.kernel_column();
         let v = self.out_volume();
+        #[cfg(debug_assertions)]{
+            let mut i = input.clone();
+            i.sort();
+            debug_assert!(i.iter().tuple_windows().all(|(prev,next)|prev!=next),"{:?}",i);
+            for output_idx in 0..v {
+                debug_assert_eq!(self.incoming_weight_sum(output_idx),TOTAL_SUM,"{}",output_idx);
+            }
+        }
+        let mut used_w = HashSet::new();
         for &input_idx in input.as_slice() {
             let input_pos: [usize; 3] = self.input_shape.pos(input_idx as usize);
             let r = input_pos.grid().conv_out_range_clipped(&self.stride, &self.kernel);
@@ -322,31 +393,34 @@ impl EccLayer for EccDense {
                         let output_idx = self.output_shape.idx(output_pos);
                         let w_index = Self::w_index_(&input_pos, &kernel_offset, output_idx, &kernel_column, v);
                         debug_assert_eq!(w_index, self.w_index(&input_pos, &output_pos));
+                        debug_assert!(used_w.insert(w_index), "{}",w_index);
                         let w = self.w[w_index];
                         self.sums[output_idx] += w;
+                        debug_assert!(self.sums[output_idx]<=TOTAL_SUM,"{:?}->{:?}={}@{}<={}",input_pos,output_pos,output_idx,self.sums[output_idx],TOTAL_SUM);
                     }
                 }
             }
         }
-        // The difference between min_activity and max_activity cannot be greater than 1,
-        // due to the obvious nature of entropy maximisation.
-        // Hence 0<=self.activity[i]-min_activity<=1 for all i
-        // The weights must sum up to 1, therefore
-        // 0<=sums[i]<=1
-        // 0<=sums[i]+self.activity[i]-min_activity<=2
-        // We need to divide by 2 in order to return to 0-1 range
-        //0<=(sums[i]+self.activity[i]-min_activity)/2<=1
         let t = self.threshold;
-        self.top_small_k_by_channel(|i| self.sums[i] + self.activity[i], |i, v| self.sums[i] >= t, |a, b| a > b,output);
+        self.top_small_k_by_channel(|i| {
+            debug_assert!(self.sums[i]<=TOTAL_SUM,"{}<={}",self.sums[i],TOTAL_SUM);
+            debug_assert!(self.activity[i]<=INITIAL_ACTIVITY,"{}<={}",self.activity[i],INITIAL_ACTIVITY);
+            self.sums[i] + self.activity[i]
+        }, |i, v| self.sums[i] >= t, |a, b| a > b, output);
         for &winner in output.iter() {
             self.activity[winner as usize] -= ACTIVITY_PENALTY;
         }
     }
 
     fn learn(&mut self, input: &CpuSDR, output: &CpuSDR) {
+        #[cfg(debug_assertions)]{
+            let mut i = output.clone();
+            i.sort();
+            debug_assert!(i.iter().tuple_windows().all(|(prev,next)|prev!=next),"{:?}",i);
+        }
         let v = self.out_volume();
         let p = self.plasticity;
-        let one_minus_p = 1. - p;
+        let one_minus_p = TOTAL_SUM - p;
         let kernel_column = self.kernel_column();
         let kv = kernel_column.product();
         let input_pos: Vec<[usize; 3]> = input.iter().map(|&i| self.input_shape.pos(i as usize)).collect();
@@ -391,15 +465,15 @@ impl EccLayer for EccDense {
         }
         #[cfg(debug_assertions)] {
             for output_idx in 0..v {
-                float_eq(self.incoming_weight_sum(output_idx), 1., 0.000001)
+                debug_assert_eq!(self.incoming_weight_sum(output_idx), TOTAL_SUM)
             }
             let min_acc = self.min_activity();
             for output_idx in 0..v {
-                assert!(self.activity[output_idx] < min_acc + 1., "{} @ {} < {}", output_idx, self.activity[output_idx], min_acc)
+                debug_assert!(self.activity[output_idx] < min_acc + TOTAL_SUM, "{} @ {} < {}", output_idx, self.activity[output_idx], min_acc)
             }
+            debug_assert!(self.w.iter().all(|&w| w >= 0));
+            debug_assert!(self.w.iter().all(|&w| w <= TOTAL_SUM));
         }
-        debug_assert!(self.w.iter().all(|&w| w >= 0.));
-        debug_assert!(self.w.iter().all(|&w| w <= 1.));
         self.rand_seed = rand_seed;
     }
 }
@@ -410,6 +484,7 @@ pub enum SparseOrDense {
     Sparse(EccSparse),
     Dense(EccDense),
 }
+
 impl EccLayer for SparseOrDense {
     fn k(&self) -> usize {
         match self {
@@ -453,7 +528,7 @@ impl EccLayer for SparseOrDense {
         }
     }
 
-    fn run_in_place(&mut self, input: &CpuSDR, output:&mut CpuSDR) {
+    fn run_in_place(&mut self, input: &CpuSDR, output: &mut CpuSDR) {
         match self {
             SparseOrDense::Sparse(a) => a.run_in_place(input, output),
             SparseOrDense::Dense(a) => a.run_in_place(input, output)
@@ -462,8 +537,8 @@ impl EccLayer for SparseOrDense {
 
     fn learn(&mut self, input: &CpuSDR, output: &CpuSDR) {
         match self {
-            SparseOrDense::Sparse(a) => a.learn(input,output),
-            SparseOrDense::Dense(a) => a.learn(input,output)
+            SparseOrDense::Sparse(a) => a.learn(input, output),
+            SparseOrDense::Dense(a) => a.learn(input, output)
         }
     }
 }
@@ -489,17 +564,17 @@ impl DerefMut for CpuEccMachine {
 }
 
 impl CpuEccMachine {
-    pub fn new( output: [usize; 2], kernels: &[[usize; 2]], strides: &[[usize; 2]], channels: &[usize], k: &[usize], connections_per_output: &[Option<usize>], rng: &mut impl Rng) -> Self {
+    pub fn new(output: [usize; 2], kernels: &[[usize; 2]], strides: &[[usize; 2]], channels: &[usize], k: &[usize], connections_per_output: &[Option<usize>], rng: &mut impl Rng) -> Self {
         let layers = kernels.len();
 
-        assert!(layers>0);
+        assert!(layers > 0);
         assert_eq!(layers, strides.len());
         assert_eq!(layers, k.len());
         assert_eq!(layers, connections_per_output.len());
-        assert_eq!(layers+1, channels.len());
+        assert_eq!(layers + 1, channels.len());
         let mut layers_vec = Vec::<SparseOrDense>::with_capacity(layers);
         let mut prev_output = output;
-        for i in (0..layers).rev(){
+        for i in (0..layers).rev() {
             let in_channels = channels[i];
             let out_channels = channels[i + 1];
             let k = k[i];
@@ -514,67 +589,67 @@ impl CpuEccMachine {
             layers_vec.push(l);
         }
         layers_vec.reverse();
-        #[cfg(debug_assertions)]{
+        #[cfg(debug_assertions)] {
             let last = layers_vec.last().unwrap().out_shape();
-            debug_assert!(last.grid().all_eq(&output),"{:?}=={:?}",last.grid(),output);
-            debug_assert_eq!(last.channels(),*channels.last().unwrap());
-            debug_assert_eq!(layers_vec[0].in_channels(),channels[0]);
-            for (prev,next) in layers_vec.iter().tuple_windows(){
-                debug_assert!(prev.out_shape().all_eq(next.in_shape()),"{:?}=={:?}",prev.out_shape(),next.in_shape());
+            debug_assert!(last.grid().all_eq(&output), "{:?}=={:?}", last.grid(), output);
+            debug_assert_eq!(last.channels(), *channels.last().unwrap());
+            debug_assert_eq!(layers_vec[0].in_channels(), channels[0]);
+            for (prev, next) in layers_vec.iter().tuple_windows() {
+                debug_assert!(prev.out_shape().all_eq(next.in_shape()), "{:?}=={:?}", prev.out_shape(), next.in_shape());
             }
         }
-        Self { ecc: layers_vec, inputs: (0..channels.len()).map(|_|CpuSDR::new()).collect() }
+        Self { ecc: layers_vec, inputs: (0..channels.len()).map(|_| CpuSDR::new()).collect() }
     }
-    pub fn input_sdr(&self, layer_index:usize) -> &CpuSDR{
+    pub fn input_sdr(&self, layer_index: usize) -> &CpuSDR {
         &self.inputs[layer_index]
     }
-    pub fn input_sdr_mut(&mut self, layer_index:usize) -> &mut CpuSDR{
+    pub fn input_sdr_mut(&mut self, layer_index: usize) -> &mut CpuSDR {
         &mut self.inputs[layer_index]
     }
-    pub fn output_sdr(&self, layer_index:usize) -> &CpuSDR{
-        &self.inputs[layer_index+1]
+    pub fn output_sdr(&self, layer_index: usize) -> &CpuSDR {
+        &self.inputs[layer_index + 1]
     }
-    pub fn output_sdr_mut(&mut self, layer_index:usize) -> &mut CpuSDR{
-        &mut self.inputs[layer_index+1]
+    pub fn output_sdr_mut(&mut self, layer_index: usize) -> &mut CpuSDR {
+        &mut self.inputs[layer_index + 1]
     }
-    pub fn last_output_sdr(&self) -> &CpuSDR{
+    pub fn last_output_sdr(&self) -> &CpuSDR {
         self.inputs.last().unwrap()
     }
-    pub fn last_output_sdr_mut(&mut self) -> &mut CpuSDR{
+    pub fn last_output_sdr_mut(&mut self) -> &mut CpuSDR {
         self.inputs.last_mut().unwrap()
     }
     pub fn learn(&mut self) {
         let Self { ecc, inputs } = self;
-        for (i,layer) in ecc.iter_mut().enumerate(){
-            let (prev, next) = inputs.as_slice().split_at(i+1);
-            layer.learn(&prev[i],&next[0]);
+        for (i, layer) in ecc.iter_mut().enumerate() {
+            let (prev, next) = inputs.as_slice().split_at(i + 1);
+            layer.learn(&prev[i], &next[0]);
         }
     }
     pub fn run(&mut self, input: &CpuSDR) -> &CpuSDR {
         let Self { ecc, inputs } = self;
         inputs[0].set(input.as_slice());
-        for (i,layer) in ecc.iter_mut().enumerate(){
-            let (prev, next) = inputs.as_mut_slice().split_at_mut(i+1);
-            layer.run_in_place(&prev[i],&mut next[0]);
+        for (i, layer) in ecc.iter_mut().enumerate() {
+            let (prev, next) = inputs.as_mut_slice().split_at_mut(i + 1);
+            layer.run_in_place(&prev[i], &mut next[0]);
         }
         self.last_output_sdr()
     }
-    pub fn in_shape(&self)->&[usize;3]{
+    pub fn in_shape(&self) -> &[usize; 3] {
         self.ecc[0].in_shape()
     }
-    pub fn in_channels(&self)->usize{
+    pub fn in_channels(&self) -> usize {
         self.ecc[0].in_channels()
     }
-    pub fn in_volume(&self)->usize{
+    pub fn in_volume(&self) -> usize {
         self.ecc[0].in_volume()
     }
-    pub fn out_shape(&self)->&[usize;3]{
+    pub fn out_shape(&self) -> &[usize; 3] {
         self.ecc.last().unwrap().out_shape()
     }
-    pub fn out_channels(&self)->usize{
+    pub fn out_channels(&self) -> usize {
         self.ecc.last().unwrap().out_channels()
     }
-    pub fn out_volume(&self)->usize{
+    pub fn out_volume(&self) -> usize {
         self.ecc.last().unwrap().out_volume()
     }
 }
@@ -621,13 +696,16 @@ mod tests {
 
     #[test]
     fn test3() -> Result<(), String> {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(634634636);//rand::thread_rng();
         let k = 8;
         let mut a = EccDense::new([4, 4], [2, 2], [1, 1], 3, 4, 1, &mut rng);
-        a.plasticity = 0.1;//let's see if this breaks anything
-        for _ in 0..1024 {
+        a.rand_seed = 34634;
+        a.set_plasticity(0.1);//let's see if this breaks anything
+        for i in 0..1024 {
             let input: Vec<u32> = (0..k).map(|_| rng.gen_range(0..a.in_volume() as u32)).collect();
-            let input = CpuSDR::from(input);
+            let mut input = CpuSDR::from(input);
+            input.normalize();
+            assert_ne!(input.len(), 0);
             let mut o = a.run(&input);
             a.learn(&input, &o);
             o.sort();
@@ -641,7 +719,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         let k = 16;
         let mut a = EccDense::new([1, 1], [4, 4], [1, 1], 3, 4, 1, &mut rng);
-        a.threshold = 0.2;
+        a.set_threshold(0.2);
         for i in 0..1024 {
             let input: Vec<u32> = (0..k).map(|_| rng.gen_range(0..a.in_volume() as u32)).collect();
             let mut input = CpuSDR::from(input);
@@ -661,7 +739,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         let k = 16;
         let mut a = EccDense::new([1, 1], [4, 4], [1, 1], 3, 4, 1, &mut rng);
-        a.threshold = 0.99;//let's see if this breaks anything
+        a.set_threshold(0.99);//let's see if this breaks anything
         for _ in 0..1024 {
             let input: Vec<u32> = (0..k).map(|_| rng.gen_range(0..a.in_volume() as u32)).collect();
             let mut input = CpuSDR::from(input);
@@ -681,12 +759,39 @@ mod tests {
         let mut rng = rand::thread_rng();
         let k = 16;
         let mut a = CpuEccMachine::new([1, 1],
-                                       &[[5, 5],[3, 3],[3, 3]],
-                                       &[[2, 2],[1, 1], [1, 1]],
+                                       &[[5, 5], [3, 3], [3, 3]],
+                                       &[[2, 2], [1, 1], [1, 1]],
                                        &[1, 50, 20, 20],
                                        &[10, 1, 1],
                                        &[Some(4), None, None],
                                        &mut rng);
+        for _ in 0..16 {
+            let input: Vec<u32> = (0..k).map(|_| rng.gen_range(0..a.in_volume() as u32)).collect();
+            let mut input = CpuSDR::from(input);
+            input.normalize();
+            assert_ne!(input.len(), 0);
+            a.run(&input);
+            a.learn();
+            let o = a.last_output_sdr_mut();
+            assert_ne!(o.len(), 0);
+            o.sort();
+            assert!(o.is_normalized(), "{:?}", o);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test7() -> Result<(), String> {
+        let mut rng = rand::thread_rng();
+        let k = 1;
+        let mut a = CpuEccMachine::new([1, 1],
+                                       &[[5, 5], [3, 3], [3, 3]],
+                                       &[[2, 2], [1, 1], [1, 1]],
+                                       &[1, 5, 2, 2],
+                                       &[1, 1, 1],
+                                       &[Some(4), None, None],
+                                       &mut rng);
+        let mut number_of_empty_outputs = 0;
         for _ in 0..1024 {
             let input: Vec<u32> = (0..k).map(|_| rng.gen_range(0..a.in_volume() as u32)).collect();
             let mut input = CpuSDR::from(input);
@@ -695,10 +800,13 @@ mod tests {
             a.run(&input);
             a.learn();
             let o = a.last_output_sdr_mut();
-            assert_eq!(o.len(), 0);
+            if o.is_empty(){
+                number_of_empty_outputs+=1;
+            }
             o.sort();
             assert!(o.is_normalized(), "{:?}", o);
         }
+        assert!(number_of_empty_outputs<54,"{}",number_of_empty_outputs);
         Ok(())
     }
 }
