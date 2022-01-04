@@ -26,15 +26,15 @@ def rand_patch(patch_size):
     return img[left_bottom[0]:top_right[0], left_bottom[1]:top_right[1]]
 
 
-def experiment(output, kernels, strides, channels, k, connections_per_output, w, h, save_file,
+def experiment(clazz, output, kernels, strides, channels, k, connections_per_output, w, h, save_file,
                iterations=1000000, interval=100000, test_patches=20000):
     model_file = save_file + ".model"
     if os.path.exists(model_file):
-        m = ecc.CpuEccMachine.load(model_file)
+        m = clazz.load(model_file)
         unpickled = True
     else:
         unpickled = False
-        m = ecc.CpuEccMachine(
+        m = clazz(
             output=output,
             kernels=kernels,
             strides=strides,
@@ -85,7 +85,8 @@ def experiment(output, kernels, strides, channels, k, connections_per_output, w,
 EXPERIMENT = 3
 n = "predictive_coding_stacked5_experiment" + str(EXPERIMENT)
 if EXPERIMENT == 1:
-    experiment(output=np.array([1, 1]),
+    experiment(clazz=ecc.CpuEccMachineUint,
+               output=np.array([1, 1]),
                kernels=[np.array([5, 5]), np.array([3, 3]), np.array([3, 3])],
                strides=[np.array([2, 2]), np.array([1, 1]), np.array([1, 1])],
                channels=[1, 50, 20, 20],
@@ -93,7 +94,18 @@ if EXPERIMENT == 1:
                connections_per_output=[4, None, None],
                w=4, h=5, save_file=n, interval=20000)
 elif EXPERIMENT == 2:
-    experiment(output=np.array([1, 1]),
+    experiment(clazz=ecc.CpuEccMachineUInt,
+               output=np.array([1, 1]),
+               kernels=[np.array([5, 5]), np.array([3, 3]), np.array([3, 3]), np.array([4, 4]), np.array([3, 3])],
+               strides=[np.array([2, 2]), np.array([1, 1]), np.array([1, 1]), np.array([1, 1]), np.array([1, 1])],
+               channels=[1, 50, 20, 20, 80, 40],
+               k=[10, 1, 1, 15, 1],
+               connections_per_output=[4, None, None, 7, None],
+               w=8, h=5, save_file=n,
+               interval=20000)
+elif EXPERIMENT == 3:
+    experiment(clazz=ecc.CpuEccMachine,
+               output=np.array([1, 1]),
                kernels=[np.array([5, 5]), np.array([3, 3]), np.array([3, 3]), np.array([4, 4]), np.array([3, 3])],
                strides=[np.array([2, 2]), np.array([1, 1]), np.array([1, 1]), np.array([1, 1]), np.array([1, 1])],
                channels=[1, 50, 20, 20, 80, 40],
