@@ -24,7 +24,6 @@ use chrono::Utc;
 use std::borrow::Borrow;
 use std::io::BufWriter;
 use std::fs::{File, OpenOptions};
-use serde_pickle::SerOptions;
 use serde::Serialize;
 use crate::util::*;
 use crate::py_htm::CpuSDR;
@@ -202,7 +201,13 @@ impl CpuEccMachine {
     pub fn save(&self, file: String) -> PyResult<()> {
         pickle(&self.ecc, file)
     }
+    #[staticmethod]
+    #[text_signature = "(file)"]
+    pub fn load(file: String) -> PyResult<Self> {
+        unpickle(file).map(|s|Self{ecc:s})
+    }
 }
+
 
 #[pymethods]
 impl CpuEccDense {
@@ -311,6 +316,11 @@ impl CpuEccDense {
     pub fn incoming_weight_sum_f32(&self, output_neuron_idx: usize) -> f32 {
         self.ecc.incoming_weight_sum_f32(output_neuron_idx)
     }
+    #[staticmethod]
+    #[text_signature = "(file)"]
+    pub fn load(file: String) -> PyResult<Self> {
+        unpickle(file).map(|s|Self{ecc:s})
+    }
 }
 
 
@@ -365,5 +375,10 @@ impl CpuEccSparse {
     #[text_signature = "(file)"]
     pub fn save(&self, file: String) -> PyResult<()> {
         pickle(&self.ecc, file)
+    }
+    #[staticmethod]
+    #[text_signature = "(file)"]
+    pub fn load(file: String) -> PyResult<Self> {
+        unpickle(file).map(|s|Self{ecc:s})
     }
 }

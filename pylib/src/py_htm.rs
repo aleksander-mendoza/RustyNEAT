@@ -24,7 +24,6 @@ use chrono::Utc;
 use std::borrow::Borrow;
 use std::io::BufWriter;
 use std::fs::{File, OpenOptions};
-use serde_pickle::SerOptions;
 use serde::Serialize;
 use crate::util::*;
 use std::any::{Any, TypeId};

@@ -23,10 +23,9 @@ use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
 use std::borrow::Borrow;
-use std::io::BufWriter;
+use std::io::{BufWriter, BufReader};
 use std::fs::{File, OpenOptions};
-use serde_pickle::SerOptions;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 
 pub fn arr3<'py, T:Element+Copy+FromPyObject<'py>>(py: Python<'py>, t: &'py PyObject) -> PyResult<[T; 3]> {
     Ok(if let Ok(t) = t.extract::<(T, T, T)>(py) {
@@ -81,14 +80,21 @@ pub fn arr2<'py,T:Element+Copy+FromPyObject<'py>>(py: Python<'py>, t: &'py PyObj
 
 pub fn pickle<T: Serialize>(val: &T, file: String) -> PyResult<()> {
     let o = OpenOptions::new()
-        .create_new(true)
         .write(true)
+        .create(true)
         .open(file)
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
-    serde_pickle::to_writer(&mut BufWriter::new(o), val, SerOptions::new());
+    ciborium::ser::into_writer(val,&mut BufWriter::new(o));
     Ok(())
 }
 
+pub fn unpickle<T:Deserialize<'static>>(file: String) -> PyResult<T> {
+    let o = OpenOptions::new()
+        .read(true)
+        .open(file)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    ciborium::de::from_reader(&mut BufReader::new(o)).map_err(|err|PyValueError::new_err(err.to_string()))
+}
 pub fn py_any_as_numpy<T:Element>(input: &PyAny) -> Result<&PyArrayDyn<T>, PyErr> {
     let array = unsafe {
         if npyffi::PyArray_Check(input.as_ptr()) == 0 {
