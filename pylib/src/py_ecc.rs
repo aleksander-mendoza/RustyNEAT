@@ -91,7 +91,10 @@ impl CpuEccMachine {
         let strides:PyResult<Vec<[usize;2]>> = strides.into_iter().map(|k|arr2(py, &k)).collect();
         Ok(Self{ecc:htm::CpuEccMachine::new(output,&kernels?,&strides?,&channels,&k,&connections_per_output,&mut rng)})
     }
-
+    #[getter]
+    pub fn len(&self) -> usize {
+        self.ecc.len()
+    }
     #[text_signature = "(layer)"]
     pub fn get_in_shape(&self,layer:usize) -> Vec<usize> {
         self.ecc[layer].in_shape().to_vec()
