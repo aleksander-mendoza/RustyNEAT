@@ -17,7 +17,7 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{EccSparse, EccLayer, SparseOrDense};
+use htm::{EccSparse, EccLayer, SparseOrDense, VectorFieldOne};
 use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
@@ -207,7 +207,7 @@ impl CpuEccMachine {
     }
     #[text_signature = "(layer_index)"]
     pub fn input_sdr(&self, layer_index:usize)->CpuSDR{
-        CpuSDR{sdr:self.ecc.output_sdr(layer_index).clone()}
+        CpuSDR{sdr:self.ecc.input_sdr(layer_index).clone()}
     }
     #[text_signature = "(file)"]
     pub fn save(&self, file: String) -> PyResult<()> {
@@ -218,11 +218,60 @@ impl CpuEccMachine {
     pub fn load(file: String) -> PyResult<Self> {
         unpickle(file).map(|s|Self{ecc:s})
     }
+    #[text_signature = "(layer)"]
+    pub fn set_initial_activity(&mut self, layer:usize) {
+        match &mut self.ecc[layer]{
+            SparseOrDense::Sparse(a) => {},
+            SparseOrDense::Dense(a) => a.set_initial_activity()
+        }
+    }
+    #[text_signature = "(layer)"]
+    pub fn reset_activity(&mut self, layer:usize) {
+        match &mut self.ecc[layer]{
+            SparseOrDense::Sparse(a) => {},
+            SparseOrDense::Dense(a) => a.reset_activity()
+        }
+    }
+    #[text_signature = "(layer)"]
+    pub fn get_activity(&self, layer:usize) -> Option<Vec<f32>> {
+        match &self.ecc[layer]{
+            SparseOrDense::Sparse(a) => None,
+            SparseOrDense::Dense(a) => Some(a.get_activity().to_vec())
+        }
+    }
+    #[text_signature = "(layer)"]
+    pub fn get_maximum_incoming_connection(&self, layer:usize) -> usize {
+        match &self.ecc[layer]{
+            SparseOrDense::Sparse(a) => a.get_max_incoming_synapses(),
+            SparseOrDense::Dense(a) => a.kernel_column().product()
+        }
+    }
+    #[text_signature = "(layer)"]
+    pub fn is_sparse(&self, layer:usize) -> bool {
+        match &self.ecc[layer]{
+            SparseOrDense::Sparse(a) => true,
+            SparseOrDense::Dense(a) => false
+        }
+    }
+    #[text_signature = "(layer)"]
+    pub fn get_weights(&self, layer:usize) -> Option<Vec<f32>> {
+        match &self.ecc[layer]{
+            SparseOrDense::Sparse(a) => None,
+            SparseOrDense::Dense(a) => Some(a.get_weights().to_vec())
+        }
+    }
 }
 
 
 #[pymethods]
 impl CpuEccMachineUInt {
+    #[text_signature = "(layer)"]
+    pub fn set_initial_activity(&mut self,layer:usize) {
+        match &mut self.ecc[layer]{
+            SparseOrDense::Sparse(a) => {},
+            SparseOrDense::Dense(a) => a.set_initial_activity()
+        }
+    }
     #[new]
     pub fn new(output: PyObject, kernels: Vec<PyObject>, strides: Vec<PyObject>, channels: Vec<usize>, k: Vec<usize>, connections_per_output: Vec<Option<usize>>) -> PyResult<Self> {
         let layers = kernels.len();
@@ -446,6 +495,10 @@ impl CpuEccDense {
     pub fn activity(&self, output_idx: usize) -> f32 {
         self.ecc.activity(output_idx)
     }
+    #[text_signature = "()"]
+    pub fn get_activity(&self) -> Vec<f32> {
+        self.ecc.get_activity().to_vec()
+    }
     #[text_signature = "(output_idx)"]
     pub fn activity_f32(&self, output_idx: usize) -> f32 {
         self.ecc.activity_f32(output_idx)
@@ -457,6 +510,14 @@ impl CpuEccDense {
         let input_pos = arr3(py, &input_pos)?;
         let output_pos = arr3(py, &output_pos)?;
         Ok(self.ecc.w_index(&input_pos, &output_pos))
+    }
+    #[text_signature = "()"]
+    pub fn set_initial_activity(&mut self) {
+        self.ecc.set_initial_activity()
+    }
+    #[text_signature = "()"]
+    pub fn reset_activity(&mut self) {
+        self.ecc.reset_activity()
     }
     #[getter]
     pub fn get_sums(&self) -> Vec<f32> {

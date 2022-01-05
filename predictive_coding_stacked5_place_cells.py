@@ -58,19 +58,27 @@ def experiment(clazz, k, channels, iterations=1000000, interval=100000, test_pat
 
     test_patches = [normalise_img(rand_patch(patch_size[:2])) for _ in range(test_patches)]
 
+    def run(sdr, lbl, learn=False):
+        m.run(sdr)
+        hidden_sdr = m.last_output_sdr()
+
+        pc[lbl].run(hidden_sdr)
+        if learn:
+            pc[lbl].learn()
+        return pc[lbl].item()
+
     for s in tqdm(range(iterations), desc="training"):
         img, sdr, lbl = normalise_img(rand_patch(patch_size[:2]))
-        m.run(sdr)
-        m.learn()
+        run(sdr, lbl, learn=True)
+
         if s % interval == 0:
             m.save(model_file)
             stats = torch.zeros([patch_size[0], patch_size[1], channels * 10])
-            for img, sdr in tqdm(test_patches, desc="eval"):
+            for img, sdr, lbl in tqdm(test_patches, desc="eval"):
                 # img = normalise_img(rand_patch())
-                m.run(sdr)
-                top = m.item()
+                top = run(sdr, lbl)
                 if top is not None:
-                    stats[:, :, top] += img
+                    stats[:, :, top * 10 + lbl] += img
 
             for i in range(channels):
                 for j in range(10):
