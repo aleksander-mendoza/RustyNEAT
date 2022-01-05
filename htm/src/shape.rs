@@ -355,6 +355,9 @@ pub trait Shape3{
     fn width(&self)->Self::T;
     fn height(&self)->Self::T;
     fn channels(&self)->Self::T;
+    fn width_mut(&mut self)->&mut Self::T;
+    fn height_mut(&mut self)->&mut Self::T;
+    fn channels_mut(&mut self)->&mut Self::T;
 }
 
 impl <T:Copy> Shape3 for [T;3]{
@@ -381,6 +384,10 @@ impl <T:Copy> Shape3 for [T;3]{
     fn channels(&self) -> T {
         self[2]
     }
+    fn width_mut(&mut self) -> &mut T {&mut self[0]}
+    fn height_mut(&mut self) -> &mut T {&mut self[1]}
+    fn channels_mut(&mut self) -> &mut T {&mut self[2]}
+
 }
 pub trait Shape2{
     type T:Copy;

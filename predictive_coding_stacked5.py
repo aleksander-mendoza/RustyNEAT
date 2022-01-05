@@ -58,7 +58,7 @@ def experiment(clazz, output, kernels, strides, channels, k, connections_per_out
         return img, sdr
 
     test_patches = [normalise_img(rand_patch(patch_size[:2])) for _ in range(test_patches)]
-
+    all_processed = []
     for s in tqdm(range(iterations), desc="training"):
         img, sdr = normalise_img(rand_patch(patch_size[:2]))
         m.run(sdr)
@@ -66,12 +66,16 @@ def experiment(clazz, output, kernels, strides, channels, k, connections_per_out
         if s % interval == 0:
             m.save(model_file)
             stats = torch.zeros([patch_size[0], patch_size[1], m.last_output_channels()])
+            processed = 0
             for img, sdr in tqdm(test_patches, desc="eval"):
                 # img = normalise_img(rand_patch())
                 m.run(sdr)
                 top = m.item()
                 if top is not None:
                     stats[:, :, top] += img
+                    processed += 1
+            all_processed.append(processed)
+            print("processed=", all_processed)
 
             for i in range(w):
                 for j in range(h):
@@ -83,7 +87,7 @@ def experiment(clazz, output, kernels, strides, channels, k, connections_per_out
 
 
 EXPERIMENT = 3
-n = "predictive_coding_stacked5_experiment" + str(EXPERIMENT)
+n = "predictive_coding_stacked5_experiment_tmp" + str(EXPERIMENT)
 if EXPERIMENT == 1:
     experiment(clazz=ecc.CpuEccMachineUint,
                output=np.array([1, 1]),

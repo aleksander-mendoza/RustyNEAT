@@ -17,7 +17,7 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{EccSparse, EccLayer, SparseOrDense, VectorFieldOne};
+use htm::{EccSparse, EccLayer, SparseOrDense, VectorFieldOne, EccDense};
 use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
@@ -101,7 +101,7 @@ impl CpuEccMachine {
     }
     #[text_signature = "(layer)"]
     pub fn get_out_shape(&self,layer:usize) -> Vec<usize> {
-        self.ecc[layer].in_shape().to_vec()
+        self.ecc[layer].out_shape().to_vec()
     }
     #[text_signature = "(layer)"]
     pub fn get_kernel(&self,layer:usize) -> Vec<usize> {
@@ -475,13 +475,25 @@ impl CpuEccDense {
     pub fn set_rand_seed(&mut self, rand_seed: usize) {
         self.ecc.rand_seed = rand_seed
     }
-    #[text_signature = "(input_sdr,output_sdr)"]
-    pub fn run_in_place(&mut self, input: &CpuSDR, output:&mut CpuSDR){
-        self.ecc.run_in_place(&input.sdr,&mut output.sdr)
+    #[text_signature = "(input_sdr,output_sdr,learn)"]
+    pub fn run_in_place(&mut self, input: &CpuSDR, output:&mut CpuSDR, learn:Option<bool>){
+        self.ecc.run_in_place(&input.sdr,&mut output.sdr);
+        if learn.unwrap_or(false){
+            self.ecc.learn(&input.sdr,&output.sdr)
+        }
     }
-    #[text_signature = "(input_sdr)"]
-    pub fn run(&mut self, input: &CpuSDR) -> CpuSDR {
-        CpuSDR { sdr: self.ecc.run(&input.sdr) }
+    #[staticmethod]
+    #[text_signature = "(layers)"]
+    pub fn concat(layers: Vec<PyRef<Self>>) -> Self {
+        Self{ecc:EccDense::concat(&layers,|s|&s.ecc)}
+    }
+    #[text_signature = "(input_sdr, learn)"]
+    pub fn run(&mut self, input: &CpuSDR, learn:Option<bool>) -> CpuSDR {
+        let out = self.ecc.run(&input.sdr);
+        if learn.unwrap_or(false){
+            self.ecc.learn(&input.sdr,&out)
+        }
+        CpuSDR { sdr:  out}
     }
     #[text_signature = "()"]
     pub fn min_activity(&self) -> f32 {
