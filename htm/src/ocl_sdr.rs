@@ -38,6 +38,11 @@ impl OclSDR {
         self.get().map(CpuSDR::from)
     }
     /**number of active neurons*/
+    pub unsafe fn set_cardinality(&mut self,cardinality:u32){
+        assert!(cardinality as usize<=self.buffer().len(),"{}<={}",cardinality,self.buffer().len());
+        self.cardinality=cardinality
+    }
+    /**number of active neurons*/
     pub fn cardinality(&self) ->u32{
         self.cardinality
     }

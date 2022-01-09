@@ -1,5 +1,5 @@
 use ocl::core::{Kernel, ArgVal, Mem, Error};
-use ocl::{OclPrm, Queue};
+use ocl::{OclPrm, Queue, OclVec};
 use ocl::core::Program;
 use crate::buffer::Buffer;
 use crate::mat::AsShape;
@@ -31,6 +31,9 @@ impl KernelBuilder {
     }
     pub fn add_num<T: OclPrm>(self, arg: T) -> ocl::core::Result<Self> {
         self.add(ArgVal::scalar(&arg))
+    }
+    pub fn add_vec<T: OclVec>(self, arg: T) -> ocl::core::Result<Self> {
+        self.add(ArgVal::vector(&arg))
     }
     pub fn done(self) -> Kernel {
         self.kernel

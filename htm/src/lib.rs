@@ -15,8 +15,10 @@ mod population;
 mod cpu_assembly;
 mod cpu_ecc;
 mod xorshift;
+mod ocl_ecc;
 
 pub use cpu_ecc::*;
+pub use ocl_ecc::*;
 pub use population::*;
 pub use vector_field::*;
 pub use ocl_bitset::OclBitset;

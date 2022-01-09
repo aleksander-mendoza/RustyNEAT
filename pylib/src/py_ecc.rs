@@ -17,7 +17,7 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{EccSparse, EccLayer, SparseOrDense, VectorFieldOne, EccDense};
+use htm::{EccLayer, SparseOrDense, VectorFieldOne, Idx, Rand};
 use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
@@ -35,16 +35,23 @@ use rand::SeedableRng;
 ///
 #[pyclass]
 pub struct CpuEccDense {
-    ecc: htm::EccDense<f32>,
+    ecc: htm::CpuEccDense<f32>,
 }
-
+///
+/// CpuEccDense(output: list[int], kernel: list[int], stride: list[int], in_channels: int, out_channels: int, k: int)
+///
+///
+#[pyclass]
+pub struct CpuEccDenseUint {
+    ecc: htm::CpuEccDense<u32>,
+}
 ///
 /// CpuEccSparse(output: list[int], kernel: list[int], stride: list[int], in_channels: int, out_channels: int, k: int, connections_per_output: int)
 ///
 ///
 #[pyclass]
 pub struct CpuEccSparse {
-    ecc: htm::EccSparse,
+    ecc: htm::CpuEccSparse,
 }
 
 
@@ -69,7 +76,7 @@ pub struct CpuEccMachineUInt {
 #[pymethods]
 impl CpuEccMachine {
     #[new]
-    pub fn new(output: PyObject, kernels: Vec<PyObject>, strides: Vec<PyObject>, channels: Vec<usize>, k: Vec<usize>, connections_per_output: Vec<Option<usize>>) -> PyResult<Self> {
+    pub fn new(output: PyObject, kernels: Vec<PyObject>, strides: Vec<PyObject>, channels: Vec<Idx>, k: Vec<Idx>, connections_per_output: Vec<Option<Idx>>) -> PyResult<Self> {
         let layers = kernels.len();
         if layers != strides.len() {
             return Err(PyValueError::new_err(format!("{}==len(kernels)!=len(strides)=={}", layers, strides.len())));
@@ -87,8 +94,8 @@ impl CpuEccMachine {
         let py = gil.python();
         let output = arr2(py, &output)?;
         let mut rng = rand::thread_rng();
-        let kernels:PyResult<Vec<[usize;2]>> = kernels.into_iter().map(|k|arr2(py, &k)).collect();
-        let strides:PyResult<Vec<[usize;2]>> = strides.into_iter().map(|k|arr2(py, &k)).collect();
+        let kernels:PyResult<Vec<[Idx;2]>> = kernels.into_iter().map(|k|arr2(py, &k)).collect();
+        let strides:PyResult<Vec<[Idx;2]>> = strides.into_iter().map(|k|arr2(py, &k)).collect();
         Ok(Self{ecc:htm::CpuEccMachine::new(output,&kernels?,&strides?,&channels,&k,&connections_per_output,&mut rng)})
     }
     #[getter]
@@ -96,35 +103,35 @@ impl CpuEccMachine {
         self.ecc.len()
     }
     #[text_signature = "(layer)"]
-    pub fn get_in_shape(&self,layer:usize) -> Vec<usize> {
+    pub fn get_in_shape(&self,layer:usize) -> Vec<Idx> {
         self.ecc[layer].in_shape().to_vec()
     }
     #[text_signature = "(layer)"]
-    pub fn get_out_shape(&self,layer:usize) -> Vec<usize> {
+    pub fn get_out_shape(&self,layer:usize) -> Vec<Idx> {
         self.ecc[layer].out_shape().to_vec()
     }
     #[text_signature = "(layer)"]
-    pub fn get_kernel(&self,layer:usize) -> Vec<usize> {
+    pub fn get_kernel(&self,layer:usize) -> Vec<Idx> {
         self.ecc[layer].kernel().to_vec()
     }
     #[text_signature = "(layer)"]
-    pub fn get_in_channels(&self,layer:usize) -> usize {
+    pub fn get_in_channels(&self,layer:usize) -> Idx {
         self.ecc[layer].in_channels()
     }
     #[text_signature = "(layer)"]
-    pub fn get_out_channels(&self,layer:usize) -> usize {
+    pub fn get_out_channels(&self,layer:usize) -> Idx {
         self.ecc[layer].out_channels()
     }
     #[text_signature = "(layer)"]
-    pub fn get_in_volume(&self,layer:usize) -> usize {
+    pub fn get_in_volume(&self,layer:usize) -> Idx {
         self.ecc[layer].in_volume()
     }
     #[text_signature = "(layer)"]
-    pub fn get_out_volume(&self,layer:usize) -> usize {
+    pub fn get_out_volume(&self,layer:usize) -> Idx {
         self.ecc[layer].out_volume()
     }
     #[text_signature = "(layer)"]
-    pub fn get_stride(&self,layer:usize) -> Vec<usize> {
+    pub fn get_stride(&self,layer:usize) -> Vec<Idx> {
         self.ecc[layer].stride().to_vec()
     }
     #[text_signature = "(layer)"]
@@ -135,11 +142,11 @@ impl CpuEccMachine {
         }
     }
     #[text_signature = "(layer)"]
-    pub fn get_k(&self,layer:usize) -> usize {
+    pub fn get_k(&self,layer:usize) -> Idx {
         self.ecc[layer].k()
     }
     #[text_signature = "(layer, k)"]
-    pub fn set_k(&mut self, layer:usize,k: usize) {
+    pub fn set_k(&mut self, layer:usize,k: Idx) {
         self.ecc[layer].set_k(k)
     }
     #[text_signature = "(layer)"]
@@ -172,13 +179,24 @@ impl CpuEccMachine {
         }
         Ok(())
     }
+    #[text_signature = "()"]
+    pub fn pop(&mut self,py:Python) -> PyResult<PyObject> {
+        match self.ecc.pop().expect("Nothing to pop"){
+            SparseOrDense::Sparse(ecc) => PyCell::new(py, CpuEccSparse{ecc}).map(|a|a.to_object(py)),
+            SparseOrDense::Dense(ecc) => PyCell::new(py, CpuEccDense{ecc}).map(|a|a.to_object(py))
+        }
+    }
     #[text_signature = "(input_sdr)"]
-    pub fn learnable_paramemters(&self) -> usize {
-        self.ecc.learnable_paramemters()
+    pub fn learnable_parameters(&self) -> usize {
+        self.ecc.learnable_parameters()
     }
     #[text_signature = "(input_sdr)"]
     pub fn run(&mut self, input: &CpuSDR){
         self.ecc.run(&input.sdr);
+    }
+    #[text_signature = "(input_sdr)"]
+    pub fn infer(&mut self, input: &CpuSDR){
+        self.ecc.infer(&input.sdr);
     }
     #[text_signature = "()"]
     pub fn learn(&mut self){
@@ -189,15 +207,15 @@ impl CpuEccMachine {
         CpuSDR{sdr:self.ecc.last_output_sdr().clone()}
     }
     #[text_signature = "()"]
-    pub fn last_output_shape(&self)->Vec<usize>{
+    pub fn last_output_shape(&self)->Vec<Idx>{
         self.ecc.last().unwrap().out_shape().to_vec()
     }
     #[text_signature = "()"]
-    pub fn last_output_channels(&self)->usize{
+    pub fn last_output_channels(&self)->Idx{
         self.ecc.last().unwrap().out_channels()
     }
     #[text_signature = "()"]
-    pub fn item(&self)->Option<u32>{
+    pub fn item(&self)->Option<Idx>{
         let o = self.ecc.last_output_sdr();
         if o.is_empty(){None}else{Some(o.item())}
     }
@@ -240,7 +258,7 @@ impl CpuEccMachine {
         }
     }
     #[text_signature = "(layer)"]
-    pub fn get_maximum_incoming_connection(&self, layer:usize) -> usize {
+    pub fn get_maximum_incoming_connection(&self, layer:usize) -> Idx {
         match &self.ecc[layer]{
             SparseOrDense::Sparse(a) => a.get_max_incoming_synapses(),
             SparseOrDense::Dense(a) => a.kernel_column().product()
@@ -273,7 +291,7 @@ impl CpuEccMachineUInt {
         }
     }
     #[new]
-    pub fn new(output: PyObject, kernels: Vec<PyObject>, strides: Vec<PyObject>, channels: Vec<usize>, k: Vec<usize>, connections_per_output: Vec<Option<usize>>) -> PyResult<Self> {
+    pub fn new(output: PyObject, kernels: Vec<PyObject>, strides: Vec<PyObject>, channels: Vec<Idx>, k: Vec<Idx>, connections_per_output: Vec<Option<Idx>>) -> PyResult<Self> {
         let layers = kernels.len();
         if layers != strides.len() {
             return Err(PyValueError::new_err(format!("{}==len(kernels)!=len(strides)=={}", layers, strides.len())));
@@ -291,41 +309,41 @@ impl CpuEccMachineUInt {
         let py = gil.python();
         let output = arr2(py, &output)?;
         let mut rng = rand::thread_rng();
-        let kernels:PyResult<Vec<[usize;2]>> = kernels.into_iter().map(|k|arr2(py, &k)).collect();
-        let strides:PyResult<Vec<[usize;2]>> = strides.into_iter().map(|k|arr2(py, &k)).collect();
+        let kernels:PyResult<Vec<[Idx;2]>> = kernels.into_iter().map(|k|arr2(py, &k)).collect();
+        let strides:PyResult<Vec<[Idx;2]>> = strides.into_iter().map(|k|arr2(py, &k)).collect();
         Ok(Self{ecc:htm::CpuEccMachine::new(output,&kernels?,&strides?,&channels,&k,&connections_per_output,&mut rng)})
     }
 
     #[text_signature = "(layer)"]
-    pub fn get_in_shape(&self,layer:usize) -> Vec<usize> {
+    pub fn get_in_shape(&self,layer:usize) -> Vec<Idx> {
         self.ecc[layer].in_shape().to_vec()
     }
     #[text_signature = "(layer)"]
-    pub fn get_out_shape(&self,layer:usize) -> Vec<usize> {
+    pub fn get_out_shape(&self,layer:usize) -> Vec<Idx> {
         self.ecc[layer].in_shape().to_vec()
     }
     #[text_signature = "(layer)"]
-    pub fn get_kernel(&self,layer:usize) -> Vec<usize> {
+    pub fn get_kernel(&self,layer:usize) -> Vec<Idx> {
         self.ecc[layer].kernel().to_vec()
     }
     #[text_signature = "(layer)"]
-    pub fn get_in_channels(&self,layer:usize) -> usize {
+    pub fn get_in_channels(&self,layer:usize) -> Idx {
         self.ecc[layer].in_channels()
     }
     #[text_signature = "(layer)"]
-    pub fn get_out_channels(&self,layer:usize) -> usize {
+    pub fn get_out_channels(&self,layer:usize) -> Idx {
         self.ecc[layer].out_channels()
     }
     #[text_signature = "(layer)"]
-    pub fn get_in_volume(&self,layer:usize) -> usize {
+    pub fn get_in_volume(&self,layer:usize) -> Idx {
         self.ecc[layer].in_volume()
     }
     #[text_signature = "(layer)"]
-    pub fn get_out_volume(&self,layer:usize) -> usize {
+    pub fn get_out_volume(&self,layer:usize) -> Idx {
         self.ecc[layer].out_volume()
     }
     #[text_signature = "(layer)"]
-    pub fn get_stride(&self,layer:usize) -> Vec<usize> {
+    pub fn get_stride(&self,layer:usize) -> Vec<Idx> {
         self.ecc[layer].stride().to_vec()
     }
     #[text_signature = "(layer)"]
@@ -336,11 +354,11 @@ impl CpuEccMachineUInt {
         }
     }
     #[text_signature = "(layer)"]
-    pub fn get_k(&self,layer:usize) -> usize {
+    pub fn get_k(&self,layer:usize) -> Idx {
         self.ecc[layer].k()
     }
     #[text_signature = "(layer, k)"]
-    pub fn set_k(&mut self, layer:usize,k: usize) {
+    pub fn set_k(&mut self, layer:usize,k: Idx) {
         self.ecc[layer].set_k(k)
     }
     #[text_signature = "(layer)"]
@@ -375,11 +393,15 @@ impl CpuEccMachineUInt {
     }
     #[text_signature = "(input_sdr)"]
     pub fn learnable_paramemters(&self) -> usize {
-        self.ecc.learnable_paramemters()
+        self.ecc.learnable_parameters()
     }
     #[text_signature = "(input_sdr)"]
     pub fn run(&mut self, input: &CpuSDR){
         self.ecc.run(&input.sdr);
+    }
+    #[text_signature = "(input_sdr)"]
+    pub fn infer(&mut self, input: &CpuSDR){
+        self.ecc.infer(&input.sdr);
     }
     #[text_signature = "()"]
     pub fn learn(&mut self){
@@ -390,15 +412,15 @@ impl CpuEccMachineUInt {
         CpuSDR{sdr:self.ecc.last_output_sdr().clone()}
     }
     #[text_signature = "()"]
-    pub fn last_output_shape(&self)->Vec<usize>{
+    pub fn last_output_shape(&self)->Vec<Idx>{
         self.ecc.last().unwrap().out_shape().to_vec()
     }
     #[text_signature = "()"]
-    pub fn last_output_channels(&self)->usize{
+    pub fn last_output_channels(&self)->Idx{
         self.ecc.last().unwrap().out_channels()
     }
     #[text_signature = "()"]
-    pub fn item(&self)->Option<u32>{
+    pub fn item(&self)->Option<Idx>{
         let o = self.ecc.last_output_sdr();
         if o.is_empty(){None}else{Some(o.item())}
     }
@@ -425,28 +447,28 @@ impl CpuEccMachineUInt {
 #[pymethods]
 impl CpuEccDense {
     #[new]
-    pub fn new(output: PyObject, kernel: PyObject, stride: PyObject, in_channels: usize, out_channels: usize, k: usize) -> PyResult<Self> {
+    pub fn new(output: PyObject, kernel: PyObject, stride: PyObject, in_channels: Idx, out_channels: Idx, k: Idx) -> PyResult<Self> {
         let gil = Python::acquire_gil();
         let py = gil.python();
         let output = arr2(py, &output)?;
         let kernel = arr2(py, &kernel)?;
         let stride = arr2(py, &stride)?;
-        Ok(CpuEccDense { ecc: htm::EccDense::new(output, kernel, stride, in_channels, out_channels, k, &mut rand::thread_rng()) })
+        Ok(CpuEccDense { ecc: htm::CpuEccDense::new(output, kernel, stride, in_channels, out_channels, k, &mut rand::thread_rng()) })
     }
     #[getter]
-    pub fn get_in_shape(&self) -> Vec<usize> {
+    pub fn get_in_shape(&self) -> Vec<Idx> {
         self.ecc.in_shape().to_vec()
     }
     #[getter]
-    pub fn get_out_shape(&self) -> Vec<usize> {
+    pub fn get_out_shape(&self) -> Vec<Idx> {
         self.ecc.out_shape().to_vec()
     }
     #[getter]
-    pub fn get_k(&self) -> usize {
+    pub fn get_k(&self) -> Idx {
         self.ecc.k()
     }
     #[setter]
-    pub fn set_k(&mut self, k: usize) {
+    pub fn set_k(&mut self, k: Idx) {
         self.ecc.set_k(k)
     }
     #[getter]
@@ -468,11 +490,11 @@ impl CpuEccDense {
     }
 
     #[getter]
-    pub fn get_rand_seed(&self) -> usize {
+    pub fn get_rand_seed(&self) -> Idx {
         self.ecc.rand_seed
     }
     #[setter]
-    pub fn set_rand_seed(&mut self, rand_seed: usize) {
+    pub fn set_rand_seed(&mut self, rand_seed: Rand) {
         self.ecc.rand_seed = rand_seed
     }
     #[text_signature = "(input_sdr,output_sdr,learn)"]
@@ -482,10 +504,17 @@ impl CpuEccDense {
             self.ecc.learn(&input.sdr,&output.sdr)
         }
     }
+    #[text_signature = "(input_sdr,output_sdr,learn)"]
+    pub fn infer_in_place(&mut self, input: &CpuSDR, output:&mut CpuSDR, learn:Option<bool>){
+        self.ecc.infer_in_place(&input.sdr,&mut output.sdr);
+        if learn.unwrap_or(false){
+            self.ecc.learn(&input.sdr,&output.sdr)
+        }
+    }
     #[staticmethod]
     #[text_signature = "(layers)"]
     pub fn concat(layers: Vec<PyRef<Self>>) -> Self {
-        Self{ecc:EccDense::concat(&layers,|s|&s.ecc)}
+        Self{ecc: htm::CpuEccDense::concat(&layers, |s|&s.ecc)}
     }
     #[text_signature = "(input_sdr, learn)"]
     pub fn run(&mut self, input: &CpuSDR, learn:Option<bool>) -> CpuSDR {
@@ -495,9 +524,22 @@ impl CpuEccDense {
         }
         CpuSDR { sdr:  out}
     }
+    #[text_signature = "(input_sdr, learn)"]
+    pub fn infer(&mut self, input: &CpuSDR, learn:Option<bool>) -> CpuSDR {
+        let out = self.ecc.infer(&input.sdr);
+        if learn.unwrap_or(false){
+            self.ecc.learn(&input.sdr,&out)
+        }
+        CpuSDR { sdr:  out}
+    }
+
     #[text_signature = "()"]
     pub fn min_activity(&self) -> f32 {
         self.ecc.min_activity()
+    }
+    #[text_signature = "()"]
+    pub fn max_activity(&self) -> f32 {
+        self.ecc.max_activity()
     }
     #[text_signature = "()"]
     pub fn min_activity_f32(&self) -> f32 {
@@ -516,7 +558,7 @@ impl CpuEccDense {
         self.ecc.activity_f32(output_idx)
     }
     #[text_signature = "(input_pos,output_pos)"]
-    pub fn w_index(&self, input_pos: PyObject, output_pos: PyObject) -> PyResult<usize> {
+    pub fn w_index(&self, input_pos: PyObject, output_pos: PyObject) -> PyResult<Idx> {
         let gil = Python::acquire_gil();
         let py = gil.python();
         let input_pos = arr3(py, &input_pos)?;
@@ -546,11 +588,170 @@ impl CpuEccDense {
         pickle(&self.ecc, file)
     }
     #[text_signature = "(output_neuron_idx)"]
-    pub fn incoming_weight_sum(&self, output_neuron_idx: usize) -> f32 {
+    pub fn incoming_weight_sum(&self, output_neuron_idx: Idx) -> f32 {
         self.ecc.incoming_weight_sum(output_neuron_idx)
     }
     #[text_signature = "(output_neuron_idx)"]
-    pub fn incoming_weight_sum_f32(&self, output_neuron_idx: usize) -> f32 {
+    pub fn incoming_weight_sum_f32(&self, output_neuron_idx: Idx) -> f32 {
+        self.ecc.incoming_weight_sum_f32(output_neuron_idx)
+    }
+    #[staticmethod]
+    #[text_signature = "(file)"]
+    pub fn load(file: String) -> PyResult<Self> {
+        unpickle(file).map(|s|Self{ecc:s})
+    }
+}
+
+
+#[pymethods]
+impl CpuEccDenseUint {
+    #[new]
+    pub fn new(output: PyObject, kernel: PyObject, stride: PyObject, in_channels: Idx, out_channels: Idx, k: Idx) -> PyResult<Self> {
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let output = arr2(py, &output)?;
+        let kernel = arr2(py, &kernel)?;
+        let stride = arr2(py, &stride)?;
+        Ok(CpuEccDenseUint { ecc: htm::CpuEccDense::new(output, kernel, stride, in_channels, out_channels, k, &mut rand::thread_rng()) })
+    }
+    #[getter]
+    pub fn get_in_shape(&self) -> Vec<Idx> {
+        self.ecc.in_shape().to_vec()
+    }
+    #[getter]
+    pub fn get_out_shape(&self) -> Vec<Idx> {
+        self.ecc.out_shape().to_vec()
+    }
+    #[getter]
+    pub fn get_k(&self) -> Idx {
+        self.ecc.k()
+    }
+    #[setter]
+    pub fn set_k(&mut self, k: Idx) {
+        self.ecc.set_k(k)
+    }
+    #[getter]
+    pub fn get_threshold(&self) -> f32 {
+        self.ecc.get_threshold()
+    }
+    #[setter]
+    pub fn set_threshold(&mut self, threshold: f32) {
+        self.ecc.set_threshold(threshold)
+    }
+
+    #[getter]
+    pub fn get_plasticity(&self) -> f32 {
+        self.ecc.get_plasticity()
+    }
+    #[setter]
+    pub fn set_plasticity(&mut self, plasticity: f32) {
+        self.ecc.set_plasticity( plasticity)
+    }
+
+    #[getter]
+    pub fn get_rand_seed(&self) -> Idx {
+        self.ecc.rand_seed
+    }
+    #[setter]
+    pub fn set_rand_seed(&mut self, rand_seed: Rand) {
+        self.ecc.rand_seed = rand_seed
+    }
+    #[text_signature = "(input_sdr,output_sdr,learn)"]
+    pub fn run_in_place(&mut self, input: &CpuSDR, output:&mut CpuSDR, learn:Option<bool>){
+        self.ecc.run_in_place(&input.sdr,&mut output.sdr);
+        if learn.unwrap_or(false){
+            self.ecc.learn(&input.sdr,&output.sdr)
+        }
+    }
+    #[text_signature = "(input_sdr,output_sdr,learn)"]
+    pub fn infer_in_place(&mut self, input: &CpuSDR, output:&mut CpuSDR, learn:Option<bool>){
+        self.ecc.infer_in_place(&input.sdr,&mut output.sdr);
+        if learn.unwrap_or(false){
+            self.ecc.learn(&input.sdr,&output.sdr)
+        }
+    }
+    #[staticmethod]
+    #[text_signature = "(layers)"]
+    pub fn concat(layers: Vec<PyRef<Self>>) -> Self {
+        Self{ecc: htm::CpuEccDense::concat(&layers, |s|&s.ecc)}
+    }
+    #[text_signature = "(input_sdr, learn)"]
+    pub fn run(&mut self, input: &CpuSDR, learn:Option<bool>) -> CpuSDR {
+        let out = self.ecc.run(&input.sdr);
+        if learn.unwrap_or(false){
+            self.ecc.learn(&input.sdr,&out)
+        }
+        CpuSDR { sdr:  out}
+    }
+    #[text_signature = "(input_sdr, learn)"]
+    pub fn infer(&mut self, input: &CpuSDR, learn:Option<bool>) -> CpuSDR {
+        let out = self.ecc.infer(&input.sdr);
+        if learn.unwrap_or(false){
+            self.ecc.learn(&input.sdr,&out)
+        }
+        CpuSDR { sdr:  out}
+    }
+
+    #[text_signature = "()"]
+    pub fn min_activity(&self) -> u32 {
+        self.ecc.min_activity()
+    }
+    #[text_signature = "()"]
+    pub fn max_activity(&self) -> u32 {
+        self.ecc.max_activity()
+    }
+    #[text_signature = "()"]
+    pub fn min_activity_f32(&self) -> f32 {
+        self.ecc.min_activity_f32()
+    }
+    #[text_signature = "(output_idx)"]
+    pub fn activity(&self, output_idx: usize) -> u32 {
+        self.ecc.activity(output_idx)
+    }
+    #[text_signature = "()"]
+    pub fn get_activity(&self) -> Vec<u32> {
+        self.ecc.get_activity().to_vec()
+    }
+    #[text_signature = "(output_idx)"]
+    pub fn activity_f32(&self, output_idx: usize) -> f32 {
+        self.ecc.activity_f32(output_idx)
+    }
+    #[text_signature = "(input_pos,output_pos)"]
+    pub fn w_index(&self, input_pos: PyObject, output_pos: PyObject) -> PyResult<Idx> {
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let input_pos = arr3(py, &input_pos)?;
+        let output_pos = arr3(py, &output_pos)?;
+        Ok(self.ecc.w_index(&input_pos, &output_pos))
+    }
+    #[text_signature = "()"]
+    pub fn set_initial_activity(&mut self) {
+        self.ecc.set_initial_activity()
+    }
+    #[text_signature = "()"]
+    pub fn reset_activity(&mut self) {
+        self.ecc.reset_activity()
+    }
+    #[getter]
+    pub fn get_sums(&self) -> Vec<u32> {
+        self.ecc.sums.clone()
+    }
+
+    #[text_signature = "(input_sdr,output_sdr,rand_seed)"]
+    pub fn learn(&mut self, input: &CpuSDR, output: &CpuSDR) {
+        self.ecc.learn(&input.sdr, &output.sdr)
+    }
+
+    #[text_signature = "(file)"]
+    pub fn save(&self, file: String) -> PyResult<()> {
+        pickle(&self.ecc, file)
+    }
+    #[text_signature = "(output_neuron_idx)"]
+    pub fn incoming_weight_sum(&self, output_neuron_idx: Idx) -> u32 {
+        self.ecc.incoming_weight_sum(output_neuron_idx)
+    }
+    #[text_signature = "(output_neuron_idx)"]
+    pub fn incoming_weight_sum_f32(&self, output_neuron_idx: Idx) -> f32 {
         self.ecc.incoming_weight_sum_f32(output_neuron_idx)
     }
     #[staticmethod]
@@ -564,32 +765,32 @@ impl CpuEccDense {
 #[pymethods]
 impl CpuEccSparse {
     #[new]
-    pub fn new(output: PyObject, kernel: PyObject, stride: PyObject, in_channels: usize, out_channels: usize, k: usize, connections_per_output: usize) -> PyResult<Self> {
+    pub fn new(output: PyObject, kernel: PyObject, stride: PyObject, in_channels: Idx, out_channels: Idx, k: Idx, connections_per_output: Idx) -> PyResult<Self> {
         let gil = Python::acquire_gil();
         let py = gil.python();
         let output = arr2(py, &output)?;
         let kernel = arr2(py, &kernel)?;
         let stride = arr2(py, &stride)?;
-        Ok(CpuEccSparse { ecc: htm::EccSparse::new(output, kernel, stride, in_channels, out_channels, k, connections_per_output, &mut rand::thread_rng()) })
+        Ok(CpuEccSparse { ecc: htm::CpuEccSparse::new(output, kernel, stride, in_channels, out_channels, k, connections_per_output, &mut rand::thread_rng()) })
     }
     #[getter]
     pub fn get_sums(&self) -> Vec<u16> {
         self.ecc.sums.clone()
     }
     #[getter]
-    pub fn get_in_shape(&self) -> Vec<usize> {
+    pub fn get_in_shape(&self) -> Vec<Idx> {
         self.ecc.in_shape().to_vec()
     }
     #[getter]
-    pub fn get_out_shape(&self) -> Vec<usize> {
+    pub fn get_out_shape(&self) -> Vec<Idx> {
         self.ecc.out_shape().to_vec()
     }
     #[getter]
-    pub fn get_k(&self) -> usize {
+    pub fn get_k(&self) -> Idx {
         self.ecc.k()
     }
     #[setter]
-    pub fn set_k(&mut self, k: usize) {
+    pub fn set_k(&mut self, k: Idx) {
         self.ecc.set_k(k)
     }
     #[getter]
@@ -605,9 +806,17 @@ impl CpuEccSparse {
     pub fn run(&mut self, input: &CpuSDR) -> CpuSDR {
         CpuSDR { sdr: self.ecc.run(&input.sdr) }
     }
+    #[text_signature = "(input_sdr)"]
+    pub fn infer(&mut self, input: &CpuSDR) -> CpuSDR {
+        CpuSDR { sdr: self.ecc.infer(&input.sdr) }
+    }
     #[text_signature = "(input_sdr,output_sdr)"]
     pub fn run_in_place(&mut self, input: &CpuSDR, output:&mut CpuSDR){
         self.ecc.run_in_place(&input.sdr,&mut output.sdr)
+    }
+    #[text_signature = "(input_sdr,output_sdr)"]
+    pub fn infer_in_place(&mut self, input: &CpuSDR, output:&mut CpuSDR){
+        self.ecc.infer_in_place(&input.sdr,&mut output.sdr)
     }
     #[text_signature = "(file)"]
     pub fn save(&self, file: String) -> PyResult<()> {

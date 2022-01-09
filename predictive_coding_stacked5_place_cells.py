@@ -30,7 +30,7 @@ def rand_patch(patch_size):
 def experiment(clazz, k, channels, model_file, iterations=1000000, interval=100000, test_patches=20000):
     save_file = "predictive_coding_stacked5_place_cells_experiment" + str(EXPERIMENT)
     m = clazz.load(model_file)
-    m.set_k(m.len-1, k)
+    m.set_k(m.len - 1, k)
     patch_size = np.array(m.get_in_shape(0))
     print("PATCH_SIZE=", patch_size, "Params=", m.learnable_paramemters())
     pc = [ecc.CpuEccDense(
@@ -66,6 +66,7 @@ def experiment(clazz, k, channels, model_file, iterations=1000000, interval=1000
         return output.item()
 
     all_processed = []
+    all_accuracies = []
     for s in tqdm(range(iterations), desc="training"):
         img, sdr, lbl = normalise_img(rand_patch(patch_size[:2]))
         run(sdr, lbl, learn=True)
@@ -74,6 +75,7 @@ def experiment(clazz, k, channels, model_file, iterations=1000000, interval=1000
             concat = ecc.CpuEccDense.concat(pc)
             stats = torch.zeros([patch_size[0], patch_size[1], channels * 10])
             processed = 0
+            correct = 0
             for img, sdr, lbl in tqdm(test_patches, desc="eval"):
                 # img = normalise_img(rand_patch())
                 m.run(sdr)
@@ -81,9 +83,14 @@ def experiment(clazz, k, channels, model_file, iterations=1000000, interval=1000
                 top = concat.run(hidden_sdr).item()
                 if top is not None:
                     stats[:, :, top] += img
+                    predicted_lbl = top // channels
+                    if predicted_lbl == lbl:
+                        correct += 1
                     processed += 1
+            all_accuracies.append(correct/processed)
             all_processed.append(processed)
             print(all_processed)
+            print(all_accuracies)
             for i in range(channels):
                 for j in range(10):
                     axs[i, j].imshow(stats[:, :, i + j * channels])
@@ -93,12 +100,17 @@ def experiment(clazz, k, channels, model_file, iterations=1000000, interval=1000
     plt.show()
 
 
-EXPERIMENT = 1
+EXPERIMENT = 2
 
 if EXPERIMENT == 1:
     experiment(clazz=ecc.CpuEccMachine,
                channels=10,
                k=3,
                interval=20000,
-               model_file = "predictive_coding_stacked5_experiment3.model")
-
+               model_file="predictive_coding_stacked5_experiment3.model")
+elif EXPERIMENT == 2:
+    experiment(clazz=ecc.CpuEccMachine,
+               channels=10,
+               k=5,
+               interval=20000,
+               model_file="predictive_coding_stacked5_experiment6.model")

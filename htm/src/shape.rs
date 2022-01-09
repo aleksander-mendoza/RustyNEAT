@@ -74,6 +74,15 @@ pub trait Shape<T: Num + Copy + Debug + PartialOrd, const DIM: usize>: Eq + Part
         let from = in_position.add(stride).sub(kernel_size).div(stride);
         from..to
     }
+    fn conv_out_transpose_kernel(&self, stride: &Self) -> Self {
+        let kernel = self;
+        // (in_position - kernel + stride)/stride .. in_position / stride + 1
+        //  in_position / stride + 1 - (in_position - kernel + stride)/stride
+        //  (in_position- (in_position - kernel + stride))/stride + 1
+        //  (kernel - stride)/stride + 1
+        debug_assert!(kernel.all_ge(stride));
+        kernel.sub(stride).div(stride).add_scalar(T::one())
+    }
     /**returns the range of outputs that connect to a specific input neuron.
     output range is clipped to 0, so that you don't get overflow on negative values when dealing with unsigned integers.*/
     fn conv_out_range_clipped(&self, stride: &Self, kernel_size: &Self) -> Range<Self> {
