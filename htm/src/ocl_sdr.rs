@@ -6,13 +6,48 @@ use ocl::core::{MemInfo, MemInfoResult, BufferRegion, Mem, ArgVal};
 use ndalgebra::buffer::Buffer;
 use crate::ecc_program::EccProgram;
 use ndalgebra::context::Context;
-use crate::{CpuSDR, OclBitset};
+use crate::{CpuSDR, OclBitset, as_usize};
+use crate::sdr::SDR;
 
 #[derive(Clone)]
 pub struct OclSDR {
     prog: EccProgram,
     buffer:Buffer<u32>,
     cardinality:u32,
+}
+
+impl SDR for OclSDR{
+    fn clear(&mut self) {
+        self.cardinality = 0;
+    }
+
+    fn item(&self) -> u32 {
+        assert_eq!(self.cardinality,1,"SDR is not a singleton");
+        self.read_at(0).unwrap()
+    }
+
+    /**number of active neurons*/
+    fn cardinality(&self) ->u32{
+        self.cardinality
+    }
+
+    fn set_from_slice(&mut self, other: &[u32]) {
+        OclSDR::set(self,other).unwrap()
+    }
+
+    fn set_from_sdr(&mut self, other: &Self) {
+        assert!(other.cardinality as usize<=self.max_active_neurons());
+        self.cardinality = other.cardinality;
+        self.buffer.copy_with_offset_from(other.prog.queue(),other.buffer(),0,0,as_usize(other.cardinality));
+    }
+
+    fn to_vec(&self) -> Vec<u32> {
+        self.read_all().unwrap()
+    }
+
+    fn into_vec(self) -> Vec<u32> {
+        self.to_vec()
+    }
 }
 
 impl OclSDR {
@@ -28,24 +63,26 @@ impl OclSDR {
     pub fn read(&self, offset:usize, dst:&mut [u32]) -> Result<(), Error> {
         self.buffer.read(self.queue(), offset, dst).map_err(Error::from)
     }
-    pub fn get(&self)->Result<Vec<u32>,Error>{
+    pub fn read_at(&self, offset:usize) -> Result<u32, Error> {
+        let mut o=0;
+        self.buffer.read(self.queue(), offset, std::slice::from_mut(&mut o)).map_err(Error::from)?;
+        Ok(o)
+    }
+    pub fn read_all(&self) ->Result<Vec<u32>,Error>{
         let mut v = Vec::with_capacity(self.cardinality as usize);
         unsafe{v.set_len(self.cardinality as usize)}
         self.buffer.read(self.queue(), 0, v.as_mut_slice())?;
         Ok(v)
     }
     pub fn to_cpu(&self)->Result<CpuSDR,Error>{
-        self.get().map(CpuSDR::from)
+        self.read_all().map(CpuSDR::from)
     }
     /**number of active neurons*/
     pub unsafe fn set_cardinality(&mut self,cardinality:u32){
         assert!(cardinality as usize<=self.buffer().len(),"{}<={}",cardinality,self.buffer().len());
         self.cardinality=cardinality
     }
-    /**number of active neurons*/
-    pub fn cardinality(&self) ->u32{
-        self.cardinality
-    }
+
     /**SDR ust be sparse. Hence we might as well put a cap on the maximum number of active neurons.
     If your system is designed correctly, then you should never have to worry about exceeding this limit.*/
     pub fn max_active_neurons(&self)->usize{
@@ -91,9 +128,6 @@ impl OclSDR {
         unsafe{val.set_len(self.cardinality as usize)}
         self.buffer.read(self.queue(), 0, &mut val)?;
         Ok(val.into_iter())
-    }
-    pub fn clear(&mut self){
-        self.cardinality = 0;
     }
 }
 

@@ -17,7 +17,7 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{Encoder, EncoderTarget, EncoderRange, Shape, VectorFieldOne, Synapse};
+use htm::{Encoder, EncoderTarget, EncoderRange, Shape, VectorFieldOne, Synapse, SDR};
 use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
@@ -52,7 +52,7 @@ pub struct CpuInput {
 
 #[pyclass]
 pub struct OclSDR {
-    sdr: htm::OclSDR,
+    pub(crate) sdr: htm::OclSDR,
 }
 
 #[pyclass]
@@ -874,7 +874,7 @@ impl OclSDR {
 
     #[getter]
     fn get_active_neurons(&self) -> PyResult<Vec<u32>> {
-        self.sdr.get().map_err(ocl_err_to_py_ex)
+        self.sdr.read_all().map_err(ocl_err_to_py_ex)
     }
 }
 
@@ -988,7 +988,7 @@ impl CpuSDR {
     }
     #[setter]
     fn set_active_neurons(&mut self, neuron_indices: Vec<u32>) {
-        self.sdr.set(neuron_indices.as_slice())
+        self.sdr.set_from_slice(neuron_indices.as_slice())
     }
 
     #[getter]
@@ -1463,7 +1463,7 @@ impl PyIterProtocol for CpuSDR {
 #[pyproto]
 impl PyObjectProtocol for OclSDR {
     fn __str__(&self) -> PyResult<String> {
-        Ok(format!("{:?}", self.sdr.get().map_err(ocl_err_to_py_ex)?))
+        Ok(format!("{:?}", self.sdr.read_all().map_err(ocl_err_to_py_ex)?))
     }
     fn __repr__(&self) -> PyResult<String> {
         self.__str__()

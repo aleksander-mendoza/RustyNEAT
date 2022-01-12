@@ -2,6 +2,7 @@ use crate::{CpuSDR, EncoderTarget, EccProgram, OclSDR};
 use crate::cpu_bitset::{CpuBitset, bit_count_to_vec_size};
 use ndalgebra::buffer::Buffer;
 use ocl::{MemFlags, Error, Queue};
+use crate::sdr::SDR;
 
 pub struct OclBitset {
     prog: EccProgram,

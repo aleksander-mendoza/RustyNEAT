@@ -16,7 +16,11 @@ mod cpu_assembly;
 mod cpu_ecc;
 mod xorshift;
 mod ocl_ecc;
+mod ecc;
+mod sdr;
 
+pub use sdr::*;
+pub use ecc::*;
 pub use cpu_ecc::*;
 pub use ocl_ecc::*;
 pub use population::*;

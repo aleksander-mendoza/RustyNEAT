@@ -3,7 +3,7 @@
 use std;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut, Range};
-use ocl::core::{self, Error as OclCoreError, Result as OclCoreResult, OclPrm, Mem as MemCore, MemFlags, MemInfo, MemInfoResult, BufferRegion, MapFlags, AsMem, MemCmdRw, MemCmdAll, ClNullEventPtr, ClContextPtr, Error, CommandQueue};
+use ocl::core::{self, Error as OclCoreError, Result as OclCoreResult, OclPrm, Mem as MemCore, MemFlags, MemInfo, MemInfoResult, BufferRegion, MapFlags, AsMem, MemCmdRw, MemCmdAll, ClNullEventPtr, ClContextPtr, Error, CommandQueue, Mem};
 use ocl::{Context, Queue, FutureMemMap, MemMap, Event, RwVec, FutureReadGuard, FutureWriteGuard,
        SpatialDims};
 use ocl::error::{Error as OclError, Result as OclResult};
@@ -25,6 +25,18 @@ pub struct Buffer<T: OclPrm> {
     _data: PhantomData<T>,
 }
 
+impl<T: OclPrm> AsMem<T> for Buffer<T> {
+    fn as_mem(&self) -> &MemCore {
+        &self.obj_core
+    }
+}
+
+unsafe impl<'a,T: OclPrm> MemCmdRw for Buffer<T> {}
+unsafe impl<'a,T: OclPrm> MemCmdRw for &'a Buffer<T> {}
+unsafe impl<'a,T: OclPrm> MemCmdRw for &'a mut Buffer<T> {}
+unsafe impl<'a,T: OclPrm> MemCmdAll for Buffer<T> {}
+unsafe impl<'a,T: OclPrm> MemCmdAll for &'a Buffer<T> {}
+unsafe impl<'a,T: OclPrm> MemCmdAll for &'a mut Buffer<T> {}
 impl<T: OclPrm> Buffer<T> {
     pub unsafe fn empty<C: ClContextPtr>(context:C, flags: MemFlags, len: usize) -> Result<Buffer<T>, OclError> {
         ocl::core::create_buffer::<C,T>(context, flags, len, None).map(|obj_core|Buffer {
@@ -48,13 +60,24 @@ impl<T: OclPrm> Buffer<T> {
             ocl::core::enqueue_fill_buffer(queue.as_core(), &self.obj_core, fill_val,0, self.len(), None::<core::Event>, None::<&mut core::Event>, Some(&queue.device_version()))
         }.map_err(OclError::from)
     }
+    pub fn copy_from(&mut self, queue:&Queue, other:&Self) -> Result<(), OclError> {
+        assert_eq!(self.len,other.len);
+        self.copy_with_offset_from(queue,other,0,0,self.len)
+    }
+    pub fn copy_with_offset_from(&mut self, queue:&Queue, other:&Self, self_offset:usize,other_offset:usize,len:usize) -> Result<(), OclError> {
+        assert!(self_offset+len<=self.len);
+        assert!(other_offset+len<=other.len);
+        unsafe{
+            ocl::core::enqueue_copy_buffer(queue.as_core(), other, self,other_offset,self_offset, len, None::<core::Event>, None::<&mut core::Event>)
+        }.map_err(OclError::from)
+    }
 
     pub fn read(&self, queue:&Queue, offset:usize, dst:&mut[T]) -> Result<(),OclError>{
         if offset+dst.len() > self.len(){
             return Err(OclError::from(format!("Buffer has length {} is less that destination length {} plus offset {}",self.len(),dst.len(),offset)));
         }
         unsafe {
-            ocl::core::enqueue_read_buffer(&queue, &self.obj_core, true, offset, dst, None::<core::Event>, None::<&mut core::Event>)
+            ocl::core::enqueue_read_buffer(&queue, self, true, offset, dst, None::<core::Event>, None::<&mut core::Event>)
         }.map_err(OclError::from)
     }
     pub fn get(&self, queue:&Queue, index:usize)->Result<T,OclError>{
@@ -69,7 +92,7 @@ impl<T: OclPrm> Buffer<T> {
             return Err(OclError::from(format!("Buffer has length {} is less that data length {} plus offset {}",self.len(),data.len(),offset)));
         }
         unsafe {
-            ocl::core::enqueue_write_buffer(&queue, &self.obj_core, true, offset, data, None::<core::Event>, None::<&mut core::Event>)
+            ocl::core::enqueue_write_buffer(&queue, self, true, offset, data, None::<core::Event>, None::<&mut core::Event>)
         }.map_err(OclError::from)
     }
 
@@ -259,11 +282,6 @@ impl<T: OclPrm> AsMut<MemCore> for Buffer<T> {
     }
 }
 
-impl<T: OclPrm> AsMem<T> for Buffer<T> {
-    fn as_mem(&self) -> &MemCore {
-        &self.obj_core
-    }
-}
 
 
 impl<T: OclPrm> std::fmt::Display for Buffer<T> {

@@ -1,5 +1,6 @@
 use crate::{CpuSDR, CpuBitset, EncoderTarget};
 use serde::{Serialize, Deserialize};
+use crate::sdr::SDR;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CpuInput{

@@ -1,5 +1,6 @@
 use crate::{CpuSDR, CpuBitset, EncoderTarget, OclSDR, OclBitset, EccProgram, CpuInput};
 use ocl::Error;
+use crate::sdr::SDR;
 
 pub struct OclInput{
     sdr:OclSDR,

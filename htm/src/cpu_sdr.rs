@@ -5,35 +5,36 @@ use std::fmt::{Display, Formatter, Debug};
 use ocl::core::{MemInfo, MemInfoResult, BufferRegion, Mem, ArgVal};
 use ndalgebra::buffer::Buffer;
 use crate::ecc_program::EccProgram;
-use crate::{CpuBitset, EncoderTarget, Shape};
+use crate::{CpuBitset, EncoderTarget, Shape, Idx, as_idx, as_usize};
 use std::collections::{HashMap, HashSet};
 use std::borrow::Borrow;
 use serde::{Serialize, Deserialize};
 use crate::vector_field::{VectorField, VectorFieldMul};
+use crate::sdr::SDR;
 
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct CpuSDR(Vec<u32>);
+pub struct CpuSDR(Vec<Idx>);
 
-impl PartialEq<Vec<u32>> for CpuSDR {
-    fn eq(&self, other: &Vec<u32>) -> bool {
+impl PartialEq<Vec<Idx>> for CpuSDR {
+    fn eq(&self, other: &Vec<Idx>) -> bool {
         self.0.eq(other)
     }
 }
 
-impl From<&[u32]> for CpuSDR {
-    fn from(v: &[u32]) -> Self {
+impl From<&[Idx]> for CpuSDR {
+    fn from(v: &[Idx]) -> Self {
         Self(Vec::from(v))
     }
 }
 
 impl From<Vec<u32>> for CpuSDR {
-    fn from(v: Vec<u32>) -> Self {
+    fn from(v: Vec<Idx>) -> Self {
         Self(v)
     }
 }
 
 impl Deref for CpuSDR {
-    type Target = [u32];
+    type Target = [Idx];
 
     fn deref(&self) -> &Self::Target {
         self.0.as_slice()
@@ -53,64 +54,78 @@ impl Debug for CpuSDR {
 }
 
 impl EncoderTarget for CpuSDR {
-    fn push(&mut self, neuron_index: u32) {
+    fn push(&mut self, neuron_index: Idx) {
         self.0.push(neuron_index)
     }
 
-    fn clear_range(&mut self, from: u32, to: u32) {
+    fn clear_range(&mut self, from: Idx, to: Idx) {
         self.0.retain(|&i| i >= to || i < from)
     }
 
-    fn contains(&self, neuron_index: u32) -> bool {
+    fn contains(&self, neuron_index: Idx) -> bool {
         debug_assert!(self.is_normalized());
         self.binary_search(neuron_index)
     }
 }
 
-impl CpuSDR {
-    pub fn from_slice(s: &[u32]) -> Self {
-        Self::from(s)
-    }
-    pub fn as_slice(&self) -> &[u32] {
-        self.0.as_slice()
-    }
-    pub fn shift(&mut self, shift:i32){
-        for i in &mut self.0{
-            let new_i = *i as i32 + shift;
-            if new_i < 0{panic!("Shifting neuron {} by {} produces negative index {}",*i,shift,new_i)}
-            *i = new_i as u32;
-        }
-    }
-    pub fn swap_remove(&mut self, idx:usize) -> u32 {
-        self.0.swap_remove(idx)
-    }
-    pub fn remove(&mut self, idx:usize) -> u32 {
-        self.0.remove(idx)
-    }
-    pub fn as_mut_slice(&mut self) -> &mut [u32] {
-        self.0.as_mut_slice()
-    }
-    pub fn into_vec(self) -> Vec<u32> {
-        let Self(v) = self;
-        v
-    }
-    pub fn clear(&mut self) {
+impl SDR for CpuSDR {
+    fn clear(&mut self) {
         self.0.clear()
     }
-    pub fn retain(&mut self, mut predicate:impl FnMut(u32)->bool) {
-        self.0.retain(|&x|predicate(x))
-    }
-    pub fn item(&self)->u32{
-        assert_eq!(self.len(),1,"The SDR is not a singleton");
+    fn item(&self) -> Idx {
+        assert_eq!(self.len(), 1, "The SDR is not a singleton");
         self.0[0]
     }
-    pub fn set(&mut self, active_neurons: &[u32]) {
+    fn cardinality(&self) -> Idx {
+        as_idx(self.0.len())
+    }
+    fn set_from_slice(&mut self, active_neurons: &[Idx]) {
         self.clear();
         self.0.extend_from_slice(active_neurons)
     }
-    pub fn cardinality(&self) -> u32 {
-        self.0.len() as u32
+
+    fn set_from_sdr(&mut self, other: &Self) {
+        self.set_from_slice(other.as_slice())
     }
+
+    fn to_vec(&self) -> Vec<Idx> {
+        self.0.clone()
+    }
+    fn into_vec(self) -> Vec<Idx> {
+        let Self(v) = self;
+        v
+    }
+}
+
+impl CpuSDR {
+    pub fn from_slice(s: &[Idx]) -> Self {
+        Self::from(s)
+    }
+    pub fn as_slice(&self) -> &[Idx] {
+        self.0.as_slice()
+    }
+    pub fn shift(&mut self, shift: i32) {
+        for i in &mut self.0 {
+            let new_i = *i as i32 + shift;
+            if new_i < 0 { panic!("Shifting neuron {} by {} produces negative index {}", *i, shift, new_i) }
+            *i = new_i as u32;
+        }
+    }
+    pub fn swap_remove(&mut self, idx: usize) -> Idx {
+        self.0.swap_remove(idx)
+    }
+    pub fn remove(&mut self, idx: usize) -> Idx {
+        self.0.remove(idx)
+    }
+    pub fn as_mut_slice(&mut self) -> &mut [Idx] {
+        self.0.as_mut_slice()
+    }
+
+
+    pub fn retain(&mut self, mut predicate: impl FnMut(Idx) -> bool) {
+        self.0.retain(|&x| predicate(x))
+    }
+
     /**SDR ust be sparse. Hence we might as well put a cap on the maximum number of active neurons.
     If your system is designed correctly, then you should never have to worry about exceeding this limit.*/
     pub fn max_active_neurons(&self) -> usize {
@@ -128,7 +143,7 @@ impl CpuSDR {
         self.0.dedup();
     }
     /**This method requires that both SDRs are first normalized*/
-    pub fn overlap(&self, other: &CpuSDR) -> u32 {
+    pub fn overlap(&self, other: &CpuSDR) -> Idx {
         if self.is_empty() || other.is_empty() { return 0; }
         let mut i1 = 0;
         let mut i2 = 0;
@@ -170,10 +185,10 @@ impl CpuSDR {
     pub fn extend(&mut self, other: &CpuSDR) {
         self.0.extend_from_slice(other)
     }
-    pub fn extend_from_iter(&mut self, other: impl IntoIterator<Item = u32>) {
+    pub fn extend_from_iter(&mut self, other: impl IntoIterator<Item=Idx>) {
         self.0.extend(other)
     }
-    pub fn extend_from_slice(&mut self, other: &[u32]) {
+    pub fn extend_from_slice(&mut self, other: &[Idx]) {
         self.0.extend_from_slice(other)
     }
     /**Requires that both SDRs are normalized. The resulting SDR is already in normalized form*/
@@ -292,18 +307,18 @@ impl CpuSDR {
     }
     /**Iterates over all lower-level columns. For each one looks up all the connected higher-level columns and takes the union of their activities.
     This union could then be used for training the lower-level columns. The function returns a 2d array of such unions.*/
-    pub fn vote_conv2d_transpose_arr<'a>(stride: [u32;2], kernel_size: [u32;2], grid_size: [u32;2], output_sdr_grid: &'a impl Fn(u32, u32) -> &'a CpuSDR)->Vec<Vec<CpuSDR>> {
+    pub fn vote_conv2d_transpose_arr<'a>(stride: [u32; 2], kernel_size: [u32; 2], grid_size: [u32; 2], output_sdr_grid: &'a impl Fn(u32, u32) -> &'a CpuSDR) -> Vec<Vec<CpuSDR>> {
         let out_grid_size = grid_size.conv_out_size(&stride, &kernel_size);
-        let mut apical_feedback_input_grid:Vec<Vec<CpuSDR>> = (0..grid_size[0]).map(|_|(0..grid_size[1]).map(|_|CpuSDR::new()).collect()).collect();
+        let mut apical_feedback_input_grid: Vec<Vec<CpuSDR>> = (0..grid_size[0]).map(|_| (0..grid_size[1]).map(|_| CpuSDR::new()).collect()).collect();
         for out0 in 0..out_grid_size[0] {
             for out1 in 0..out_grid_size[1] {
-                let out_sdr:&CpuSDR = output_sdr_grid(out0, out1);
+                let out_sdr: &CpuSDR = output_sdr_grid(out0, out1);
                 let in_begin = (out0 * stride[0], out1 * stride[1]);
-                for in0 in in_begin.0..in_begin.0 + kernel_size[0]{
-                    for in1 in in_begin.1..in_begin.1 + kernel_size[1]{
+                for in0 in in_begin.0..in_begin.0 + kernel_size[0] {
+                    for in1 in in_begin.1..in_begin.1 + kernel_size[1] {
                         let union_sdr = &mut apical_feedback_input_grid[in0 as usize][in1 as usize];
                         let mut new_union = union_sdr.union(out_sdr);
-                        std::mem::swap(&mut new_union,union_sdr);
+                        std::mem::swap(&mut new_union, union_sdr);
                     }
                 }
             }
@@ -311,10 +326,10 @@ impl CpuSDR {
         apical_feedback_input_grid
     }
 
-    pub fn vote_conv2d_arr<T: Borrow<CpuSDR>>(n: usize, threshold: u32, stride: [u32;2], kernel_size: [u32;2], grid_size: [u32;2], input_sdr_grid: &[impl AsRef<[T]>]) -> Vec<Vec<CpuSDR>> {
+    pub fn vote_conv2d_arr<T: Borrow<CpuSDR>>(n: usize, threshold: u32, stride: [u32; 2], kernel_size: [u32; 2], grid_size: [u32; 2], input_sdr_grid: &[impl AsRef<[T]>]) -> Vec<Vec<CpuSDR>> {
         Self::vote_conv2d_arr_with(n, threshold, stride, kernel_size, grid_size, &|c0, c1| input_sdr_grid[c0 as usize].as_ref()[c1 as usize].borrow(), |a| a)
     }
-    pub fn vote_conv2d_arr_with<'a, O>(n: usize, threshold: u32, stride: [u32;2], kernel_size: [u32;2], grid_size: [u32;2], input_sdr_grid: &'a impl Fn(u32, u32) -> &'a CpuSDR, out_sdr: impl Fn(CpuSDR) -> O) -> Vec<Vec<O>> {
+    pub fn vote_conv2d_arr_with<'a, O>(n: usize, threshold: u32, stride: [u32; 2], kernel_size: [u32; 2], grid_size: [u32; 2], input_sdr_grid: &'a impl Fn(u32, u32) -> &'a CpuSDR, out_sdr: impl Fn(CpuSDR) -> O) -> Vec<Vec<O>> {
         let out_grid_size = grid_size.conv_out_size(&stride, &kernel_size);
         let mut out_grid: Vec<Vec<O>> = (0..out_grid_size[0]).map(|_| {
             let mut v = Vec::with_capacity(out_grid_size[1] as usize);
@@ -328,7 +343,7 @@ impl CpuSDR {
         });
         out_grid
     }
-    pub fn vote_conv2d<'a>(n: usize, threshold: u32, stride: [u32;2], kernel_size: [u32;2], grid_size: [u32;2], input_sdr_grid: &'a impl Fn(u32, u32) -> &'a CpuSDR, mut output_sdr_grid: impl FnMut(u32, u32, CpuSDR)) {
+    pub fn vote_conv2d<'a>(n: usize, threshold: u32, stride: [u32; 2], kernel_size: [u32; 2], grid_size: [u32; 2], input_sdr_grid: &'a impl Fn(u32, u32) -> &'a CpuSDR, mut output_sdr_grid: impl FnMut(u32, u32, CpuSDR)) {
         let out_grid_size = grid_size.conv_out_size(&stride, &kernel_size);
         for out0 in 0..out_grid_size[0] {
             for out1 in 0..out_grid_size[1] {
@@ -366,7 +381,7 @@ impl CpuSDR {
     pub fn randomly_extend_from(&mut self, other: &Self, n: usize) {
         debug_assert!(self.is_normalized());
         debug_assert!(other.is_normalized());
-        assert!(other.len() <= n, "The limit {} is less than the size of SDR {}",n,other.len());
+        assert!(other.len() <= n, "The limit {} is less than the size of SDR {}", n, other.len());
         self.subtract(other);
         while self.len() + other.len() > n {
             let idx = rand::random::<usize>() % self.0.len();
@@ -376,8 +391,6 @@ impl CpuSDR {
         self.0.sort()
     }
 }
-
-
 
 
 #[cfg(test)]
@@ -514,9 +527,9 @@ mod tests {
     fn test6() -> Result<(), String> {
         fn overlap(a: &[u32], b: &[u32]) -> u32 {
             let mut sdr1 = CpuSDR::new();
-            sdr1.set(a);
+            sdr1.set_from_slice(a);
             let mut sdr2 = CpuSDR::new();
-            sdr2.set(b);
+            sdr2.set_from_slice(b);
             sdr1.normalize();
             sdr2.normalize();
             sdr1.overlap(&sdr2)
@@ -536,9 +549,9 @@ mod tests {
     fn test7() -> Result<(), String> {
         fn intersect(a: &[u32], b: &[u32]) -> CpuSDR {
             let mut sdr1 = CpuSDR::new();
-            sdr1.set(a);
+            sdr1.set_from_slice(a);
             let mut sdr2 = CpuSDR::new();
-            sdr2.set(b);
+            sdr2.set_from_slice(b);
             sdr1.normalize();
             sdr2.normalize();
             sdr1.intersection(&sdr2)
@@ -558,9 +571,9 @@ mod tests {
     fn test7_union() -> Result<(), String> {
         fn union(a: &[u32], b: &[u32]) -> CpuSDR {
             let mut sdr1 = CpuSDR::new();
-            sdr1.set(a);
+            sdr1.set_from_slice(a);
             let mut sdr2 = CpuSDR::new();
-            sdr2.set(b);
+            sdr2.set_from_slice(b);
             sdr1.normalize();
             sdr2.normalize();
             sdr1.union(&sdr2)
@@ -576,13 +589,14 @@ mod tests {
         assert_eq!(union(&[1, 5, 6, 76], &[53, 746, 6, 1, 5, 78, 3, 6, 7]).as_slice(), &[1, 3, 5, 6, 7, 53, 76, 78, 746]);
         Ok(())
     }
+
     #[test]
     fn test7_subtract() -> Result<(), String> {
         fn subtract(a: &[u32], b: &[u32]) -> CpuSDR {
             let mut sdr1 = CpuSDR::new();
-            sdr1.set(a);
+            sdr1.set_from_slice(a);
             let mut sdr2 = CpuSDR::new();
-            sdr2.set(b);
+            sdr2.set_from_slice(b);
             sdr1.normalize();
             sdr2.normalize();
             sdr1.subtract(&sdr2);
@@ -595,8 +609,8 @@ mod tests {
         assert_eq!(subtract(&[], &[1]).as_slice(), &[]);
         assert_eq!(subtract(&[1], &[1]).as_slice(), &[]);
         assert_eq!(subtract(&[1], &[2]).as_slice(), &[1]);
-        assert_eq!(subtract(&[1,2], &[2]).as_slice(), &[1]);
-        assert_eq!(subtract(&[2,3], &[2]).as_slice(), &[3]);
+        assert_eq!(subtract(&[1, 2], &[2]).as_slice(), &[1]);
+        assert_eq!(subtract(&[2, 3], &[2]).as_slice(), &[3]);
         assert_eq!(subtract(&[1, 5, 6, 76], &[1, 5, 6, 76]).as_slice(), &[]);
         assert_eq!(subtract(&[1, 5, 6, 76], &[5, 76, 6, 1]).as_slice(), &[]);
         assert_eq!(subtract(&[1, 5, 6, 76], &[53, 746, 6, 1]).as_slice(), &[5, 76]);
@@ -607,174 +621,176 @@ mod tests {
     #[test]
     fn test9() -> Result<(), String> {
         let p = EccProgram::default()?;
-        let input = CpuInput::from_sparse_slice(&[1,2,4,7,15], 16);
-        let ocl_input = OclInput::from_cpu(&input,p.clone(),16)?;
-        assert_eq!(input.cardinality(),ocl_input.cardinality(),"cardinality");
+        let input = CpuInput::from_sparse_slice(&[1, 2, 4, 7, 15], 16);
+        let ocl_input = OclInput::from_cpu(&input, p.clone(), 16)?;
+        assert_eq!(input.cardinality(), ocl_input.cardinality(), "cardinality");
         let input2 = ocl_input.to_cpu()?;
-        assert_eq!(input.get_sparse(),input2.get_sparse(),"sparse");
-        assert_eq!(input.get_dense(),input2.get_dense(),"dense");
+        assert_eq!(input.get_sparse(), input2.get_sparse(), "sparse");
+        assert_eq!(input.get_dense(), input2.get_dense(), "dense");
         Ok(())
     }
 
     #[test]
     fn test10() -> Result<(), String> {
         let p = EccProgram::default()?;
-        let input = CpuInput::from_dense_bools(&[true,false,false,true,true,false,false,true]);
-        let ocl_input = OclInput::from_cpu(&input,p.clone(),16)?;
-        assert_eq!(input.cardinality(),ocl_input.cardinality(),"cardinality");
+        let input = CpuInput::from_dense_bools(&[true, false, false, true, true, false, false, true]);
+        let ocl_input = OclInput::from_cpu(&input, p.clone(), 16)?;
+        assert_eq!(input.cardinality(), ocl_input.cardinality(), "cardinality");
         let input2 = ocl_input.to_cpu()?;
-        assert_eq!(input.get_sparse(),input2.get_sparse(),"sparse");
-        assert_eq!(input.get_dense(),input2.get_dense(),"dense");
+        assert_eq!(input.get_sparse(), input2.get_sparse(), "sparse");
+        assert_eq!(input.get_dense(), input2.get_dense(), "dense");
         Ok(())
     }
 
     #[test]
     fn test11() -> Result<(), String> {
         let p = EccProgram::default()?;
-        let input = CpuInput::from_sparse_slice(&[1,2,4,7,15], 16);
-        let mut ocl_input = OclInput::from_cpu(&input,p.clone(),16)?;
-        ocl_input.set_sparse_from_slice(&[1,5,13])?;
-        let input = CpuInput::from_sparse_slice(&[1,5,13], 16);
+        let input = CpuInput::from_sparse_slice(&[1, 2, 4, 7, 15], 16);
+        let mut ocl_input = OclInput::from_cpu(&input, p.clone(), 16)?;
+        ocl_input.set_sparse_from_slice(&[1, 5, 13])?;
+        let input = CpuInput::from_sparse_slice(&[1, 5, 13], 16);
         let input2 = ocl_input.to_cpu()?;
-        assert_eq!(input.get_sparse(),input2.get_sparse(),"sparse");
-        assert_eq!(input.get_dense(),input2.get_dense(),"dense");
+        assert_eq!(input.get_sparse(), input2.get_sparse(), "sparse");
+        assert_eq!(input.get_dense(), input2.get_dense(), "dense");
         Ok(())
     }
 
 
     #[test]
     fn test16() {
-        fn test(from:u32,to:u32) {
+        fn test(from: u32, to: u32) {
             let mut bits = CpuBitset::from_bools(&[true; 64]);
-            bits.clear_range(from,to);
+            bits.clear_range(from, to);
             for i in from..to {
-                assert!(!bits.is_bit_on(i), "{},{}->{}", from,to,i);
+                assert!(!bits.is_bit_on(i), "{},{}->{}", from, to, i);
             }
             for i in 0..from {
-                assert!(bits.is_bit_on(i), "{},{}->{}", from,to,i);
+                assert!(bits.is_bit_on(i), "{},{}->{}", from, to, i);
             }
             for i in to..64 {
-                assert!(bits.is_bit_on(i), "{},{}->{}", from,to,i);
+                assert!(bits.is_bit_on(i), "{},{}->{}", from, to, i);
             }
         }
-        test(0,3);
-        test(1,3);
-        test(0,32);
-        test(0,33);
-        test(32,33);
-        test(0,64);
-        test(32,64);
-        test(50,64);
-        test(50,55);
+        test(0, 3);
+        test(1, 3);
+        test(0, 32);
+        test(0, 33);
+        test(32, 33);
+        test(0, 64);
+        test(32, 64);
+        test(50, 64);
+        test(50, 55);
     }
 
     #[test]
     fn test19() {
         let mut bits = CpuBitset::new(64);
-        bits.set_bits_on(&[0,1,2,3,4,5,6,7,8]);
-        assert_eq!(bits.cardinality_in_range(0,9),9);
-        assert_eq!(bits.cardinality_in_range(0,8),8);
-        assert_eq!(bits.cardinality_in_range(1,9),8);
-        assert_eq!(bits.cardinality_in_range(2,2),0);
-        assert_eq!(bits.cardinality_in_range(1,8),7);
+        bits.set_bits_on(&[0, 1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(bits.cardinality_in_range(0, 9), 9);
+        assert_eq!(bits.cardinality_in_range(0, 8), 8);
+        assert_eq!(bits.cardinality_in_range(1, 9), 8);
+        assert_eq!(bits.cardinality_in_range(2, 2), 0);
+        assert_eq!(bits.cardinality_in_range(1, 8), 7);
 
-        bits.set_bits_on(&[0,1,2,3,4,5,6,7,8,32,33,34]);
-        assert_eq!(bits.cardinality_in_range(0,35),12);
-        assert_eq!(bits.cardinality_in_range(0,34),11);
-        assert_eq!(bits.cardinality_in_range(0,32),9);
-        assert_eq!(bits.cardinality_in_range(1,32),8);
-        assert_eq!(bits.cardinality_in_range(9,32),0);
-        assert_eq!(bits.cardinality_in_range(9,35),3);
-        assert_eq!(bits.cardinality_in_range(32,35),3);
+        bits.set_bits_on(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 32, 33, 34]);
+        assert_eq!(bits.cardinality_in_range(0, 35), 12);
+        assert_eq!(bits.cardinality_in_range(0, 34), 11);
+        assert_eq!(bits.cardinality_in_range(0, 32), 9);
+        assert_eq!(bits.cardinality_in_range(1, 32), 8);
+        assert_eq!(bits.cardinality_in_range(9, 32), 0);
+        assert_eq!(bits.cardinality_in_range(9, 35), 3);
+        assert_eq!(bits.cardinality_in_range(32, 35), 3);
     }
 
     #[test]
     fn test20() {
-        let enc = EncoderBuilder::new().add_categorical(5,10);
+        let enc = EncoderBuilder::new().add_categorical(5, 10);
         let mut i = CpuInput::new(64);
-        i.set_sparse_from_slice(&[1,4,10,21,33,32,34,40]);
-        assert_eq!(enc.find_category_with_highest_overlap_bitset(i.get_dense()),3);
-        assert_eq!(enc.find_category_with_highest_overlap(i.get_sparse()),3);
-        i.set_sparse_from_slice(&[1,4,10,21,34,40]);
-        assert_eq!(enc.find_category_with_highest_overlap_bitset(i.get_dense()),0);
-        assert_eq!(enc.find_category_with_highest_overlap(i.get_sparse()),0);
-        i.set_sparse_from_slice(&[1,4,5,6,10,21,33,32,34,40]);
-        assert_eq!(enc.find_category_with_highest_overlap_bitset(i.get_dense()),0);
-        assert_eq!(enc.find_category_with_highest_overlap(i.get_sparse()),0);
+        i.set_sparse_from_slice(&[1, 4, 10, 21, 33, 32, 34, 40]);
+        assert_eq!(enc.find_category_with_highest_overlap_bitset(i.get_dense()), 3);
+        assert_eq!(enc.find_category_with_highest_overlap(i.get_sparse()), 3);
+        i.set_sparse_from_slice(&[1, 4, 10, 21, 34, 40]);
+        assert_eq!(enc.find_category_with_highest_overlap_bitset(i.get_dense()), 0);
+        assert_eq!(enc.find_category_with_highest_overlap(i.get_sparse()), 0);
+        i.set_sparse_from_slice(&[1, 4, 5, 6, 10, 21, 33, 32, 34, 40]);
+        assert_eq!(enc.find_category_with_highest_overlap_bitset(i.get_dense()), 0);
+        assert_eq!(enc.find_category_with_highest_overlap(i.get_sparse()), 0);
         i.set_sparse_from_slice(&[1]);
-        assert_eq!(enc.find_category_with_highest_overlap_bitset(i.get_dense()),0);
-        assert_eq!(enc.find_category_with_highest_overlap(i.get_sparse()),0);
+        assert_eq!(enc.find_category_with_highest_overlap_bitset(i.get_dense()), 0);
+        assert_eq!(enc.find_category_with_highest_overlap(i.get_sparse()), 0);
         i.set_sparse_from_slice(&[34]);
-        assert_eq!(enc.find_category_with_highest_overlap_bitset(i.get_dense()),3);
-        assert_eq!(enc.find_category_with_highest_overlap(i.get_sparse()),3);
+        assert_eq!(enc.find_category_with_highest_overlap_bitset(i.get_dense()), 3);
+        assert_eq!(enc.find_category_with_highest_overlap(i.get_sparse()), 3);
     }
 
     #[test]
     fn test22() {
-
-        let a = [1,4,6,7];
-        assert_eq!(CpuSDR::from(&CpuBitset::from_sdr(&a,32)),CpuSDR::from(&a as &[u32]));
-        let a = [6,7];
-        assert_eq!(CpuSDR::from(&CpuBitset::from_sdr(&a,32)),CpuSDR::from(&a as &[u32]));
+        let a = [1, 4, 6, 7];
+        assert_eq!(CpuSDR::from(&CpuBitset::from_sdr(&a, 32)), CpuSDR::from(&a as &[u32]));
+        let a = [6, 7];
+        assert_eq!(CpuSDR::from(&CpuBitset::from_sdr(&a, 32)), CpuSDR::from(&a as &[u32]));
         let a = [31];
-        assert_eq!(CpuSDR::from(&CpuBitset::from_sdr(&a,32)),CpuSDR::from(&a as &[u32]));
+        assert_eq!(CpuSDR::from(&CpuBitset::from_sdr(&a, 32)), CpuSDR::from(&a as &[u32]));
         let a = [63];
-        assert_eq!(CpuSDR::from(&CpuBitset::from_sdr(&a,64)),CpuSDR::from(&a as &[u32]));
-        let a = [4,63];
-        assert_eq!(CpuSDR::from(&CpuBitset::from_sdr(&a,64)),CpuSDR::from(&a as &[u32]));
+        assert_eq!(CpuSDR::from(&CpuBitset::from_sdr(&a, 64)), CpuSDR::from(&a as &[u32]));
+        let a = [4, 63];
+        assert_eq!(CpuSDR::from(&CpuBitset::from_sdr(&a, 64)), CpuSDR::from(&a as &[u32]));
     }
 
     #[test]
     fn test23() {
-        let sdr_grid = [[CpuSDR::from_slice(&[1,2,3])]];
-        let o = CpuSDR::vote_conv2d_arr(4,0,[1,1],[1,1],[1,1],&sdr_grid);
-        assert_eq!(o[0][0],sdr_grid[0][0])
+        let sdr_grid = [[CpuSDR::from_slice(&[1, 2, 3])]];
+        let o = CpuSDR::vote_conv2d_arr(4, 0, [1, 1], [1, 1], [1, 1], &sdr_grid);
+        assert_eq!(o[0][0], sdr_grid[0][0])
     }
+
     #[test]
     fn test24() {
         let sdr_grid = [
             [
-                CpuSDR::from_slice(&[1,2,3]),
-                CpuSDR::from_slice(&[1,2,3])
+                CpuSDR::from_slice(&[1, 2, 3]),
+                CpuSDR::from_slice(&[1, 2, 3])
             ],
             [
-                CpuSDR::from_slice(&[1,2,3]),
-                CpuSDR::from_slice(&[1,2,3])
+                CpuSDR::from_slice(&[1, 2, 3]),
+                CpuSDR::from_slice(&[1, 2, 3])
             ]
         ];
-        let o = CpuSDR::vote_conv2d_arr(4,0,[1,1],[2,2],[2,2],&sdr_grid);
-        assert_eq!(o.len(),1);
-        assert_eq!(o[0].len(),1);
-        assert_eq!(o[0][0],sdr_grid[0][0])
+        let o = CpuSDR::vote_conv2d_arr(4, 0, [1, 1], [2, 2], [2, 2], &sdr_grid);
+        assert_eq!(o.len(), 1);
+        assert_eq!(o[0].len(), 1);
+        assert_eq!(o[0][0], sdr_grid[0][0])
     }
+
     #[test]
     fn test25() {
         let sdr_grid = [
             [
-                CpuSDR::from_slice(&[1,2,3]),
-                CpuSDR::from_slice(&[0,2,3])
+                CpuSDR::from_slice(&[1, 2, 3]),
+                CpuSDR::from_slice(&[0, 2, 3])
             ],
             [
-                CpuSDR::from_slice(&[0,2,3]),
-                CpuSDR::from_slice(&[1,4,3])
+                CpuSDR::from_slice(&[0, 2, 3]),
+                CpuSDR::from_slice(&[1, 4, 3])
             ]
         ];
-        let o = CpuSDR::vote_conv2d_arr(2,0,[1,1],[2,2],[2,2],&sdr_grid);
-        assert_eq!(o.len(),1);
-        assert_eq!(o[0].len(),1);
-        assert_eq!(o[0][0],CpuSDR::from_slice(&[2,3]))
+        let o = CpuSDR::vote_conv2d_arr(2, 0, [1, 1], [2, 2], [2, 2], &sdr_grid);
+        assert_eq!(o.len(), 1);
+        assert_eq!(o[0].len(), 1);
+        assert_eq!(o[0][0], CpuSDR::from_slice(&[2, 3]))
     }
+
     #[test]
     fn test26() {
         let sdr_grid = [[
-            CpuSDR::from_slice(&[1,2,3]), CpuSDR::from_slice(&[0,2,3]), CpuSDR::from_slice(&[0,2,4]), ], [
-            CpuSDR::from_slice(&[0,2,3]), CpuSDR::from_slice(&[1,4,3]), CpuSDR::from_slice(&[1,4,3]), ]
+            CpuSDR::from_slice(&[1, 2, 3]), CpuSDR::from_slice(&[0, 2, 3]), CpuSDR::from_slice(&[0, 2, 4]), ], [
+            CpuSDR::from_slice(&[0, 2, 3]), CpuSDR::from_slice(&[1, 4, 3]), CpuSDR::from_slice(&[1, 4, 3]), ]
         ];
-        let o = CpuSDR::vote_conv2d_arr(2,0,[1,1],[2,2],[2,3],&sdr_grid);
-        assert_eq!(o.len(),1);
-        assert_eq!(o[0].len(),2);
-        assert_eq!(o[0][0],CpuSDR::from_slice(&[2,3]));
-        assert_eq!(o[0][1],CpuSDR::from_slice(&[3,4]));
+        let o = CpuSDR::vote_conv2d_arr(2, 0, [1, 1], [2, 2], [2, 3], &sdr_grid);
+        assert_eq!(o.len(), 1);
+        assert_eq!(o[0].len(), 2);
+        assert_eq!(o[0][0], CpuSDR::from_slice(&[2, 3]));
+        assert_eq!(o[0][1], CpuSDR::from_slice(&[3, 4]));
     }
 
 
@@ -784,21 +800,21 @@ mod tests {
             CpuSDR::from_slice(&[0]), CpuSDR::from_slice(&[1]), CpuSDR::from_slice(&[2]), ], [
             CpuSDR::from_slice(&[3]), CpuSDR::from_slice(&[4]), CpuSDR::from_slice(&[5]), ]
         ];
-        let o = CpuSDR::vote_conv2d_transpose_arr([1,1],[2,2],[3,4],&|out0,out1|&sdr_grid[out0 as usize][out1 as usize]);
-        assert_eq!(o.len(),3);
-        assert_eq!(o[0].len(),4);
-        assert_eq!(o[0][0],CpuSDR::from_slice(&[0]));
-        assert_eq!(o[0][1],CpuSDR::from_slice(&[0,1]));
-        assert_eq!(o[0][2],CpuSDR::from_slice(&[1,2]));
-        assert_eq!(o[0][3],CpuSDR::from_slice(&[2]));
-        assert_eq!(o[1][0],CpuSDR::from_slice(&[0,3]));
-        assert_eq!(o[1][1],CpuSDR::from_slice(&[0,1,3,4]));
-        assert_eq!(o[1][2],CpuSDR::from_slice(&[1,2,4,5]));
-        assert_eq!(o[1][3],CpuSDR::from_slice(&[2,5]));
-        assert_eq!(o[2][0],CpuSDR::from_slice(&[3]));
-        assert_eq!(o[2][1],CpuSDR::from_slice(&[3,4]));
-        assert_eq!(o[2][2],CpuSDR::from_slice(&[4,5]));
-        assert_eq!(o[2][3],CpuSDR::from_slice(&[5]));
+        let o = CpuSDR::vote_conv2d_transpose_arr([1, 1], [2, 2], [3, 4], &|out0, out1| &sdr_grid[out0 as usize][out1 as usize]);
+        assert_eq!(o.len(), 3);
+        assert_eq!(o[0].len(), 4);
+        assert_eq!(o[0][0], CpuSDR::from_slice(&[0]));
+        assert_eq!(o[0][1], CpuSDR::from_slice(&[0, 1]));
+        assert_eq!(o[0][2], CpuSDR::from_slice(&[1, 2]));
+        assert_eq!(o[0][3], CpuSDR::from_slice(&[2]));
+        assert_eq!(o[1][0], CpuSDR::from_slice(&[0, 3]));
+        assert_eq!(o[1][1], CpuSDR::from_slice(&[0, 1, 3, 4]));
+        assert_eq!(o[1][2], CpuSDR::from_slice(&[1, 2, 4, 5]));
+        assert_eq!(o[1][3], CpuSDR::from_slice(&[2, 5]));
+        assert_eq!(o[2][0], CpuSDR::from_slice(&[3]));
+        assert_eq!(o[2][1], CpuSDR::from_slice(&[3, 4]));
+        assert_eq!(o[2][2], CpuSDR::from_slice(&[4, 5]));
+        assert_eq!(o[2][3], CpuSDR::from_slice(&[5]));
     }
 
     // #[test]
@@ -822,33 +838,35 @@ mod tests {
         let mut sdr = CpuSDR::from_slice(&[5, 41, 50, 51, 125, 157, 192, 220, 225, 230, 245, 253]);
         let votes = CpuSDR::new();
         sdr.randomly_extend_from(&votes, sdr.len());
-        assert_eq!(sdr,CpuSDR::from_slice(&[5, 41, 50, 51, 125, 157, 192, 220, 225, 230, 245, 253]));
+        assert_eq!(sdr, CpuSDR::from_slice(&[5, 41, 50, 51, 125, 157, 192, 220, 225, 230, 245, 253]));
     }
+
     #[test]
     fn test32() {
         let o = [5, 41, 50, 51, 125, 157, 192, 220, 225, 230, 245, 253];
         let mut sdr = CpuSDR::from_slice(&o);
         let votes = CpuSDR::from_slice(&[34]);
         sdr.randomly_extend_from(&votes, sdr.len());
-        assert_eq!(sdr.len(),o.len());
+        assert_eq!(sdr.len(), o.len());
         assert!(sdr.contains(34));
     }
+
     #[test]
     fn test33() {
         let o = [5, 41, 50, 51, 125, 157, 192, 220, 225, 230, 245, 253];
         let mut sdr = CpuSDR::from_slice(&o);
-        let votes = CpuSDR::from_slice(&[0,1,2,3,4,6,7,8,9,10,11,12]);
+        let votes = CpuSDR::from_slice(&[0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12]);
         sdr.randomly_extend_from(&votes, sdr.len());
         assert_eq!(sdr, votes);
     }
+
     #[test]
     fn test34() {
         let o = [5, 21, 78, 99, 101, 150, 168, 188, 189, 211, 217, 246];
         let mut sdr = CpuSDR::from_slice(&o);
         let votes = CpuSDR::from_slice(&[97]);
         sdr.randomly_extend_from(&votes, sdr.len());
-        assert_eq!(sdr.len(),o.len());
+        assert_eq!(sdr.len(), o.len());
         assert!(sdr.contains(97));
     }
-
 }

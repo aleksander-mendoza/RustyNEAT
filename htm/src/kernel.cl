@@ -233,3 +233,72 @@ __kernel void ecc_dense_top_1(
 //////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////
 
+
+__kernel void ecc_sparse_sums(
+        __global uint * input_sdr,
+        __global uint * connections,
+        __global uint2 * connection_ranges,
+        __global uint * sums) {
+    const uint input_idx = input_sdr[get_global_id(0)];
+    const uint connection_idx = get_global_id(1);
+    const uint2 connection_range = connection_ranges[input_idx];
+    if(connection_idx<connection_range.y){
+        atomic_inc(&sums[connections[connection_range.x + connection_idx]]);
+    }
+}
+
+
+__kernel void ecc_sparse_elements_per_sum(
+        const uint threshold,
+        __global int * candidates_per_sum,
+        __global uint * sums) {
+    const uint output_column_idx = get_global_id(0);
+    const uint channel = get_global_id(1);
+    const uint output_idx = output_column_idx*get_global_size(1)+channel;
+    const uint sum = sums[output_idx];
+    if(threshold<=sum){
+        atomic_inc(&candidates_per_sum[output_column_idx+(sum-threshold)*get_global_size(0)+1]);
+    }
+}
+
+__kernel void ecc_sparse_retain_top_k_candidates(
+        uint k,
+        const uint threshold,
+        const uint max_value,
+        __global int * candidates_per_sum) {
+    const uint output_column_idx = get_global_id(0);
+    int i = max_value;
+    for(; i>=threshold; i--){
+        const uint j = output_column_idx+(i-threshold)*get_global_size(0)+1;
+        if(k <= candidates_per_sum[j]){
+            candidates_per_sum[j] = k;
+            break;
+        }
+        k -= candidates_per_sum[j];
+    }
+    while(i-->threshold){
+       candidates_per_sum[output_column_idx+(i-threshold)*get_global_size(0)+1] = 0;
+    }
+    if(output_column_idx==0){ // here we reset the output_sdr cardinality counter
+        candidates_per_sum[0] = 0; // this will be later incremented in ecc_sparse_top_k
+    }
+}
+
+
+__kernel void ecc_sparse_top_k(
+        const uint threshold,
+        __global int * candidates_per_sum,
+        __global uint * sums,
+        __global uint * output_sdr) {
+    const uint output_column_idx = get_global_id(0);
+    const uint channel = get_global_id(1);
+    const uint output_idx = output_column_idx*get_global_size(1)+channel;
+    const uint sum = sums[output_idx];
+    if(threshold<=sum ){
+        const uint j = output_column_idx+(sum-threshold)*get_global_size(0)+1;
+        if(atomic_dec(&candidates_per_sum[j])>0){
+            output_sdr[atomic_inc(&candidates_per_sum[0])] = output_idx;
+        }
+    }
+}
+
