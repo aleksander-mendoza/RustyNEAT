@@ -61,6 +61,14 @@ pub struct CpuEccSparse {
 }
 
 impl CpuEccSparse {
+    pub fn to_ocl(&self, prog:EccProgram) -> Result<OclEccSparse, Error> {
+        OclEccSparse::new(self,prog)
+    }
+    pub fn set_plasticity(&mut self, fractional: u32) {
+    }
+    pub fn get_plasticity(&self) -> u32 {
+        0
+    }
     pub fn get_threshold(&self) -> u16 {
         self.threshold
     }
@@ -148,9 +156,9 @@ impl EccLayer for CpuEccSparse {
         self.threshold = (self.max_incoming_synapses as f32 * threshold).round() as u16
     }
 
-    fn set_plasticity(&mut self, fractional: f32) {}
+    fn set_plasticity_f32(&mut self, fractional: f32) {}
 
-    fn get_plasticity(&self) -> f32 { 0. }
+    fn get_plasticity_f32(&self) -> f32 { 0. }
 
     fn new_empty_sdr(&self, capacity: Idx) -> Self::A {
         CpuSDR::with_capacity(as_usize(capacity))
@@ -212,7 +220,7 @@ pub const MARGIN_OF_SAFETY: u8 = 10;
 
 impl DenseWeight for u32 {
     const IMPOSSIBLE_WEIGHT: u32 = u32::MAX;
-    const TOTAL_SUM: u32 = 1 << (10 + MARGIN_OF_SAFETY);
+    const TOTAL_SUM: u32 = 1 << (13 + MARGIN_OF_SAFETY);
     const ZERO: Self = 0;
     // ACTIVITY_PENALTY == 2^2
     // TOTAL_SUM == 2^12
@@ -563,6 +571,12 @@ impl<D: DenseWeight> CpuEccDense<D> {
     pub fn set_threshold(&mut self, threshold: D) {
         self.threshold = threshold
     }
+    pub fn set_plasticity(&mut self, plasticity: D) {
+        self.plasticity = plasticity
+    }
+    pub fn get_plasticity(&self) -> D {
+        self.plasticity
+    }
 
     pub fn min_activity(&self) -> D {
         self.activity.iter().cloned().reduce(D::min_w).unwrap()
@@ -651,6 +665,9 @@ impl CpuEccDense<u32> {
         let free_space = u32::INITIAL_ACTIVITY - self.max_activity();
         self.activity.iter_mut().for_each(|a| *a += free_space)
     }
+    pub fn to_ocl(&self, prog:EccProgram) -> Result<OclEccDense, Error> {
+        OclEccDense::new(self,prog)
+    }
 }
 
 impl<D: DenseWeight> EccLayer for CpuEccDense<D> {
@@ -689,10 +706,10 @@ impl<D: DenseWeight> EccLayer for CpuEccDense<D> {
     fn set_threshold_f32(&mut self, fractional: f32) {
         self.threshold = D::f32_to_w(fractional)
     }
-    fn set_plasticity(&mut self, fractional: f32) {
+    fn set_plasticity_f32(&mut self, fractional: f32) {
         self.plasticity = D::f32_to_w(fractional)
     }
-    fn get_plasticity(&self) -> f32 {
+    fn get_plasticity_f32(&self) -> f32 {
         D::w_to_f32(self.plasticity)
     }
     fn new_empty_sdr(&self, capacity: Idx) -> Self::A {
@@ -903,7 +920,7 @@ mod tests {
         let k = 8;
         let mut a = CpuEccDense::<D>::new([4, 4], [2, 2], [1, 1], 3, 4, 1, &mut rng);
         a.rand_seed = 34634;
-        a.set_plasticity(0.1);//let's see if this breaks anything
+        a.set_plasticity_f32(0.1);//let's see if this breaks anything
         for i in 0..1024 {
             let input: Vec<u32> = (0..k).map(|_| rng.gen_range(0..a.in_volume() as u32)).collect();
             let mut input = CpuSDR::from(input);

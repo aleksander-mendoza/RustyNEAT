@@ -27,6 +27,59 @@ use std::io::{BufWriter, BufReader};
 use std::fs::{File, OpenOptions};
 use serde::{Serialize, Deserialize};
 
+
+
+macro_rules! impl_to_ocl {
+    ($cpu_class_name:ident,$ocl_class_name:ident,$field:ident) => {
+        #[pymethods]
+        impl $cpu_class_name{
+            #[text_signature = "(context)"]
+            pub fn to_ocl(&self,context:&mut Context)-> PyResult<$ocl_class_name> {
+                self.$field.to_ocl(context.compile_htm_program()?.clone()).map(|$field|$ocl_class_name {$field}).map_err(ocl_err_to_py_ex)
+            }
+            #[text_signature = "(context)"]
+            pub fn to(slf:Py<Self>,py:Python,context:Option<&mut Context>)-> PyResult<PyObject> {
+                if let Some(context) = context{
+                    let s:&PyCell<Self> = slf.as_ref(py);
+                    let s:PyRef<Self> = s.borrow();
+                    s.to_ocl(context).and_then(|s|{
+                        let p = PyCell::new(py,s)?;
+                        Ok(p.to_object(py))
+                    })
+                }else{
+                    Ok(slf.to_object(py))
+                }
+            }
+        }
+    };
+}
+macro_rules! impl_to_cpu {
+    ($cpu_class_name:ident,$ocl_class_name:ident,$field:ident) => {
+        #[pymethods]
+        impl $ocl_class_name{
+            #[text_signature = "()"]
+            pub fn to_cpu(&self)-> $cpu_class_name {
+                $cpu_class_name {$field:self.$field.to_cpu()}
+            }
+            #[text_signature = "(context)"]
+            pub fn to(slf:Py<Self>,py:Python,context:Option<&mut Context>)-> PyResult<PyObject> {
+                if context.is_none(){
+                    let s:&PyCell<Self> = slf.as_ref(py);
+                    let s:PyRef<Self> = s.borrow();
+                    let s = s.to_cpu();
+                    let p = PyCell::new(py,s)?;
+                    Ok(p.to_object(py))
+                }else{
+                    Ok(slf.to_object(py))
+                }
+            }
+        }
+    };
+}
+
+pub(crate) use impl_to_ocl;
+pub(crate) use impl_to_cpu;
+
 pub fn arr3<'py, T:Element+Copy+FromPyObject<'py>>(py: Python<'py>, t: &'py PyObject) -> PyResult<[T; 3]> {
     Ok(if let Ok(t) = t.extract::<(T, T, T)>(py) {
         [t.0, t.1, t.2]

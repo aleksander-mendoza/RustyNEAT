@@ -6,7 +6,7 @@ use ocl::core::{MemInfo, MemInfoResult, BufferRegion, Mem, ArgVal};
 use crate::ocl_sdr::OclSDR;
 use crate::ecc_program::EccProgram;
 use ndalgebra::buffer::Buffer;
-use crate::{OclBitset, CpuEccDense, Shape2, Shape3, Shape, VectorFieldOne, CpuEccSparse, EccMachine, SparseOrDense, DenseWeight};
+use crate::{OclBitset, CpuEccDense, Shape2, Shape3, Shape, VectorFieldOne, CpuEccSparse, EccMachine, SparseOrDense, DenseWeight, CpuEccMachine};
 use ocl::prm::{Uint3, Uint2};
 use crate::ecc::{as_usize, EccLayer, Idx};
 use crate::sdr::SDR;
@@ -76,11 +76,11 @@ impl EccLayer for OclEccDense {
 
     fn set_threshold_f32(&mut self, threshold: f32) {}
 
-    fn set_plasticity(&mut self, fractional: f32) {
+    fn set_plasticity_f32(&mut self, fractional: f32) {
         self.plasticity = u32::f32_to_w(fractional)
     }
 
-    fn get_plasticity(&self) -> f32 {
+    fn get_plasticity_f32(&self) -> f32 {
         u32::w_to_f32(self.plasticity)
     }
 
@@ -128,6 +128,13 @@ impl OclEccDense {
 
     pub fn set_threshold(&mut self, threshold: u32) {
         self.threshold = threshold
+    }
+
+    pub fn set_plasticity(&mut self, plasticity: u32) {
+        self.plasticity = plasticity
+    }
+    pub fn get_plasticity(&self) -> u32 {
+        self.plasticity
     }
     pub fn new(ecc: &CpuEccDense<u32>, prog: EccProgram) -> Result<Self, Error> {
         let sums = prog.buffer_from_slice(MemFlags::READ_WRITE, &ecc.sums)?;
@@ -327,9 +334,9 @@ impl EccLayer for OclEccSparse {
         self.threshold = (self.max_incoming_synapses as f32 * threshold).round() as u16
     }
 
-    fn set_plasticity(&mut self, fractional: f32) {}
+    fn set_plasticity_f32(&mut self, fractional: f32) {}
 
-    fn get_plasticity(&self) -> f32 { 0. }
+    fn get_plasticity_f32(&self) -> f32 { 0. }
 
     fn new_empty_sdr(&self, capacity: u32) -> Self::A {
         OclSDR::new(self.prog.clone(), capacity).unwrap()
@@ -367,6 +374,11 @@ impl OclEccSparse {
     }
     pub fn set_threshold(&mut self, threshold: u16) {
         //nothing
+    }
+    pub fn set_plasticity(&mut self, plasticity: u16) {
+    }
+    pub fn get_plasticity(&self) -> u16 {
+        0
     }
     pub fn new(ecc: &CpuEccSparse, prog: EccProgram) -> Result<Self, Error> {
         let mut connections = vec![];

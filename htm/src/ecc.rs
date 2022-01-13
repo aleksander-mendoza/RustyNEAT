@@ -1,10 +1,11 @@
-use crate::{VectorFieldOne, Shape2, Shape3, VectorFieldPartialOrd};
+use crate::{VectorFieldOne, Shape2, Shape3, VectorFieldPartialOrd, OclEccMachine, CpuEccMachine, EccProgram, CpuSDR, CpuEccSparse, CpuEccDense, OclSDR, OclEccSparse, OclEccDense, DenseWeight};
 use crate::xorshift::xorshift32;
 use std::ops::{Deref, DerefMut};
 use itertools::Itertools;
 use rand::Rng;
 use serde::{Serialize,Deserialize};
 use crate::sdr::SDR;
+use ocl::Error;
 
 pub type Idx = u32;
 pub type Rand = u32;
@@ -33,8 +34,8 @@ pub trait EccLayer {
     fn get_max_incoming_synapses(&self) -> Idx;
     fn get_threshold_f32(&self) -> f32;
     fn set_threshold_f32(&mut self, threshold: f32);
-    fn set_plasticity(&mut self, fractional: f32);
-    fn get_plasticity(&self) -> f32;
+    fn set_plasticity_f32(&mut self, fractional: f32);
+    fn get_plasticity_f32(&self) -> f32;
     fn in_grid(&self) -> &[Idx; 2] {
         self.in_shape().grid()
     }
@@ -117,6 +118,27 @@ pub enum SparseOrDense<A:SDR,S:EccLayer<A=A>,D:EccLayer<A=A>> {
     Dense(D),
 }
 
+type CpuSparseOrDense<D:DenseWeight> = SparseOrDense<CpuSDR,CpuEccSparse,CpuEccDense<D>>;
+
+impl CpuSparseOrDense<u32>{
+    pub fn to_ocl(&self, prog: EccProgram) -> Result<OclSparseOrDense, Error> {
+        match self {
+            SparseOrDense::Sparse(a) => a.to_ocl(prog).map(|ecc|SparseOrDense::Sparse(ecc)),
+            SparseOrDense::Dense(a) => a.to_ocl(prog).map(|ecc|SparseOrDense::Dense(ecc))
+        }
+    }
+}
+
+type OclSparseOrDense = SparseOrDense<OclSDR,OclEccSparse,OclEccDense>;
+
+impl OclSparseOrDense{
+    pub fn to_cpu(&self) -> CpuSparseOrDense<u32>{
+        match self {
+            SparseOrDense::Sparse(a) => SparseOrDense::Sparse(a.to_cpu()),
+            SparseOrDense::Dense(a) => SparseOrDense::Dense(a.to_cpu())
+        }
+    }
+}
 impl<A:SDR,S:EccLayer<A=A>,D:EccLayer<A=A>> SparseOrDense<A,S,D> {
     pub fn is_sparse(&self)->bool{
         match self {
@@ -198,17 +220,17 @@ impl<A:SDR,S:EccLayer<A=A>,D:EccLayer<A=A>> EccLayer for SparseOrDense<A,S,D> {
         }
     }
 
-    fn set_plasticity(&mut self, fractional: f32) {
+    fn set_plasticity_f32(&mut self, fractional: f32) {
         match self{
-            SparseOrDense::Sparse(a) => a.set_plasticity(fractional),
-            SparseOrDense::Dense(a) => a.set_plasticity(fractional)
+            SparseOrDense::Sparse(a) => a.set_plasticity_f32(fractional),
+            SparseOrDense::Dense(a) => a.set_plasticity_f32(fractional)
         }
     }
 
-    fn get_plasticity(&self) -> f32 {
+    fn get_plasticity_f32(&self) -> f32 {
         match self{
-            SparseOrDense::Sparse(a) => a.get_plasticity(),
-            SparseOrDense::Dense(a) => a.get_plasticity()
+            SparseOrDense::Sparse(a) => a.get_plasticity_f32(),
+            SparseOrDense::Dense(a) => a.get_plasticity_f32()
         }
     }
 
@@ -324,6 +346,9 @@ impl<A:SDR,S:EccLayer<A=A>,D:EccLayer<A=A>> EccMachine<A,S,D> {
     pub fn output_sdr_mut(&mut self, layer_index: usize) -> &mut A {
         &mut self.inputs[layer_index + 1]
     }
+    pub fn set_plasticity_f32_everywhere(&mut self, plasticity:f32){
+        self.ecc.iter_mut().for_each(|l|l.set_plasticity_f32(plasticity))
+    }
     pub fn last_output_sdr(&self) -> &A {
         self.inputs.last().unwrap()
     }
@@ -373,4 +398,28 @@ impl<A:SDR,S:EccLayer<A=A>,D:EccLayer<A=A>> EccMachine<A,S,D> {
     pub fn out_volume(&self) -> Idx {
         self.ecc.last().unwrap().out_volume()
     }
+}
+
+impl OclEccMachine{
+    pub fn to_cpu(&self) -> CpuEccMachine<u32>{
+        CpuEccMachine{
+            ecc:self.ecc.iter().map(|ecc|ecc.to_cpu()).collect(),
+            inputs: self.inputs.iter().map(|sdr|sdr.to_cpu().unwrap()).collect()
+        }
+    }
+}
+
+impl CpuEccMachine<u32>{
+    pub fn to_ocl(&self,prog: EccProgram) -> Result<OclEccMachine,Error> {
+        let mut i =self.inputs.iter();
+        let mut inputs = vec![i.next().unwrap().to_ocl(prog.clone(),self.in_volume())?];
+        for (ecc,sdr) in self.ecc.iter().zip(i){
+            inputs.push(sdr.to_ocl(prog.clone(),ecc.out_area()*ecc.k())?);
+        }
+        Ok(OclEccMachine{
+            ecc:self.ecc.iter().map(|ecc|ecc.to_ocl(prog.clone())).collect::<Result<Vec<OclSparseOrDense>,Error>>()?,
+            inputs
+        })
+    }
+
 }

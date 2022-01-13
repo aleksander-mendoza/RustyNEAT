@@ -76,6 +76,9 @@ impl<T: OclPrm> Buffer<T> {
         if offset+dst.len() > self.len(){
             return Err(OclError::from(format!("Buffer has length {} is less that destination length {} plus offset {}",self.len(),dst.len(),offset)));
         }
+        if dst.len()==0{
+            return Ok(())
+        }
         unsafe {
             ocl::core::enqueue_read_buffer(&queue, self, true, offset, dst, None::<core::Event>, None::<&mut core::Event>)
         }.map_err(OclError::from)
@@ -90,6 +93,9 @@ impl<T: OclPrm> Buffer<T> {
     pub fn write(&self, queue:&Queue, offset:usize, data:&[T]) -> Result<(),OclError>{
         if offset+data.len() > self.len(){
             return Err(OclError::from(format!("Buffer has length {} is less that data length {} plus offset {}",self.len(),data.len(),offset)));
+        }
+        if data.len()==0{
+            return Ok(())
         }
         unsafe {
             ocl::core::enqueue_write_buffer(&queue, self, true, offset, data, None::<core::Event>, None::<&mut core::Event>)

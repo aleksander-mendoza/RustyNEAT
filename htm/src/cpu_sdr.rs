@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter, Debug};
 use ocl::core::{MemInfo, MemInfoResult, BufferRegion, Mem, ArgVal};
 use ndalgebra::buffer::Buffer;
 use crate::ecc_program::EccProgram;
-use crate::{CpuBitset, EncoderTarget, Shape, Idx, as_idx, as_usize};
+use crate::{CpuBitset, EncoderTarget, Shape, Idx, as_idx, as_usize, OclSDR};
 use std::collections::{HashMap, HashSet};
 use std::borrow::Borrow;
 use serde::{Serialize, Deserialize};
@@ -103,6 +103,9 @@ impl CpuSDR {
     }
     pub fn as_slice(&self) -> &[Idx] {
         self.0.as_slice()
+    }
+    pub fn to_ocl(&self, prog:EccProgram, max_cardinality:Idx) -> Result<OclSDR, Error> {
+        OclSDR::from_cpu(prog,self,max_cardinality)
     }
     pub fn shift(&mut self, shift: i32) {
         for i in &mut self.0 {

@@ -83,8 +83,13 @@ pub fn ndalgebra(py: Python, m: &PyModule) -> PyResult<()> {
 pub fn ecc(py: Python, m: &PyModule) -> PyResult<()> {
     use py_ecc::*;
     m.add_class::<CpuEccDense>()?;
+    m.add_class::<CpuEccDenseUInt>()?;
     m.add_class::<CpuEccSparse>()?;
     m.add_class::<CpuEccMachine>()?;
+    m.add_class::<CpuEccMachineUInt>()?;
+    m.add_class::<OclEccMachine>()?;
+    m.add_class::<OclEccDense>()?;
+    m.add_class::<OclEccSparse>()?;
     // m.add_class::<CpuHOM>()?;
     Ok(())
 }

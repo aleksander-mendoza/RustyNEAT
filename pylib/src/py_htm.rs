@@ -7,7 +7,7 @@ use rusty_neat_core::activations::{STR_TO_IDX, ALL_ACT_FN};
 use pyo3::exceptions::PyValueError;
 use rusty_neat_core::cppn::CPPN;
 use std::iter::FromIterator;
-use pyo3::types::{PyString, PyDateTime, PyDateAccess, PyTimeAccess, PyList, PyInt, PyFloat};
+use pyo3::types::{PyString, PyDateTime, PyDateAccess, PyTimeAccess, PyList, PyInt, PyFloat, PyIterator};
 use rusty_neat_core::num::Num;
 use rusty_neat_core::gpu::{FeedForwardNetOpenCL, FeedForwardNetPicbreeder, FeedForwardNetSubstrate};
 use pyo3::basic::CompareOp;
@@ -17,7 +17,7 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{Encoder, EncoderTarget, EncoderRange, Shape, VectorFieldOne, Synapse, SDR};
+use htm::{Encoder, EncoderTarget, EncoderRange, Shape, VectorFieldOne, Synapse, SDR, as_usize, Idx};
 use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
@@ -854,7 +854,6 @@ impl Segment {
     }
 }
 
-
 #[pymethods]
 impl OclSDR {
     #[new]
@@ -875,6 +874,10 @@ impl OclSDR {
     #[getter]
     fn get_active_neurons(&self) -> PyResult<Vec<u32>> {
         self.sdr.read_all().map_err(ocl_err_to_py_ex)
+    }
+    #[text_signature = "()"]
+    pub fn to_cpu(&self) -> PyResult<CpuSDR> {
+        self.sdr.to_cpu().map(|sdr|CpuSDR {sdr}).map_err(ocl_err_to_py_ex)
     }
 }
 
@@ -1018,7 +1021,7 @@ impl CpuSDR {
     #[text_signature = "(context, max_cardinality)"]
     fn to_ocl(&self, context: &mut Context, max_cardinality: u32) -> PyResult<OclSDR> {
         let ctx = context.compile_htm_program()?;
-        let sdr = htm::OclSDR::from_cpu(ctx.clone(), &self.sdr, max_cardinality).map_err(ocl_err_to_py_ex)?;
+        let sdr = self.sdr.to_ocl(ctx.clone(), max_cardinality).map_err(ocl_err_to_py_ex)?;
         Ok(OclSDR { sdr })
     }
 }
@@ -1384,6 +1387,13 @@ impl PySequenceProtocol for CpuSDR {
     }
 }
 
+#[pyproto]
+impl PySequenceProtocol for OclSDR {
+    fn __len__(&self) -> usize {
+        as_usize(self.sdr.cardinality())
+    }
+}
+
 // #[pyproto]
 // impl PySequenceProtocol for CpuSDR{
 // fn __getitem__(&self, idx: usize) -> u32{
@@ -1457,6 +1467,27 @@ impl PyIterProtocol for CpuSDR {
             inner: slf,
             idx: 0,
         }
+    }
+}
+#[pyclass]
+pub struct VecIter {
+    iter: std::vec::IntoIter<Idx>,
+}
+
+#[pyproto]
+impl PyIterProtocol for VecIter {
+    fn __iter__(slf: PyRef<Self>) -> PyRef<Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<Self>) -> Option<Idx> {
+        slf.iter.next()
+    }
+}
+#[pyproto]
+impl PyIterProtocol for OclSDR {
+    fn __iter__(slf: PyRef<Self>) -> VecIter {
+        VecIter{iter:slf.sdr.to_vec().into_iter()}
     }
 }
 
