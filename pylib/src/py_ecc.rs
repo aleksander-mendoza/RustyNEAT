@@ -109,6 +109,30 @@ macro_rules! impl_ecc_machine {
             pub fn len(&self) -> usize {
                 self.ecc.len()
             }
+            #[getter]
+            pub fn in_shape(&self) -> Vec<Idx> {
+                self.ecc[0].in_shape().to_vec()
+            }
+            #[getter]
+            pub fn in_volume(&self) -> Idx {
+                self.ecc[0].in_volume()
+            }
+            #[getter]
+            pub fn in_channels(&self) -> Idx {
+                self.ecc[0].in_channels()
+            }
+            #[getter]
+            pub fn out_shape(&self) -> Vec<Idx> {
+                self.ecc.last().out_shape().to_vec()
+            }
+            #[getter]
+            pub fn out_volume(&self) -> Idx {
+                self.ecc.last().out_volume()
+            }
+            #[getter]
+            pub fn out_channels(&self) -> Idx {
+                self.ecc.last().out_channels()
+            }
             #[text_signature = "(layer)"]
             pub fn get_in_shape(&self,layer:usize) -> Vec<Idx> {
                 self.ecc[layer].in_shape().to_vec()
@@ -171,11 +195,11 @@ macro_rules! impl_ecc_machine {
             }
             #[text_signature = "()"]
             pub fn last_output_shape(&self)->Vec<Idx>{
-                self.ecc.last().unwrap().out_shape().to_vec()
+                self.ecc.last().out_shape().to_vec()
             }
             #[text_signature = "()"]
             pub fn last_output_channels(&self)->Idx{
-                self.ecc.last().unwrap().out_channels()
+                self.ecc.last().out_channels()
             }
             #[text_signature = "()"]
             pub fn item(&self)->Option<Idx>{
@@ -309,10 +333,24 @@ impl CpuEccMachine {
 
     #[text_signature = "()"]
     pub fn pop(&mut self, py: Python) -> PyResult<PyObject> {
+        assert!(self.ecc.len()>1,"Can't pop, because then the machine would have no layers");
         match self.ecc.pop().expect("Nothing to pop") {
             SparseOrDense::Sparse(ecc) => PyCell::new(py, CpuEccSparse { ecc }).map(|a| a.to_object(py)),
             SparseOrDense::Dense(ecc) => PyCell::new(py, CpuEccDense { ecc }).map(|a| a.to_object(py))
         }
+    }
+
+    #[text_signature = "(top_layer)"]
+    pub fn push(&mut self, py: Python, top:PyObject) -> PyResult<()> {
+        if let Ok(sparse) = top.extract::<PyRef<CpuEccSparse>>(py){
+            assert_eq!(sparse.ecc.in_shape(),self.ecc.last().out_shape());
+            self.ecc.push(SparseOrDense::Sparse(sparse.ecc.clone()))
+        }else{
+            let dense = top.extract::<PyRef<CpuEccDense>>(py)?;
+            assert_eq!(dense.ecc.in_shape(),self.ecc.last().out_shape());
+            self.ecc.push(SparseOrDense::Dense(dense.ecc.clone()))
+        }
+        Ok(())
     }
 
 
@@ -404,6 +442,46 @@ macro_rules! impl_ecc_layer {
                 self.ecc.in_shape().to_vec()
             }
             #[getter]
+            pub fn get_stride(&self) -> Vec<Idx> {
+                self.ecc.stride().to_vec()
+            }
+            #[getter]
+            pub fn get_kernel(&self) -> Vec<Idx> {
+                self.ecc.kernel().to_vec()
+            }
+            #[getter]
+            pub fn get_in_volume(&self) -> Idx {
+                self.ecc.in_volume()
+            }
+            #[getter]
+            pub fn get_in_area(&self) -> Idx {
+                self.ecc.in_area()
+            }
+            #[getter]
+            pub fn get_out_volume(&self) -> Idx {
+                self.ecc.out_volume()
+            }
+            #[getter]
+            pub fn get_out_area(&self) -> Idx {
+                self.ecc.out_area()
+            }
+            #[getter]
+            pub fn get_out_channels(&self) -> Idx {
+                self.ecc.out_channels()
+            }
+            #[getter]
+            pub fn get_in_channels(&self) -> Idx {
+                self.ecc.in_channels()
+            }
+            #[getter]
+            pub fn get_out_grid(&self) -> Vec<Idx> {
+                self.ecc.out_grid().to_vec()
+            }
+            #[getter]
+            pub fn get_in_grid(&self) -> Vec<Idx> {
+                self.ecc.in_grid().to_vec()
+            }
+            #[getter]
             pub fn get_out_shape(&self) -> Vec<Idx> {
                 self.ecc.out_shape().to_vec()
             }
@@ -476,6 +554,10 @@ impl_ecc_layer!(OclEccSparse,OclSDR);
 
 #[pymethods]
 impl CpuEccDense {
+    #[text_signature="()"]
+    pub fn to_machine(&self) -> CpuEccMachine {
+        CpuEccMachine{ecc:self.ecc.clone().into_machine()}
+    }
     #[new]
     pub fn new(output: PyObject, kernel: PyObject, stride: PyObject, in_channels: Idx, out_channels: Idx, k: Idx) -> PyResult<Self> {
         let gil = Python::acquire_gil();
@@ -484,6 +566,26 @@ impl CpuEccDense {
         let kernel = arr2(py, &kernel)?;
         let stride = arr2(py, &stride)?;
         Ok(CpuEccDense { ecc: htm::CpuEccDense::new(output, kernel, stride, in_channels, out_channels, k, &mut rand::thread_rng()) })
+    }
+    #[text_signature = "(new_stride)"]
+    pub fn set_stride(&mut self, new_stride: PyObject) -> PyResult<()>{
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let new_stride = arr2(py, &new_stride)?;
+        self.ecc.set_stride(new_stride);
+        Ok(())
+    }
+    #[text_signature = "(output_size, column_pos)"]
+    pub fn repeat_column(&self, output: PyObject, pretrained_column_pos: Option<PyObject>) -> PyResult<Self>{
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let output = arr2(py, &output)?;
+        let pretrained_column_pos = if let Some(pretrained_column_pos) = pretrained_column_pos{
+            arr2(py, &pretrained_column_pos)?
+        }else{
+            [0,0]
+        };
+        Ok(Self{ecc:htm::CpuEccDense::from_repeated_column(output,&self.ecc,pretrained_column_pos)})
     }
 
     #[staticmethod]
@@ -673,6 +775,10 @@ impl_to_ocl!(CpuEccSparse,OclEccSparse,ecc);
 impl_to_cpu!(CpuEccSparse,OclEccSparse,ecc);
 #[pymethods]
 impl CpuEccSparse {
+    #[text_signature="()"]
+    pub fn to_machine(&self) -> CpuEccMachine {
+        CpuEccMachine{ecc:self.ecc.clone().into_machine()}
+    }
     #[new]
     pub fn new(output: PyObject, kernel: PyObject, stride: PyObject, in_channels: Idx, out_channels: Idx, k: Idx, connections_per_output: Idx) -> PyResult<Self> {
         let gil = Python::acquire_gil();

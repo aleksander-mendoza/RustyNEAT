@@ -61,11 +61,13 @@ pub struct CpuEccSparse {
 }
 
 impl CpuEccSparse {
-    pub fn to_ocl(&self, prog:EccProgram) -> Result<OclEccSparse, Error> {
-        OclEccSparse::new(self,prog)
+    pub fn into_machine<D:DenseWeight>(self) -> CpuEccMachine<D> {
+        CpuEccMachine::new_singleton(SparseOrDense::Sparse(self))
     }
-    pub fn set_plasticity(&mut self, fractional: u32) {
+    pub fn to_ocl(&self, prog: EccProgram) -> Result<OclEccSparse, Error> {
+        OclEccSparse::new(self, prog)
     }
+    pub fn set_plasticity(&mut self, fractional: u32) {}
     pub fn get_plasticity(&self) -> u32 {
         0
     }
@@ -161,7 +163,7 @@ impl EccLayer for CpuEccSparse {
     fn get_plasticity_f32(&self) -> f32 { 0. }
 
     fn new_empty_sdr(&self, capacity: Idx) -> Self::A {
-        CpuSDR::with_capacity(as_usize(capacity))
+        CpuSDR::new()
     }
 
     fn infer_in_place(&mut self, input: &CpuSDR, output: &mut CpuSDR) {
@@ -424,7 +426,6 @@ pub struct CpuEccDense<D: DenseWeight> {
     pub threshold: D,
     pub plasticity: D,
     activity: Vec<D>,
-    pub rand_seed: Idx,
     pub sums: Vec<D>,
 }
 
@@ -441,12 +442,65 @@ fn kernel_column_weight_sum<D: Sum + Copy>(kernel_column_volume: Idx, out_volume
 }
 
 impl<D: DenseWeight> CpuEccDense<D> {
+    pub fn into_machine(self) -> CpuEccMachine<D> {
+        CpuEccMachine::new_singleton(SparseOrDense::Dense(self))
+    }
+    pub fn set_stride(&mut self, new_stride: [Idx; 2]) {
+        let input = self.out_grid().conv_in_size(&new_stride, self.kernel());
+        let input = input.add_channels(self.in_channels());
+        self.input_shape = input;
+        self.stride = new_stride;
+    }
+    pub fn from_repeated_column(output: [Idx; 2], pretrained: &Self, pretrained_column_pos: [Idx; 2]) -> Self {
+        let input = output.conv_in_size(pretrained.stride(), pretrained.kernel());
+        let output = output.add_channels(pretrained.out_channels());
+        let input = input.add_channels(pretrained.in_channels());
+        let kv = pretrained.kernel_column().product();
+        let new_v = output.product();
+        let old_v = pretrained.out_volume();
+        let mut w = vec![D::ZERO; as_usize(kv * new_v)];
+        let mut activity = vec![D::ZERO; as_usize(kv * new_v)];
+        for channel in 0..output.channels() {
+            let pretrained_out_idx = pretrained.out_shape().idx(pretrained_column_pos.add_channels(channel));
+            for idx_within_kernel_column in 0..kv {
+                let old_w_i = w_idx(pretrained_out_idx, idx_within_kernel_column, old_v);
+                let old_w: D = pretrained.w[as_usize(old_w_i)];
+                for x in 0..output.width() {
+                    for y in 0..output.height() {
+                        let pos = from_xyz(x, y, channel);
+                        let output_idx = output.idx(pos);
+                        let new_w_i = w_idx(output_idx, idx_within_kernel_column, new_v);
+                        w[as_usize(new_w_i)] = old_w;
+                    }
+                }
+            }
+            for x in 0..output.width() {
+                for y in 0..output.height() {
+                    let pos = from_xyz(x, y, channel);
+                    let output_idx = output.idx(pos);
+                    activity[as_usize(output_idx)] = pretrained.activity[as_usize(pretrained_out_idx)];
+                }
+            }
+        }
+        Self {
+            w,
+            input_shape: input,
+            output_shape: output,
+            kernel: pretrained.kernel,
+            stride: pretrained.stride,
+            k: pretrained.k,
+            threshold: pretrained.threshold,
+            plasticity: pretrained.plasticity,
+            activity,
+            sums: vec![D::ZERO; as_usize(new_v)],
+        }
+    }
     pub fn new(output: [Idx; 2], kernel: [Idx; 2], stride: [Idx; 2], in_channels: Idx, out_channels: Idx, k: Idx, rng: &mut impl Rng) -> Self {
         let input = output.conv_in_size(&stride, &kernel);
-        let output = [output[0], output[1], out_channels];
+        let output = output.add_channels(out_channels);
         let v = output.product();
-        let input = [input[0], input[1], in_channels];
-        let kernel_column = [kernel[0], kernel[1], in_channels];
+        let input = input.add_channels(in_channels);
+        let kernel_column = kernel.add_channels(in_channels);
         let kv = kernel_column.product();
         assert!(k <= output.channels(), "k is larger than layer output");
         let wf: Vec<f32> = (0..kv * v).map(|_| rng.gen()).collect();
@@ -461,7 +515,6 @@ impl<D: DenseWeight> CpuEccDense<D> {
             threshold: D::default_threshold(out_channels),
             plasticity: D::DEFAULT_PLASTICITY,
             activity: vec![D::INITIAL_ACTIVITY; as_usize(v)],
-            rand_seed: auto_gen_seed32(),
             sums: vec![D::ZERO; as_usize(v)],
         };
         #[cfg(debug_assertions)] {
@@ -498,7 +551,6 @@ impl<D: DenseWeight> CpuEccDense<D> {
             threshold: first_layer.threshold,
             plasticity: first_layer.plasticity,
             activity: vec![D::INITIAL_ACTIVITY; as_usize(new_v)],
-            rand_seed: first_layer.rand_seed,
             sums: vec![D::ZERO; as_usize(new_v)],
         };
         let mut channel_offset = 0;
@@ -618,12 +670,14 @@ impl<D: DenseWeight> CpuEccDense<D> {
         }, |i, v| self.sums[i].ge(t), D::gt, output);
     }
 }
-impl OclEccSparse{
-    pub fn to_cpu(&self)->CpuEccSparse{
+
+impl OclEccSparse {
+
+    pub fn to_cpu(&self) -> CpuEccSparse {
         let connection_ranges = self.get_connection_ranges().to_vec(self.prog().queue()).unwrap();
         let connections = self.get_connections().to_vec(self.prog().queue()).unwrap();
-        CpuEccSparse{
-            connections: connection_ranges.into_iter().map(|range|connections[range[0] as usize..(range[0]+range[1])as usize].to_vec()).collect(),
+        CpuEccSparse {
+            connections: connection_ranges.into_iter().map(|range| connections[range[0] as usize..(range[0] + range[1]) as usize].to_vec()).collect(),
             max_incoming_synapses: self.get_max_incoming_synapses(),
             input_shape: *self.in_shape(),
             output_shape: *self.out_shape(),
@@ -631,14 +685,14 @@ impl OclEccSparse{
             stride: *self.stride(),
             k: self.k,
             threshold: self.get_threshold(),
-            sums: vec![0;self.sums.len()]
+            sums: vec![0; self.sums.len()],
         }
     }
 }
 
-impl OclEccDense{
-    pub fn to_cpu(&self)->CpuEccDense<u32>{
-        CpuEccDense{
+impl OclEccDense {
+    pub fn to_cpu(&self) -> CpuEccDense<u32> {
+        CpuEccDense {
             w: self.w().to_vec(self.prog().queue()).unwrap(),
             input_shape: *self.in_shape(),
             output_shape: *self.out_shape(),
@@ -648,11 +702,11 @@ impl OclEccDense{
             threshold: self.get_threshold(),
             plasticity: self.plasticity,
             activity: self.activity().to_vec(self.prog().queue()).unwrap(),
-            rand_seed: 0,
-            sums: vec![0; self.sums.len()]
+            sums: vec![0; self.sums.len()],
         }
     }
 }
+
 impl CpuEccDense<f32> {
     pub fn reset_activity(&mut self) {
         let min = self.min_activity();
@@ -665,8 +719,8 @@ impl CpuEccDense<u32> {
         let free_space = u32::INITIAL_ACTIVITY - self.max_activity();
         self.activity.iter_mut().for_each(|a| *a += free_space)
     }
-    pub fn to_ocl(&self, prog:EccProgram) -> Result<OclEccDense, Error> {
-        OclEccDense::new(self,prog)
+    pub fn to_ocl(&self, prog: EccProgram) -> Result<OclEccDense, Error> {
+        OclEccDense::new(self, prog)
     }
 }
 
@@ -713,7 +767,7 @@ impl<D: DenseWeight> EccLayer for CpuEccDense<D> {
         D::w_to_f32(self.plasticity)
     }
     fn new_empty_sdr(&self, capacity: Idx) -> Self::A {
-        CpuSDR::with_capacity(as_usize(capacity))
+        CpuSDR::new()
     }
 
     fn infer_in_place(&mut self, input: &CpuSDR, output: &mut CpuSDR) {
@@ -813,7 +867,6 @@ impl<D: DenseWeight> CpuEccMachine<D> {
             })
     }
 }
-
 
 
 #[cfg(test)]
@@ -919,7 +972,6 @@ mod tests {
         let mut rng = rand::rngs::StdRng::seed_from_u64(634634636);//rand::thread_rng();
         let k = 8;
         let mut a = CpuEccDense::<D>::new([4, 4], [2, 2], [1, 1], 3, 4, 1, &mut rng);
-        a.rand_seed = 34634;
         a.set_plasticity_f32(0.1);//let's see if this breaks anything
         for i in 0..1024 {
             let input: Vec<u32> = (0..k).map(|_| rng.gen_range(0..a.in_volume() as u32)).collect();
@@ -940,7 +992,6 @@ mod tests {
         let k = 16;
         let mut a = CpuEccDense::<D>::new([1, 1], [4, 4], [1, 1], 3, 4, 1, &mut rng);
         a.set_threshold_f32(0.2);
-        println!("{} {}", s, a.rand_seed);
         for i in 0..1024 {
             let input: Vec<u32> = (0..k).map(|_| rng.gen_range(0..a.in_volume() as u32)).collect();
             let mut input = CpuSDR::from(input);

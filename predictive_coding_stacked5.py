@@ -12,9 +12,8 @@ import numpy as np
 from tqdm import tqdm
 import pickle
 
+SAVE = True
 MNIST, LABELS = torch.load('htm/data/mnist.pt')
-
-activity_epsilon = 0.0001
 
 
 def rand_patch(patch_size, superimpose=(1,1)):
@@ -30,7 +29,7 @@ def rand_patch(patch_size, superimpose=(1,1)):
 
 
 def experiment(clazz, output, kernels, strides, channels, k, connections_per_output, w, h, save_file,
-               iterations=1000000, interval=100000, test_patches=20000,superimpose=(1,1)):
+               iterations=1000000, interval=100000, test_patches=20000,update_activity_during_eval=True,superimpose=(1,1)):
     model_file = save_file + ".model"
     if os.path.exists(model_file):
         m = clazz.load(model_file)
@@ -47,7 +46,7 @@ def experiment(clazz, output, kernels, strides, channels, k, connections_per_out
         )
     assert w * h == m.get_out_volume(m.len - 1)
     patch_size = np.array(m.get_in_shape(0))
-    print("PATCH_SIZE=", patch_size, "Params=", m.learnable_paramemters())
+    print("PATCH_SIZE=", patch_size, "Params=", m.learnable_parameters())
     fig, axs = plt.subplots(w, h)
     for a in axs:
         for b in a:
@@ -68,12 +67,16 @@ def experiment(clazz, output, kernels, strides, channels, k, connections_per_out
         m.run(sdr)
         m.learn()
         if s % interval == 0:
-            m.save(model_file)
+            if SAVE:
+                m.save(model_file)
             stats = torch.zeros([patch_size[0], patch_size[1], w*h])
             processed = 0
             for img, sdr in tqdm(test_patches, desc="eval"):
                 # img = normalise_img(rand_patch())
-                m.run(sdr)
+                if update_activity_during_eval:
+                    m.run(sdr)
+                else:
+                    m.infer(sdr)
                 for top in m.last_output_sdr():
                     stats[:, :, top] += img
                     processed += 1
@@ -84,12 +87,13 @@ def experiment(clazz, output, kernels, strides, channels, k, connections_per_out
                 for j in range(h):
                     axs[i, j].imshow(stats[:, :, i + j * w])
             plt.pause(0.01)
-            img_file_name = save_file + " before.png" if s == 0 and not unpickled else save_file + " after.png"
-            plt.savefig(img_file_name)
+            if SAVE:
+                img_file_name = save_file + " before.png" if s == 0 and not unpickled else save_file + " after.png"
+                plt.savefig(img_file_name)
     plt.show()
 
 
-EXPERIMENT = 10
+EXPERIMENT = 11
 n = "predictive_coding_stacked5_experiment" + str(EXPERIMENT)
 if EXPERIMENT == 1:
     experiment(clazz=ecc.CpuEccMachineUint,
@@ -192,5 +196,17 @@ elif EXPERIMENT == 10:
                connections_per_output=[4, None, None, None, None, None],
                w=5*5, h=8*5, save_file=n,
                interval=20000,
+               superimpose=(1, 1))
+elif EXPERIMENT == 11:
+    experiment(clazz=ecc.CpuEccMachine,
+               output=np.array([24, 24]),
+               kernels=[np.array([5, 5])],
+               strides=[np.array([1, 1])],
+               channels=[1, 20],
+               k=[10],
+               connections_per_output=[None],
+               w=24*5, h=24*4, save_file=n,
+               interval=20000,
+               update_activity_during_eval=False,
                superimpose=(1, 1))
 

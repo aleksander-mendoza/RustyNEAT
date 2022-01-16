@@ -18,7 +18,7 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{Encoder, EncoderTarget, EncoderRange, Shape, VectorFieldOne, Synapse};
+use htm::{Encoder, EncoderTarget, EncoderRange, Shape, VectorFieldOne, Synapse, from_xyz};
 use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
@@ -92,20 +92,20 @@ pub fn arr3<'py, T:Element+Copy+FromPyObject<'py>>(py: Python<'py>, t: &'py PyOb
     })
 }
 
-pub fn arrX<'py,T:Element+Copy+FromPyObject<'py>>(py: Python<'py>, t: &'py PyObject, default0: T, default1: T, default2: T) -> PyResult<[T; 3]> {
+pub fn arrX<'py,T:Element+Copy+FromPyObject<'py>>(py: Python<'py>, t: &'py PyObject, default_x: T, default_y: T, default_z: T) -> PyResult<[T; 3]> {
     Ok(if t.is_none(py) {
-        [default0, default1, default2]
+        [default_x, default_y, default_z]
     } else if let Ok(t) = t.extract::<T>(py) {
-        [default0, default1, t]
+        [t, default_y, default_z]
     } else if let Ok(t) = t.extract::<(T, T)>(py) {
-        [default0, t.0, t.1]
+        [t.0, t.1, default_z]
     } else if let Ok(t) = t.extract::<(T, T, T)>(py) {
         [t.0, t.1, t.2]
     } else {
-        let d = [default0, default1, default2];
+        let d = [default_x, default_y, default_z];
         fn to3<T:Element+Copy>(arr: &[T], mut d: [T; 3]) -> [T; 3] {
             for i in 0..arr.len().min(3) {
-                d[3 - arr.len() + i] = arr[i];
+                d[i] = arr[i];
             }
             d
         }

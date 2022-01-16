@@ -1,6 +1,6 @@
 use crate::{VectorFieldOne, Shape2, Shape3, VectorFieldPartialOrd, OclEccMachine, CpuEccMachine, EccProgram, CpuSDR, CpuEccSparse, CpuEccDense, OclSDR, OclEccSparse, OclEccDense, DenseWeight};
 use crate::xorshift::xorshift32;
-use std::ops::{Deref, DerefMut};
+use std::ops::{Deref, DerefMut, IndexMut, Index};
 use itertools::Itertools;
 use rand::Rng;
 use serde::{Serialize,Deserialize};
@@ -277,22 +277,48 @@ pub struct EccMachine<A:SDR,S:EccLayer<A=A>,D:EccLayer<A=A>> {
     inputs: Vec<A>,
 }
 
-impl<A:SDR,S:EccLayer<A=A>,D:EccLayer<A=A>> Deref for EccMachine<A,S,D> {
-    type Target = Vec<SparseOrDense<A,S,D>>;
+impl<A:SDR,S:EccLayer<A=A>,D:EccLayer<A=A>> Index<usize> for EccMachine<A,S,D>{
+    type Output = SparseOrDense<A,S,D>;
 
-    fn deref(&self) -> &Self::Target {
-        &self.ecc
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.ecc[index]
     }
 }
-
-impl<A:SDR,S:EccLayer<A=A>,D:EccLayer<A=A>> DerefMut for EccMachine<A,S,D>{
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.ecc
+impl<A:SDR,S:EccLayer<A=A>,D:EccLayer<A=A>> IndexMut<usize> for EccMachine<A,S,D>{
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.ecc[index]
     }
 }
-
 
 impl<A:SDR,S:EccLayer<A=A>,D:EccLayer<A=A>> EccMachine<A,S,D> {
+    pub fn len(&self)->usize{
+        self.ecc.len()
+    }
+    pub fn last(&self)->&SparseOrDense<A,S,D>{
+        self.ecc.last().unwrap()
+    }
+    pub fn last_mut (&mut self)->&mut SparseOrDense<A,S,D>{
+        self.ecc.last_mut().unwrap()
+    }
+    pub fn layer_mut(&mut self,idx:usize)->&mut SparseOrDense<A,S,D>{
+        &mut self.ecc[idx]
+    }
+    pub fn push(&mut self,top:SparseOrDense<A,S,D>){
+        assert_eq!(self.out_shape(),top.in_shape());
+        self.inputs.push(top.new_empty_output_sdr());
+        self.ecc.push(top);
+    }
+    pub fn pop(&mut self) -> Option<SparseOrDense<A, S, D>> {
+        if self.len()<=1{return None}
+        self.inputs.pop();
+        self.ecc.pop()
+    }
+    pub fn new_singleton(layer:SparseOrDense<A,S,D>)->Self{
+        Self{
+            inputs: vec![layer.new_empty_sdr(layer.in_volume()), layer.new_empty_output_sdr()],
+            ecc: vec![layer],
+        }
+    }
     pub fn new<R:Rng>(output: [Idx; 2], kernels: &[[Idx; 2]], strides: &[[Idx; 2]], channels: &[Idx],
                k: &[Idx], connections_per_output: &[Option<Idx>], rng: &mut R,
                mut new_layer:impl FnMut([Idx;2],Idx,Idx,Idx,[Idx;2],[Idx;2],Option<Idx>,&mut R)->SparseOrDense<A,S,D>) -> Self {
@@ -334,6 +360,7 @@ impl<A:SDR,S:EccLayer<A=A>,D:EccLayer<A=A>> EccMachine<A,S,D> {
     pub fn learnable_parameters(&self) -> usize {
         self.ecc.iter().map(|w| w.learnable_parameters()).sum()
     }
+    /**input_sdr(self.len()) returns the final output*/
     pub fn input_sdr(&self, layer_index: usize) -> &A {
         &self.inputs[layer_index]
     }
@@ -356,29 +383,39 @@ impl<A:SDR,S:EccLayer<A=A>,D:EccLayer<A=A>> EccMachine<A,S,D> {
         self.inputs.last_mut().unwrap()
     }
     pub fn learn(&mut self) {
-        let Self { ecc, inputs } = self;
-        for (i, layer) in ecc.iter_mut().enumerate() {
-            let (prev, next) = inputs.as_slice().split_at(i + 1);
-            layer.learn(&prev[i], &next[0]);
+        for i in 0..self.len(){
+            self.learn_one_layer(i)
         }
     }
-    pub fn run(&mut self, input: &A) -> &A {
+    pub fn learn_one_layer(&mut self,layer:usize) {
+        let Self { ecc, inputs } = self;
+        let (prev, next) = inputs.as_slice().split_at(layer + 1);
+        ecc[layer].learn(&prev[layer], &next[0]);
+    }
+    /**last_layer to evaluate (exclusive)*/
+    pub fn run_up_to_layer(&mut self, last_layer:usize,input: &A) -> &A {
         let Self { ecc, inputs } = self;
         inputs[0].set_from_sdr(input);
-        for (i, layer) in ecc.iter_mut().enumerate() {
+        for (i, layer) in ecc.iter_mut().take(last_layer).enumerate() {
             let (prev, next) = inputs.as_mut_slice().split_at_mut(i + 1);
             layer.run_in_place(&prev[i], &mut next[0]);
         }
-        self.last_output_sdr()
+        self.input_sdr(last_layer)
     }
-    pub fn infer(&mut self, input: &A) -> &A {
+    pub fn run(&mut self, input: &A) -> &A {
+        self.run_up_to_layer(self.len(),input)
+    }
+    pub fn infer_up_to_layer(&mut self,last_layer:usize, input: &A) -> &A {
         let Self { ecc, inputs } = self;
         inputs[0].set_from_sdr(input);
-        for (i, layer) in ecc.iter_mut().enumerate() {
+        for (i, layer) in ecc.iter_mut().take(last_layer).enumerate() {
             let (prev, next) = inputs.as_mut_slice().split_at_mut(i + 1);
             layer.infer_in_place(&prev[i], &mut next[0]);
         }
-        self.last_output_sdr()
+        self.input_sdr(last_layer)
+    }
+    pub fn infer(&mut self, input: &A) -> &A {
+        self.infer_up_to_layer(self.len(),input)
     }
     pub fn in_shape(&self) -> &[Idx; 3] {
         self.ecc[0].in_shape()

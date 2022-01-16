@@ -531,7 +531,7 @@ impl Population {
         let gil = Python::acquire_gil();
         let py = gil.python();
         let input_range = input_range.0..input_range.1;
-        let total_region = arrX(py, &total_region, 1, 1, input_range.len())?;
+        let total_region = arrX(py, &total_region, input_range.len(), 1, 1)?;
         let subregion_start = arrX(py, &subregion_start, 0, 0, 0)?;
         let subregion_end = arrX(py, &subregion_end, total_region[0], total_region[1], total_region[2])?;
         Ok(self.pop.add_uniform_rand_inputs_from_area(input_range, total_region, subregion_start..subregion_end, synapse_count, &mut rand::thread_rng()))
@@ -547,7 +547,7 @@ impl Population {
         let gil = Python::acquire_gil();
         let py = gil.python();
         let input_range = input_range.0..input_range.1;
-        let total_region = arrX(py, &total_region, 1, 1, input_range.len())?;
+        let total_region = arrX(py, &total_region, input_range.len(), 1, 1)?;
         let subregion_start = arrX(py, &subregion_start, 0, 0, 0)?;
         let subregion_end = arrX(py, &subregion_end, total_region[0], total_region[1], total_region[2])?;
         Ok(self.pop.add_all_inputs_from_area(input_range, total_region, subregion_start..subregion_end, &mut rand::thread_rng()))
@@ -667,7 +667,7 @@ impl Neuron {
         let gil = Python::acquire_gil();
         let py = gil.python();
         let input_range = input_range.0..input_range.1;
-        let total_region = arrX(py, &total_region, 1, 1, input_range.len())?;
+        let total_region = arrX(py, &total_region, input_range.len(), 1, 1)?;
         let subregion_start = arrX(py, &subregion_start, 0, 0, 0)?;
         let subregion_end = arrX(py, &subregion_end, total_region[0], total_region[1], total_region[2])?;
         Ok(self.n.add_uniform_rand_inputs_from_area(input_range, total_region, subregion_start..subregion_end, synapse_count, &mut rand::thread_rng()))
@@ -714,7 +714,7 @@ impl Neuron {
         let gil = Python::acquire_gil();
         let py = gil.python();
         let input_range = input_range.0..input_range.1;
-        let total_region = arrX(py, &total_region, 1, 1, input_range.len())?;
+        let total_region = arrX(py, &total_region, input_range.len(), 1, 1)?;
         let subregion_start = arrX(py, &subregion_start, 0, 0, 0)?;
         let subregion_end = arrX(py, &subregion_end, total_region[0], total_region[1], total_region[2])?;
         Ok(self.n.add_all_inputs_from_area(input_range, total_region, subregion_start..subregion_end, &mut rand::thread_rng()))
@@ -774,7 +774,7 @@ impl Segment {
         let gil = Python::acquire_gil();
         let py = gil.python();
         let input_range = input_range.0..input_range.1;
-        let total_region = arrX(py, &total_region, 1, 1, input_range.len())?;
+        let total_region = arrX(py, &total_region, input_range.len(), 1, 1)?;
         let subregion_start = arrX(py, &subregion_start, 0, 0, 0)?;
         let subregion_end = arrX(py, &subregion_end, total_region[0], total_region[1], total_region[2])?;
         Ok(self.seg.add_uniform_rand_inputs_from_area(input_range, total_region, subregion_start..subregion_end, synapse_count, &mut rand::thread_rng()))
@@ -842,7 +842,7 @@ impl Segment {
         let gil = Python::acquire_gil();
         let py = gil.python();
         let input_range = input_range.0..input_range.1;
-        let total_region = arrX(py, &total_region, 1, 1, input_range.len())?;
+        let total_region = arrX(py, &total_region, input_range.len(),1, 1)?;
         let subregion_start = arrX(py, &subregion_start, 0, 0, 0)?;
         let subregion_end = arrX(py, &subregion_end, total_region[0], total_region[1], total_region[2])?;
         Ok(self.seg.add_all_inputs_from_area(input_range, total_region, subregion_start..subregion_end, &mut rand::thread_rng()))
@@ -1161,14 +1161,14 @@ impl CpuBitset {
     pub fn resize(&mut self, shape: PyObject) -> PyResult<()> {
         let gil = Python::acquire_gil();
         let py = gil.python();
-        let [z, y, x] = arrX(py, &shape, 1, 1, self.bits.size())?;
+        let [z, y, x] = arrX(py, &shape, self.bits.size(), 1, 1)?;
         Ok(self.bits.resize3d(z, y, x))
     }
     #[text_signature = "(shape)"]
     pub fn reshape(&mut self, shape: PyObject) -> PyResult<()> {
         let gil = Python::acquire_gil();
         let py = gil.python();
-        let [z, y, x] = arrX(py, &shape, 1, 1, self.bits.size())?;
+        let [z, y, x] = arrX(py, &shape, self.bits.size(),1, 1)?;
         Ok(self.bits.reshape3d(z, y, x))
     }
     #[text_signature = "(file)"]
@@ -1335,7 +1335,7 @@ impl CpuInput {
     pub fn reshape(&mut self, size: PyObject) -> PyResult<()> {
         let gil = Python::acquire_gil();
         let py = gil.python();
-        let [z, y, x] = arrX(py, &size, 1, 1, self.inp.size())?;
+        let [z, y, x] = arrX(py, &size, self.inp.size(), 1, 1)?;
         Ok(self.inp.reshape3d(z, y, x))
     }
     #[text_signature = "(input)"]
