@@ -6,7 +6,7 @@ use ocl::core::{MemInfo, MemInfoResult, BufferRegion, Mem, ArgVal};
 use crate::ocl_sdr::OclSDR;
 use crate::ecc_program::EccProgram;
 use ndalgebra::buffer::Buffer;
-use crate::{OclBitset, CpuEccDense, Shape2, Shape3, Shape, VectorFieldOne, CpuEccSparse, EccMachine, SparseOrDense, DenseWeight, CpuEccMachine};
+use crate::{OclBitset, CpuEccDense, Shape2, Shape3, Shape, VectorFieldOne, CpuEccSparse, EccMachine, SparseOrDense, DenseWeight, CpuEccMachine, EccSepConMachine, EccLayerD};
 use ocl::prm::{Uint3, Uint2};
 use crate::ecc::{as_usize, EccLayer, Idx};
 use crate::sdr::SDR;
@@ -37,6 +37,24 @@ pub struct OclEccDense {
     pub top_values: Buffer<u32>,
 }
 
+impl EccLayerD for OclEccDense {
+    type D = u32;
+    fn get_threshold(&self) -> u32 {
+        self.threshold
+    }
+
+    fn set_threshold(&mut self, threshold: u32) {
+        self.threshold = threshold
+    }
+
+    fn get_plasticity(&self) -> u32 {
+        self.plasticity
+    }
+    fn set_plasticity(&mut self, plasticity: u32) {
+        self.plasticity = plasticity
+    }
+}
+
 impl EccLayer for OclEccDense {
     type A = OclSDR;
 
@@ -45,6 +63,7 @@ impl EccLayer for OclEccDense {
     }
 
     fn set_k(&mut self, k: Idx) {}
+
 
     fn out_shape(&self) -> &[Idx; 3] {
         &self.output_shape
@@ -113,28 +132,14 @@ impl EccLayer for OclEccDense {
 }
 
 impl OclEccDense {
-    pub fn activity(&self)->&Buffer<u32>{
+    pub fn activity(&self) -> &Buffer<u32> {
         &self.activity
     }
-    pub fn w(&self)->&Buffer<u32>{
+    pub fn w(&self) -> &Buffer<u32> {
         &self.w
     }
     pub fn prog(&self) -> &EccProgram {
         &self.prog
-    }
-    pub fn get_threshold(&self) -> u32 {
-        self.threshold
-    }
-
-    pub fn set_threshold(&mut self, threshold: u32) {
-        self.threshold = threshold
-    }
-
-    pub fn set_plasticity(&mut self, plasticity: u32) {
-        self.plasticity = plasticity
-    }
-    pub fn get_plasticity(&self) -> u32 {
-        self.plasticity
     }
     pub fn new(ecc: &CpuEccDense<u32>, prog: EccProgram) -> Result<Self, Error> {
         let sums = prog.buffer_from_slice(MemFlags::READ_WRITE, &ecc.sums)?;
@@ -291,6 +296,20 @@ pub struct OclEccSparse {
     pub candidates_per_sum: Buffer<u32>,
 }
 
+impl EccLayerD for OclEccSparse {
+    type D = u16;
+    fn get_threshold(&self) -> u16 {
+        self.threshold
+    }
+    fn set_threshold(&mut self, threshold: u16) {
+        //nothing
+    }
+    fn get_plasticity(&self) -> u16 {
+        0
+    }
+    fn set_plasticity(&mut self, plasticity: u16) {}
+}
+
 impl EccLayer for OclEccSparse {
     type A = OclSDR;
 
@@ -368,17 +387,6 @@ impl OclEccSparse {
     }
     pub fn get_connection_ranges(&self) -> &Buffer<Uint2> {
         &self.connection_ranges
-    }
-    pub fn get_threshold(&self) -> u16 {
-        self.threshold
-    }
-    pub fn set_threshold(&mut self, threshold: u16) {
-        //nothing
-    }
-    pub fn set_plasticity(&mut self, plasticity: u16) {
-    }
-    pub fn get_plasticity(&self) -> u16 {
-        0
     }
     pub fn new(ecc: &CpuEccSparse, prog: EccProgram) -> Result<Self, Error> {
         let mut connections = vec![];
@@ -475,7 +483,7 @@ impl OclEccSparse {
     }
 }
 
-pub type OclEccMachine = EccMachine<OclSDR, OclEccSparse, OclEccDense>;
+pub type OclEccMachine = EccSepConMachine<OclSDR, OclEccSparse, OclEccDense>;
 
 impl OclEccMachine {
     pub fn new_gpu(prog: EccProgram, output: [Idx; 2], kernels: &[[Idx; 2]], strides: &[[Idx; 2]], channels: &[Idx], k: &[Idx], connections_per_output: &[Option<Idx>], rng: &mut impl Rng) -> Self {
@@ -682,7 +690,7 @@ mod tests {
             let mut output2 = output2.to_cpu().unwrap();
             output.sort();
             output2.sort();
-            assert_eq!(output, output2,"output at {}",i);
+            assert_eq!(output, output2, "output at {}", i);
         }
         Ok(())
     }

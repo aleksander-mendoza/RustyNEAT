@@ -17,7 +17,7 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{SparseOrDense, VectorFieldOne, Idx, EccLayer, Rand, SDR};
+use htm::{SparseOrDense, VectorFieldOne, Idx, EccLayer, Rand, SDR, EccLayerD};
 use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
@@ -83,6 +83,7 @@ pub struct CpuEccMachine {
     ecc: htm::CpuEccMachine<f32>,
 }
 
+
 ///
 /// OclEccMachine(context,output: list[int], kernels: list[list[int]], strides: list[list[int]], channels: list[int], k: list[int], connections_per_output: list[int])
 ///
@@ -100,7 +101,95 @@ pub struct OclEccMachine {
 pub struct CpuEccMachineUInt {
     ecc: htm::CpuEccMachine<u32>,
 }
+trait EccLayerPy{
+    fn get_threshold_py(&self, py: Python) -> PyObject;
+    fn set_threshold_py(&mut self, py: Python, threshold: PyObject) -> PyResult<()>;
+    fn get_plasticity_py(&self, py: Python) -> PyObject;
+    fn set_plasticity_py(&mut self, py: Python, plasticity: PyObject) -> PyResult<()>;
+}
+macro_rules! impl_py_ecc_layer {
+    ($class_name:ident, $htm_class_name:ty) => {
+        impl EccLayerPy for $htm_class_name{
+            fn get_threshold_py(&self, py: Python) -> PyObject {
+                self.get_threshold().to_object(py)
+            }
+            fn set_threshold_py(&mut self, py: Python, threshold: PyObject) -> PyResult<()> {
+                threshold.extract(py).map(|t|self.set_threshold(t))
+            }
+            fn get_plasticity_py(&self, py: Python) -> PyObject {
+                self.get_plasticity().to_object(py)
+            }
+            fn set_plasticity_py(&mut self, py: Python, plasticity: PyObject) -> PyResult<()> {
+                plasticity.extract(py).map(|t|self.set_plasticity(t))
+            }
+        }
+        impl EccLayerPy for $class_name{
+            fn get_threshold_py(&self, py: Python) -> PyObject {
+                self.ecc.get_threshold_py(py)
+            }
+            fn set_threshold_py(&mut self, py: Python, threshold: PyObject) -> PyResult<()> {
+                self.ecc.set_threshold_py(py,threshold)
+            }
+            fn get_plasticity_py(&self, py: Python) -> PyObject {
+                self.ecc.get_plasticity_py(py)
+            }
+            fn set_plasticity_py(&mut self, py: Python, plasticity: PyObject) -> PyResult<()> {
+                self.ecc.set_plasticity_py(py,plasticity)
+            }
+        }
+        #[pymethods]
+        impl $class_name {
+            #[text_signature = "()"]
+            fn get_threshold(&self, py: Python) -> PyObject {
+                self.get_threshold_py(py)
+            }
+            #[text_signature = "(threshold)"]
+            fn set_threshold(&mut self, py: Python, threshold: PyObject) -> PyResult<()> {
+                self.set_threshold_py(py,threshold)
+            }
+            #[text_signature = "()"]
+            fn get_plasticity(&self, py: Python) -> PyObject {
+                self.get_plasticity_py(py)
+            }
+            #[text_signature = "(plasticity)"]
+            fn set_plasticity(&mut self, py: Python, plasticity: PyObject) -> PyResult<()> {
+                self.set_plasticity_py(py,plasticity)
+            }
+        }
+    };
+}
+impl_py_ecc_layer!(CpuEccSparse,htm::CpuEccSparse);
+impl_py_ecc_layer!(CpuEccDense,htm::CpuEccDense<f32>);
+impl_py_ecc_layer!(OclEccSparse,htm::OclEccSparse);
+impl_py_ecc_layer!(OclEccDense,htm::OclEccDense);
+impl_py_ecc_layer!(CpuEccDenseUInt,htm::CpuEccDense<u32>);
 
+impl <A:htm::SDR,S:EccLayer<A=A>+EccLayerPy,D:EccLayer<A=A>+EccLayerPy> EccLayerPy for SparseOrDense<A,S,D>{
+    fn get_threshold_py(&self, py: Python) -> PyObject {
+        match self {
+            SparseOrDense::Sparse(a) => a.get_threshold_py(py),
+            SparseOrDense::Dense(a) => a.get_threshold_py(py),
+        }
+    }
+    fn set_threshold_py(&mut self, py: Python, threshold: PyObject) -> PyResult<()> {
+        match self {
+            SparseOrDense::Sparse(a) => a.set_threshold_py(py,threshold),
+            SparseOrDense::Dense(a) => a.set_threshold_py(py,threshold),
+        }
+    }
+    fn get_plasticity_py(&self, py: Python) -> PyObject {
+        match self{
+            SparseOrDense::Sparse(a) => a.get_plasticity_py(py),
+            SparseOrDense::Dense(a) => a.get_plasticity_py(py),
+        }
+    }
+    fn set_plasticity_py(&mut self, py: Python, plasticity: PyObject) -> PyResult<()> {
+        match self {
+            SparseOrDense::Sparse(a) => a.set_plasticity_py(py,plasticity),
+            SparseOrDense::Dense(a) => a.set_plasticity_py(py,plasticity),
+        }
+    }
+}
 macro_rules! impl_ecc_machine {
     ($ecc_class:ident, $sdr_class:ident) => {
         #[pymethods]
@@ -216,33 +305,19 @@ macro_rules! impl_ecc_machine {
             }
             #[text_signature = "(layer)"]
             pub fn get_threshold(&self, py: Python, layer: usize) -> PyObject {
-                match &self.ecc[layer] {
-                    SparseOrDense::Sparse(a) => a.get_threshold().to_object(py),
-                    SparseOrDense::Dense(a) => a.get_threshold().to_object(py),
-                }
+                self.ecc[layer].get_threshold_py(py)
             }
             #[text_signature = "(layer, threshold)"]
             pub fn set_threshold(&mut self, py: Python, layer: usize, threshold: PyObject) -> PyResult<()> {
-                match &mut self.ecc[layer] {
-                    SparseOrDense::Sparse(a) => a.set_threshold(threshold.extract(py)?),
-                    SparseOrDense::Dense(a) => a.set_threshold(threshold.extract(py)?),
-                }
-                Ok(())
+                self.ecc[layer].set_threshold_py(py,threshold)
             }
             #[text_signature = "(layer)"]
             pub fn get_plasticity(&self, py: Python, layer: usize) -> PyObject {
-                match &self.ecc[layer] {
-                    SparseOrDense::Sparse(a) => a.get_plasticity().to_object(py),
-                    SparseOrDense::Dense(a) => a.get_plasticity().to_object(py),
-                }
+                self.ecc[layer].get_plasticity_py(py)
             }
             #[text_signature = "(layer, plasticity)"]
             pub fn set_plasticity(&mut self, py: Python, layer: usize, plasticity: PyObject) -> PyResult<()> {
-                match &mut self.ecc[layer] {
-                    SparseOrDense::Sparse(a) => a.set_plasticity(plasticity.extract(py)?),
-                    SparseOrDense::Dense(a) => a.set_plasticity(plasticity.extract(py)?),
-                }
-                Ok(())
+                self.ecc[layer].set_plasticity_py(py,plasticity)
             }
             #[text_signature = "(layer)"]
             pub fn get_threshold_f32(&self, layer: usize) -> f32 {
@@ -268,10 +343,6 @@ macro_rules! impl_ecc_machine {
             pub fn get_max_incoming_synapses(&self, layer: usize) -> Idx {
                 self.ecc[layer].get_max_incoming_synapses()
             }
-            #[text_signature = "(layer)"]
-            pub fn is_sparse(&self, layer: usize) -> bool {
-                self.ecc[layer].is_sparse()
-            }
         }
     };
 }
@@ -296,6 +367,7 @@ impl_ecc_machine!(CpuEccMachine,CpuSDR);
 impl_ecc_machine!(CpuEccMachineUInt,CpuSDR);
 impl_save_load!(CpuEccMachine,ecc);
 impl_save_load!(CpuEccMachineUInt,ecc);
+
 #[pymethods]
 impl CpuEccMachine {
     #[new]
@@ -333,7 +405,7 @@ impl CpuEccMachine {
 
     #[text_signature = "()"]
     pub fn pop(&mut self, py: Python) -> PyResult<PyObject> {
-        assert!(self.ecc.len()>1,"Can't pop, because then the machine would have no layers");
+        assert!(self.ecc.len() > 1, "Can't pop, because then the machine would have no layers");
         match self.ecc.pop().expect("Nothing to pop") {
             SparseOrDense::Sparse(ecc) => PyCell::new(py, CpuEccSparse { ecc }).map(|a| a.to_object(py)),
             SparseOrDense::Dense(ecc) => PyCell::new(py, CpuEccDense { ecc }).map(|a| a.to_object(py))
@@ -341,13 +413,13 @@ impl CpuEccMachine {
     }
 
     #[text_signature = "(top_layer)"]
-    pub fn push(&mut self, py: Python, top:PyObject) -> PyResult<()> {
-        if let Ok(sparse) = top.extract::<PyRef<CpuEccSparse>>(py){
-            assert_eq!(sparse.ecc.in_shape(),self.ecc.last().out_shape());
+    pub fn push(&mut self, py: Python, top: PyObject) -> PyResult<()> {
+        if let Ok(sparse) = top.extract::<PyRef<CpuEccSparse>>(py) {
+            assert_eq!(sparse.ecc.in_shape(), self.ecc.last().out_shape());
             self.ecc.push(SparseOrDense::Sparse(sparse.ecc.clone()))
-        }else{
+        } else {
             let dense = top.extract::<PyRef<CpuEccDense>>(py)?;
-            assert_eq!(dense.ecc.in_shape(),self.ecc.last().out_shape());
+            assert_eq!(dense.ecc.in_shape(), self.ecc.last().out_shape());
             self.ecc.push(SparseOrDense::Dense(dense.ecc.clone()))
         }
         Ok(())
@@ -364,7 +436,7 @@ impl CpuEccMachine {
     #[text_signature = "(layer)"]
     pub fn reset_activity(&mut self, layer: usize) {
         match &mut self.ecc[layer] {
-            SparseOrDense::Sparse(a) => {},
+            SparseOrDense::Sparse(a) => {}
             SparseOrDense::Dense(a) => a.reset_activity()
         }
     }
@@ -389,7 +461,6 @@ impl_to_ocl!(CpuEccMachineUInt,OclEccMachine,ecc);
 impl_to_cpu!(CpuEccMachineUInt,OclEccMachine,ecc);
 #[pymethods]
 impl CpuEccMachineUInt {
-
     #[text_signature = "(layer)"]
     pub fn set_initial_activity(&mut self, layer: usize) {
         match &mut self.ecc[layer] {
@@ -429,7 +500,6 @@ impl CpuEccMachineUInt {
             SparseOrDense::Dense(a) => a.sums.to_object(py)
         }
     }
-
 }
 
 macro_rules! impl_ecc_layer {
@@ -554,9 +624,21 @@ impl_ecc_layer!(OclEccSparse,OclSDR);
 
 #[pymethods]
 impl CpuEccDense {
-    #[text_signature="()"]
+    #[text_signature = "()"]
     pub fn to_machine(&self) -> CpuEccMachine {
-        CpuEccMachine{ecc:self.ecc.clone().into_machine()}
+        CpuEccMachine { ecc: self.ecc.clone().into_machine() }
+    }
+    #[getter]
+    pub fn get_region_size(&self) -> Idx {
+        self.ecc.get_region_size()
+    }
+    #[getter]
+    pub fn get_top1_per_region(&self) -> bool {
+        self.ecc.get_top1_per_region()
+    }
+    #[setter]
+    pub fn set_top1_per_region(&mut self, top1:bool) {
+        self.ecc.set_top1_per_region(top1)
     }
     #[new]
     pub fn new(output: PyObject, kernel: PyObject, stride: PyObject, in_channels: Idx, out_channels: Idx, k: Idx) -> PyResult<Self> {
@@ -568,7 +650,7 @@ impl CpuEccDense {
         Ok(CpuEccDense { ecc: htm::CpuEccDense::new(output, kernel, stride, in_channels, out_channels, k, &mut rand::thread_rng()) })
     }
     #[text_signature = "(new_stride)"]
-    pub fn set_stride(&mut self, new_stride: PyObject) -> PyResult<()>{
+    pub fn set_stride(&mut self, new_stride: PyObject) -> PyResult<()> {
         let gil = Python::acquire_gil();
         let py = gil.python();
         let new_stride = arr2(py, &new_stride)?;
@@ -576,16 +658,16 @@ impl CpuEccDense {
         Ok(())
     }
     #[text_signature = "(output_size, column_pos)"]
-    pub fn repeat_column(&self, output: PyObject, pretrained_column_pos: Option<PyObject>) -> PyResult<Self>{
+    pub fn repeat_column(&self, output: PyObject, pretrained_column_pos: Option<PyObject>) -> PyResult<Self> {
         let gil = Python::acquire_gil();
         let py = gil.python();
         let output = arr2(py, &output)?;
-        let pretrained_column_pos = if let Some(pretrained_column_pos) = pretrained_column_pos{
+        let pretrained_column_pos = if let Some(pretrained_column_pos) = pretrained_column_pos {
             arr2(py, &pretrained_column_pos)?
-        }else{
-            [0,0]
+        } else {
+            [0, 0]
         };
-        Ok(Self{ecc:htm::CpuEccDense::from_repeated_column(output,&self.ecc,pretrained_column_pos)})
+        Ok(Self { ecc: htm::CpuEccDense::from_repeated_column(output, &self.ecc, pretrained_column_pos) })
     }
 
     #[staticmethod]
@@ -648,6 +730,8 @@ impl CpuEccDense {
         self.ecc.incoming_weight_sum_f32(output_neuron_idx)
     }
 }
+
+
 #[pymethods]
 impl OclEccMachine {
     #[text_signature = "(file)"]
@@ -656,15 +740,16 @@ impl OclEccMachine {
     }
     #[staticmethod]
     #[text_signature = "(file,context)"]
-    pub fn load(file: String, context:&mut Context) -> PyResult<Self> {
-        CpuEccMachineUInt::load(file).and_then(|ecc|ecc.to_ocl(context))
+    pub fn load(file: String, context: &mut Context) -> PyResult<Self> {
+        CpuEccMachineUInt::load(file).and_then(|ecc| ecc.to_ocl(context))
     }
 }
+
 #[pymethods]
 impl OclEccSparse {
     #[new]
-    pub fn new(ecc:&CpuEccSparse,context:&mut Context) -> PyResult<Self> {
-        Ok(OclEccSparse { ecc: htm::OclEccSparse::new(&ecc.ecc,context.compile_htm_program()?.clone()).map_err(ocl_err_to_py_ex)? })
+    pub fn new(ecc: &CpuEccSparse, context: &mut Context) -> PyResult<Self> {
+        Ok(OclEccSparse { ecc: htm::OclEccSparse::new(&ecc.ecc, context.compile_htm_program()?.clone()).map_err(ocl_err_to_py_ex)? })
     }
     #[text_signature = "(file)"]
     pub fn save(&self, file: String) -> PyResult<()> {
@@ -672,15 +757,16 @@ impl OclEccSparse {
     }
     #[staticmethod]
     #[text_signature = "(file,context)"]
-    pub fn load(file: String, context:&mut Context) -> PyResult<Self> {
-        CpuEccSparse::load(file).and_then(|ecc|Self::new(&ecc,context))
+    pub fn load(file: String, context: &mut Context) -> PyResult<Self> {
+        CpuEccSparse::load(file).and_then(|ecc| Self::new(&ecc, context))
     }
 }
+
 #[pymethods]
 impl OclEccDense {
     #[new]
-    pub fn new(ecc:&CpuEccDenseUInt, context:&mut Context) -> PyResult<Self> {
-        Ok(OclEccDense { ecc: htm::OclEccDense::new(&ecc.ecc,context.compile_htm_program()?.clone()).map_err(ocl_err_to_py_ex)? })
+    pub fn new(ecc: &CpuEccDenseUInt, context: &mut Context) -> PyResult<Self> {
+        Ok(OclEccDense { ecc: htm::OclEccDense::new(&ecc.ecc, context.compile_htm_program()?.clone()).map_err(ocl_err_to_py_ex)? })
     }
     #[text_signature = "(file)"]
     pub fn save(&self, file: String) -> PyResult<()> {
@@ -688,8 +774,8 @@ impl OclEccDense {
     }
     #[staticmethod]
     #[text_signature = "(file,context)"]
-    pub fn load(file: String, context:&mut Context) -> PyResult<Self> {
-        CpuEccDenseUInt::load(file).and_then(|ecc|Self::new(&ecc, context))
+    pub fn load(file: String, context: &mut Context) -> PyResult<Self> {
+        CpuEccDenseUInt::load(file).and_then(|ecc| Self::new(&ecc, context))
     }
 }
 
@@ -775,9 +861,9 @@ impl_to_ocl!(CpuEccSparse,OclEccSparse,ecc);
 impl_to_cpu!(CpuEccSparse,OclEccSparse,ecc);
 #[pymethods]
 impl CpuEccSparse {
-    #[text_signature="()"]
+    #[text_signature = "()"]
     pub fn to_machine(&self) -> CpuEccMachine {
-        CpuEccMachine{ecc:self.ecc.clone().into_machine()}
+        CpuEccMachine { ecc: self.ecc.clone().into_machine() }
     }
     #[new]
     pub fn new(output: PyObject, kernel: PyObject, stride: PyObject, in_channels: Idx, out_channels: Idx, k: Idx, connections_per_output: Idx) -> PyResult<Self> {

@@ -1,4 +1,4 @@
-use crate::{VectorFieldOne, Shape2, Shape3, VectorFieldPartialOrd, OclEccMachine, CpuEccMachine, EccProgram, CpuSDR, CpuEccSparse, CpuEccDense, OclSDR, OclEccSparse, OclEccDense, DenseWeight};
+use crate::{VectorFieldOne, Shape2, Shape3, VectorFieldPartialOrd, OclEccMachine, CpuEccMachine, EccProgram, CpuSDR, CpuEccSparse, CpuEccDense, OclSDR, OclEccSparse, OclEccDense, DenseWeight, top_small_k_indices, EncoderTarget, Shape, range_contains, from_xyz, w_idx};
 use crate::xorshift::xorshift32;
 use std::ops::{Deref, DerefMut, IndexMut, Index};
 use itertools::Itertools;
@@ -6,6 +6,7 @@ use rand::Rng;
 use serde::{Serialize,Deserialize};
 use crate::sdr::SDR;
 use ocl::Error;
+use std::fmt::Debug;
 
 pub type Idx = u32;
 pub type Rand = u32;
@@ -17,6 +18,29 @@ pub fn as_usize(i:Idx)->usize{
 }
 pub fn as_idx(i:usize)->Idx{
     i as u32
+}
+
+pub fn top_small_k_by_channel<V: Copy + Debug>(ecc: &impl EccLayer, f: impl Fn(usize) -> V, filter: impl Fn(usize, V) -> bool, gt: fn(V, V) -> bool, output: &mut CpuSDR) {
+    let a = as_usize(ecc.out_area());
+    let c = as_usize(ecc.out_channels());
+    let k = as_usize(ecc.k());
+    output.clear();
+    for column_idx in 0..a {
+        let r = c * column_idx;
+        for (i, v) in top_small_k_indices(k, c, |i| {
+            debug_assert!(i < c);
+            f(i + r)
+        }, gt) {
+            let e = r + i;
+            debug_assert!(r <= e);
+            debug_assert!(e < r + c);
+            if filter(e, v) {
+                let e = as_idx(e);
+                debug_assert!(!output.as_slice().contains(&e), "{:?}<-{}={}+{}", output, e, r, i);
+                output.push(e);
+            }
+        }
+    }
 }
 
 pub trait EccLayer {
@@ -95,6 +119,35 @@ pub trait EccLayer {
     fn infer_in_place(&mut self, input: &Self::A, output: &mut Self::A);
     fn decrement_activities(&mut self,output: &Self::A);
     fn learn(&mut self, input: &Self::A, output: &Self::A);
+    fn kernel_offset(&self, output_pos: &[Idx; 3]) -> [Idx; 2] {
+        output_pos.grid().conv_in_range_begin(self.stride())
+    }
+    fn pos_within_kernel(&self, input_pos: &[Idx; 3], output_pos: &[Idx; 3]) -> [Idx; 3] {
+        debug_assert!(output_pos.all_lt(self.out_shape()));
+        debug_assert!(input_pos.all_lt(self.in_shape()));
+        debug_assert!(range_contains(&output_pos.grid().conv_in_range(self.stride(), self.kernel()), input_pos.grid()));
+        debug_assert!(range_contains(&input_pos.grid().conv_out_range_clipped(self.stride(), self.kernel()), output_pos.grid()));
+        Self::sub_kernel_offset(input_pos, &self.kernel_offset(output_pos))
+    }
+    fn sub_kernel_offset(input_pos: &[Idx; 3], offset: &[Idx; 2]) -> [Idx; 3] {
+        from_xyz(input_pos.width() - offset.width(), input_pos.height() - offset.height(), input_pos.channels())
+    }
+
+    #[inline]
+    fn w_index_(input_pos: &[Idx; 3], kernel_offset: &[Idx; 2], output_idx: Idx, kernel_column: &[Idx; 3], output_volume: Idx) -> Idx {
+        let position_within_kernel_column = Self::sub_kernel_offset(input_pos, kernel_offset);
+        w_idx(output_idx, kernel_column.idx(position_within_kernel_column), output_volume)
+    }
+    fn idx_within_kernel(&self, input_pos: &[Idx; 3], output_pos: &[Idx; 3]) -> Idx {
+        self.kernel_column().idx(self.pos_within_kernel(input_pos, output_pos))
+    }
+    fn w_index(&self, input_pos: &[Idx; 3], output_pos: &[Idx; 3]) -> Idx {
+        debug_assert!(output_pos.all_lt(self.out_shape()));
+        debug_assert!(input_pos.all_lt(self.in_shape()));
+        debug_assert!(range_contains(&output_pos.grid().conv_in_range(self.stride(), self.kernel()), input_pos.grid()));
+        debug_assert!(range_contains(&input_pos.grid().conv_out_range_clipped(self.stride(), self.kernel()), output_pos.grid()));
+        w_idx(self.out_shape().idx(*output_pos), self.idx_within_kernel(input_pos, output_pos), self.out_volume())
+    }
     // fn top_large_k_by_channel<T>(&self, sums: &[T], candidates_per_value: &mut [Idx], f: fn(&T) -> Idx, threshold: impl Fn(Idx) -> bool) -> CpuSDR {
     //     let a = as_usize(self.out_area());
     //     let c = as_usize(self.out_channels());
@@ -110,6 +163,13 @@ pub trait EccLayer {
 
 }
 
+pub trait EccLayerD{
+    type D;
+    fn get_threshold(&self) -> Self::D;
+    fn set_threshold(&mut self, threshold: Self::D);
+    fn get_plasticity(&self) -> Self::D;
+    fn set_plasticity(&mut self, threshold: Self::D);
+}
 
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -272,48 +332,50 @@ impl<A:SDR,S:EccLayer<A=A>,D:EccLayer<A=A>> EccLayer for SparseOrDense<A,S,D> {
 
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct EccMachine<A:SDR,S:EccLayer<A=A>,D:EccLayer<A=A>> {
-    ecc: Vec<SparseOrDense<A,S,D>>,
+pub struct EccMachine<A:SDR,L:EccLayer<A=A>> {
+    ecc: Vec<L>,
     inputs: Vec<A>,
 }
 
-impl<A:SDR,S:EccLayer<A=A>,D:EccLayer<A=A>> Index<usize> for EccMachine<A,S,D>{
-    type Output = SparseOrDense<A,S,D>;
+pub type EccSepConMachine<A,S,D> = EccMachine<A,SparseOrDense<A,S,D>>;
+
+impl<A:SDR,L:EccLayer<A=A>> Index<usize> for EccMachine<A,L>{
+    type Output = L;
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.ecc[index]
     }
 }
-impl<A:SDR,S:EccLayer<A=A>,D:EccLayer<A=A>> IndexMut<usize> for EccMachine<A,S,D>{
+impl<A:SDR,L:EccLayer<A=A>> IndexMut<usize> for EccMachine<A,L>{
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.ecc[index]
     }
 }
 
-impl<A:SDR,S:EccLayer<A=A>,D:EccLayer<A=A>> EccMachine<A,S,D> {
+impl<A:SDR,L:EccLayer<A=A>> EccMachine<A,L> {
     pub fn len(&self)->usize{
         self.ecc.len()
     }
-    pub fn last(&self)->&SparseOrDense<A,S,D>{
+    pub fn last(&self)->&L{
         self.ecc.last().unwrap()
     }
-    pub fn last_mut (&mut self)->&mut SparseOrDense<A,S,D>{
+    pub fn last_mut (&mut self)->&mut L{
         self.ecc.last_mut().unwrap()
     }
-    pub fn layer_mut(&mut self,idx:usize)->&mut SparseOrDense<A,S,D>{
+    pub fn layer_mut(&mut self,idx:usize)->&mut L{
         &mut self.ecc[idx]
     }
-    pub fn push(&mut self,top:SparseOrDense<A,S,D>){
+    pub fn push(&mut self,top:L){
         assert_eq!(self.out_shape(),top.in_shape());
         self.inputs.push(top.new_empty_output_sdr());
         self.ecc.push(top);
     }
-    pub fn pop(&mut self) -> Option<SparseOrDense<A, S, D>> {
+    pub fn pop(&mut self) -> Option<L> {
         if self.len()<=1{return None}
         self.inputs.pop();
         self.ecc.pop()
     }
-    pub fn new_singleton(layer:SparseOrDense<A,S,D>)->Self{
+    pub fn new_singleton(layer:L)->Self{
         Self{
             inputs: vec![layer.new_empty_sdr(layer.in_volume()), layer.new_empty_output_sdr()],
             ecc: vec![layer],
@@ -321,7 +383,7 @@ impl<A:SDR,S:EccLayer<A=A>,D:EccLayer<A=A>> EccMachine<A,S,D> {
     }
     pub fn new<R:Rng>(output: [Idx; 2], kernels: &[[Idx; 2]], strides: &[[Idx; 2]], channels: &[Idx],
                k: &[Idx], connections_per_output: &[Option<Idx>], rng: &mut R,
-               mut new_layer:impl FnMut([Idx;2],Idx,Idx,Idx,[Idx;2],[Idx;2],Option<Idx>,&mut R)->SparseOrDense<A,S,D>) -> Self {
+               mut new_layer:impl FnMut([Idx;2],Idx,Idx,Idx,[Idx;2],[Idx;2],Option<Idx>,&mut R)->L) -> Self {
         let layers = kernels.len();
 
         assert!(layers > 0);
@@ -329,7 +391,7 @@ impl<A:SDR,S:EccLayer<A=A>,D:EccLayer<A=A>> EccMachine<A,S,D> {
         assert_eq!(layers, k.len());
         assert_eq!(layers, connections_per_output.len());
         assert_eq!(layers + 1, channels.len());
-        let mut layers_vec = Vec::<SparseOrDense<A,S,D>>::with_capacity(layers);
+        let mut layers_vec = Vec::<L>::with_capacity(layers);
         let mut prev_output = output;
         for i in (0..layers).rev() {
             let in_channels = channels[i];
