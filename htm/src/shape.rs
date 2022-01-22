@@ -296,6 +296,19 @@ mod tests {
             assert_eq!(top_values1,top_values2)
         }
     }
+
+    #[test]
+    fn test10() {
+        let mut rng = rand::thread_rng();
+        let max = 128usize;
+        for _ in 0..54{
+            let arr:Vec<usize> = (0..64).map(|_|rng.gen_range(0..max)).collect();
+            let o = top_small_k_indices(1,arr.len(),|i|arr[i],|a,b|a>b);
+            let (top_idx,top_val) = o[0];
+            assert_eq!(top_val,*arr.iter().max().unwrap());
+            assert_eq!(top_idx,arr.len()-1-arr.iter().rev().position_max().unwrap());
+        }
+    }
 }
 pub fn range_contains<T: Copy + PartialOrd + Debug,const DIM:usize>(range:&Range<[T;DIM]>,element:&[T;DIM]) -> bool {
     range.start.all_le(element) && element.all_lt(&range.end)

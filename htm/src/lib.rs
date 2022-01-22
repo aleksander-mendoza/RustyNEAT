@@ -19,7 +19,6 @@ mod ocl_ecc;
 mod ecc;
 mod sdr;
 mod cpu_ecc_dense;
-mod cpu_ecc_sparse_learnable;
 mod dense_weights;
 
 pub use sdr::*;

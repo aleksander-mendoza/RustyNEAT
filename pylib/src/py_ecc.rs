@@ -7,7 +7,7 @@ use rusty_neat_core::activations::{STR_TO_IDX, ALL_ACT_FN};
 use pyo3::exceptions::PyValueError;
 use rusty_neat_core::cppn::CPPN;
 use std::iter::FromIterator;
-use pyo3::types::{PyString, PyDateTime, PyDateAccess, PyTimeAccess, PyList, PyInt};
+use pyo3::types::{PyString, PyDateTime, PyDateAccess, PyTimeAccess, PyList, PyInt, PyFloat};
 use rusty_neat_core::num::Num;
 use rusty_neat_core::gpu::{FeedForwardNetOpenCL, FeedForwardNetPicbreeder, FeedForwardNetSubstrate};
 use pyo3::basic::CompareOp;
@@ -17,7 +17,7 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{SparseOrDense, VectorFieldOne, Idx, EccLayer, Rand, SDR, EccLayerD};
+use htm::{SparseOrDense, VectorFieldOne, Idx, EccLayer, Rand, SDR, EccLayerD, w_idx, as_usize};
 use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
@@ -28,6 +28,7 @@ use serde::Serialize;
 use crate::util::*;
 use crate::py_htm::{CpuSDR, OclSDR};
 use rand::SeedableRng;
+use pyo3::ffi::PyFloat_Type;
 
 ///
 /// CpuEccDense(output: list[int], kernel: list[int], stride: list[int], in_channels: int, out_channels: int, k: int)
@@ -101,7 +102,8 @@ pub struct OclEccMachine {
 pub struct CpuEccMachineUInt {
     ecc: htm::CpuEccMachine<u32>,
 }
-trait EccLayerPy{
+
+trait EccLayerPy {
     fn get_threshold_py(&self, py: Python) -> PyObject;
     fn set_threshold_py(&mut self, py: Python, threshold: PyObject) -> PyResult<()>;
     fn get_plasticity_py(&self, py: Python) -> PyObject;
@@ -164,7 +166,7 @@ impl_py_ecc_layer!(OclEccSparse,htm::OclEccSparse);
 impl_py_ecc_layer!(OclEccDense,htm::OclEccDense);
 impl_py_ecc_layer!(CpuEccDenseUInt,htm::CpuEccDense<u32>);
 
-impl <A:htm::SDR,S:EccLayer<A=A>+EccLayerPy,D:EccLayer<A=A>+EccLayerPy> EccLayerPy for SparseOrDense<A,S,D>{
+impl<A: htm::SDR, S: EccLayer<A=A> + EccLayerPy, D: EccLayer<A=A> + EccLayerPy> EccLayerPy for SparseOrDense<A, S, D> {
     fn get_threshold_py(&self, py: Python) -> PyObject {
         match self {
             SparseOrDense::Sparse(a) => a.get_threshold_py(py),
@@ -173,25 +175,32 @@ impl <A:htm::SDR,S:EccLayer<A=A>+EccLayerPy,D:EccLayer<A=A>+EccLayerPy> EccLayer
     }
     fn set_threshold_py(&mut self, py: Python, threshold: PyObject) -> PyResult<()> {
         match self {
-            SparseOrDense::Sparse(a) => a.set_threshold_py(py,threshold),
-            SparseOrDense::Dense(a) => a.set_threshold_py(py,threshold),
+            SparseOrDense::Sparse(a) => a.set_threshold_py(py, threshold),
+            SparseOrDense::Dense(a) => a.set_threshold_py(py, threshold),
         }
     }
     fn get_plasticity_py(&self, py: Python) -> PyObject {
-        match self{
+        match self {
             SparseOrDense::Sparse(a) => a.get_plasticity_py(py),
             SparseOrDense::Dense(a) => a.get_plasticity_py(py),
         }
     }
     fn set_plasticity_py(&mut self, py: Python, plasticity: PyObject) -> PyResult<()> {
         match self {
-            SparseOrDense::Sparse(a) => a.set_plasticity_py(py,plasticity),
-            SparseOrDense::Dense(a) => a.set_plasticity_py(py,plasticity),
+            SparseOrDense::Sparse(a) => a.set_plasticity_py(py, plasticity),
+            SparseOrDense::Dense(a) => a.set_plasticity_py(py, plasticity),
         }
     }
 }
 macro_rules! impl_ecc_machine {
     ($ecc_class:ident, $sdr_class:ident) => {
+
+        #[pyproto]
+        impl PySequenceProtocol for $ecc_class  {
+            fn __len__(&self) -> usize {
+                self.ecc.len()
+            }
+        }
         #[pymethods]
         impl $ecc_class {
             #[getter]
@@ -393,8 +402,49 @@ impl CpuEccMachine {
         let strides: PyResult<Vec<[Idx; 2]>> = strides.into_iter().map(|k| arr2(py, &k)).collect();
         Ok(Self { ecc: htm::CpuEccMachine::new_cpu(output, &kernels?, &strides?, &channels, &k, &connections_per_output, &mut rng) })
     }
-
-
+    #[text_signature = "(layer)"]
+    pub fn restore_dropped_out_weights(&mut self, layer: usize) {
+        match &mut self.ecc[layer] {
+            SparseOrDense::Sparse(a) => {}
+            SparseOrDense::Dense(a) => a.restore_dropped_out_weights()
+        }
+    }
+    #[text_signature = "(layer,number_of_connections_to_drop)"]
+    pub fn dropout(&mut self, py: Python, layer: usize, number_of_connections_to_drop: PyObject) -> PyResult<()> {
+        Ok(match &mut self.ecc[layer] {
+            SparseOrDense::Sparse(a) => (),
+            SparseOrDense::Dense(a) => if PyFloat::is_exact_type_of(number_of_connections_to_drop.as_ref(py)) {
+                a.dropout_per_kernel_f32(number_of_connections_to_drop.extract(py)?, &mut rand::thread_rng())
+            } else {
+                a.dropout_per_kernel(number_of_connections_to_drop.extract(py)?, &mut rand::thread_rng())
+            }
+        })
+    }
+    #[text_signature = "(layer,number_of_connections_to_drop_per_kernel_column)"]
+    pub fn dropout_per_kernel(&mut self, py: Python, layer: usize, number_of_connections_to_drop_per_kernel_column: PyObject) -> PyResult<()> {
+        Ok(match &mut self.ecc[layer] {
+            SparseOrDense::Sparse(a) => (),
+            SparseOrDense::Dense(a) => if PyFloat::is_exact_type_of(number_of_connections_to_drop_per_kernel_column.as_ref(py)) {
+                a.dropout_per_kernel_f32(number_of_connections_to_drop_per_kernel_column.extract(py)?, &mut rand::thread_rng())
+            } else {
+                a.dropout_per_kernel(number_of_connections_to_drop_per_kernel_column.extract(py)?, &mut rand::thread_rng())
+            }
+        })
+    }
+    #[text_signature = "(layer)"]
+    pub fn renormalise_all(&mut self, layer: usize) {
+        match &mut self.ecc[layer] {
+            SparseOrDense::Sparse(a) => {}
+            SparseOrDense::Dense(a) => a.renormalise_all()
+        }
+    }
+    #[text_signature = "(layer,output_idx)"]
+    pub fn renormalise(&mut self, layer: usize, output_idx: Idx) {
+        match &mut self.ecc[layer] {
+            SparseOrDense::Sparse(a) => {}
+            SparseOrDense::Dense(a) => a.renormalise(output_idx)
+        }
+    }
     #[text_signature = "(layer)"]
     pub fn get_sums(&self, py: Python, layer: usize) -> PyObject {
         match &self.ecc[layer] {
@@ -425,7 +475,24 @@ impl CpuEccMachine {
         Ok(())
     }
 
-
+    #[text_signature = "(layer)"]
+    pub fn is_sparse(&self, layer: usize) -> bool {
+        self.ecc[layer].is_sparse()
+    }
+    #[text_signature = "(layer,top1_per_region)"]
+    pub fn set_top1_per_region(&mut self, layer: usize, top1_per_region: bool) {
+        match &mut self.ecc[layer] {
+            SparseOrDense::Sparse(_) => {}
+            SparseOrDense::Dense(a) => a.set_top1_per_region(top1_per_region)
+        }
+    }
+    #[text_signature = "(layer)"]
+    pub fn get_top1_per_region(&self, layer: usize) -> bool {
+        match &self.ecc[layer] {
+            SparseOrDense::Sparse(_) => false,
+            SparseOrDense::Dense(a) => a.get_top1_per_region()
+        }
+    }
     #[text_signature = "(layer)"]
     pub fn set_initial_activity(&mut self, layer: usize) {
         match &mut self.ecc[layer] {
@@ -448,13 +515,38 @@ impl CpuEccMachine {
         }
     }
 
-    #[text_signature = "(layer)"]
-    pub fn get_weights(&self, layer: usize) -> Option<Vec<f32>> {
+    #[text_signature = "(layer,output_neuron)"]
+    pub fn get_weights(&self, layer: usize,output_neuron:Option<Idx>) -> Option<Vec<f32>> {
         match &self.ecc[layer] {
             SparseOrDense::Sparse(a) => None,
-            SparseOrDense::Dense(a) => Some(a.get_weights().to_vec())
+            SparseOrDense::Dense(a) => Some(if let Some(output_neuron_idx)=output_neuron{
+                let w = a.get_weights();
+                let v = a.out_volume();
+                (0..a.kernel_column().product()).map(|i| w[as_usize(w_idx(output_neuron_idx, i, v))]).collect()
+            }else{
+                a.get_weights().to_vec()
+            })
         }
     }
+    #[text_signature = "(layer,output_neuron)"]
+    pub fn get_dropped_weights_count(&self, layer: usize,output_neuron:Option<Idx>) -> Option<usize> {
+        match &self.ecc[layer] {
+            SparseOrDense::Sparse(a) => None,
+            SparseOrDense::Dense(a) => Some(if let Some(output_neuron_idx)=output_neuron{
+                a.get_dropped_weights_of_kernel_column_count(output_neuron_idx)
+            }else{
+                a.get_dropped_weights_count()
+            })
+        }
+    }
+    #[text_signature = "(layer,output_neuron)"]
+    pub fn get_weight_sum(&self, layer: usize,output_neuron:Idx) -> Option<f32> {
+        match &self.ecc[layer] {
+            SparseOrDense::Sparse(a) => None,
+            SparseOrDense::Dense(a) => Some(a.incoming_weight_sum(output_neuron))
+        }
+    }
+
 }
 
 impl_to_ocl!(CpuEccMachineUInt,OclEccMachine,ecc);
@@ -628,6 +720,34 @@ impl CpuEccDense {
     pub fn to_machine(&self) -> CpuEccMachine {
         CpuEccMachine { ecc: self.ecc.clone().into_machine() }
     }
+    #[text_signature = "()"]
+    pub fn restore_dropped_out_weights(&mut self) {
+        self.ecc.restore_dropped_out_weights()
+    }
+    #[text_signature = "(number_of_connections_to_drop)"]
+    pub fn dropout(&mut self, py: Python, number_of_connections_to_drop: PyObject) -> PyResult<()> {
+        Ok(if PyFloat::is_exact_type_of(number_of_connections_to_drop.as_ref(py)) {
+            self.ecc.dropout_f32(number_of_connections_to_drop.extract(py)?, &mut rand::thread_rng())
+        } else {
+            self.ecc.dropout(number_of_connections_to_drop.extract(py)?, &mut rand::thread_rng())
+        })
+    }
+    #[text_signature = "(number_of_connections_to_drop_per_kernel_column)"]
+    pub fn dropout_per_kernel(&mut self, py: Python, number_of_connections_to_drop_per_kernel_column: PyObject) -> PyResult<()> {
+        Ok(if PyFloat::is_exact_type_of(number_of_connections_to_drop_per_kernel_column.as_ref(py)) {
+            self.ecc.dropout_per_kernel_f32(number_of_connections_to_drop_per_kernel_column.extract(py)?, &mut rand::thread_rng())
+        } else {
+            self.ecc.dropout_per_kernel(number_of_connections_to_drop_per_kernel_column.extract(py)?, &mut rand::thread_rng())
+        })
+    }
+    #[text_signature = "()"]
+    pub fn renormalise_all(&mut self) {
+        self.ecc.renormalise_all()
+    }
+    #[text_signature = "(output_idx)"]
+    pub fn renormalise(&mut self, output_idx: Idx) {
+        self.ecc.renormalise(output_idx)
+    }
     #[getter]
     pub fn get_region_size(&self) -> Idx {
         self.ecc.get_region_size()
@@ -637,7 +757,7 @@ impl CpuEccDense {
         self.ecc.get_top1_per_region()
     }
     #[setter]
-    pub fn set_top1_per_region(&mut self, top1:bool) {
+    pub fn set_top1_per_region(&mut self, top1: bool) {
         self.ecc.set_top1_per_region(top1)
     }
     #[new]

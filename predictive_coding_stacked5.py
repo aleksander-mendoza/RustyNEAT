@@ -16,9 +16,9 @@ SAVE = True
 MNIST, LABELS = torch.load('htm/data/mnist.pt')
 
 
-def rand_patch(patch_size, superimpose=(1,1)):
+def rand_patch(patch_size, superimpose=(1, 1)):
     patch = torch.zeros((patch_size[0], patch_size[1]))
-    for i in range(superimpose[0]+int((superimpose[1]-superimpose[0])*np.random.rand())):
+    for i in range(superimpose[0] + int((superimpose[1] - superimpose[0]) * np.random.rand())):
         r = np.random.rand(2)
         img = MNIST[int(np.random.rand() * len(MNIST))]
         left_bottom = (img.shape - patch_size) * r
@@ -29,7 +29,13 @@ def rand_patch(patch_size, superimpose=(1,1)):
 
 
 def experiment(clazz, output, kernels, strides, channels, k, connections_per_output, w, h, save_file,
-               iterations=1000000, interval=100000, test_patches=20000,update_activity_during_eval=True,superimpose=(1,1)):
+               top1_per_region=None,
+               dropout=None,
+               iterations=1000000,
+               interval=100000,
+               test_patches=20000,
+               update_activity_during_eval=True,
+               superimpose=(1, 1)):
     model_file = save_file + ".model"
     if os.path.exists(model_file):
         m = clazz.load(model_file)
@@ -44,6 +50,16 @@ def experiment(clazz, output, kernels, strides, channels, k, connections_per_out
             k=k,
             connections_per_output=connections_per_output,
         )
+        if top1_per_region is not None:
+            assert len(top1_per_region) == len(m)
+            for layer, choose_per_region in enumerate(top1_per_region):
+                if choose_per_region:
+                    m.set_top1_per_region(layer, True)
+        if dropout is not None:
+            assert len(top1_per_region) == len(m)
+            for layer, dropout_rate in enumerate(dropout):
+                if dropout_rate is not None:
+                    m.dropout_per_kernel(layer, dropout_rate)
     assert w * h == m.get_out_volume(m.len - 1)
     patch_size = np.array(m.get_in_shape(0))
     print("PATCH_SIZE=", patch_size, "Params=", m.learnable_parameters())
@@ -60,16 +76,16 @@ def experiment(clazz, output, kernels, strides, channels, k, connections_per_out
         img_encoder.encode(sdr, img.unsqueeze(2).numpy())
         return img, sdr
 
-    test_patches = [normalise_img(rand_patch(patch_size[:2],superimpose)) for _ in range(test_patches)]
+    test_patches = [normalise_img(rand_patch(patch_size[:2], superimpose)) for _ in range(test_patches)]
     all_processed = []
     for s in tqdm(range(iterations), desc="training"):
-        img, sdr = normalise_img(rand_patch(patch_size[:2],superimpose))
+        img, sdr = normalise_img(rand_patch(patch_size[:2], superimpose))
         m.run(sdr)
         m.learn()
         if s % interval == 0:
             if SAVE:
                 m.save(model_file)
-            stats = torch.zeros([patch_size[0], patch_size[1], w*h])
+            stats = torch.zeros([patch_size[0], patch_size[1], w * h])
             processed = 0
             for img, sdr in tqdm(test_patches, desc="eval"):
                 # img = normalise_img(rand_patch())
@@ -93,7 +109,7 @@ def experiment(clazz, output, kernels, strides, channels, k, connections_per_out
     plt.show()
 
 
-EXPERIMENT = 11
+EXPERIMENT = 12
 n = "predictive_coding_stacked5_experiment" + str(EXPERIMENT)
 if EXPERIMENT == 1:
     experiment(clazz=ecc.CpuEccMachineUint,
@@ -167,8 +183,10 @@ elif EXPERIMENT == 7:
 elif EXPERIMENT == 8:
     experiment(clazz=ecc.CpuEccMachine,
                output=np.array([1, 1]),
-               kernels=[np.array([5, 5]), np.array([1, 1]), np.array([2, 2]), np.array([1, 1]), np.array([3, 3]), np.array([1, 1])],
-               strides=[np.array([2, 2]), np.array([1, 1]), np.array([1, 1]), np.array([1, 1]), np.array([1, 1]), np.array([1, 1])],
+               kernels=[np.array([5, 5]), np.array([1, 1]), np.array([2, 2]), np.array([1, 1]), np.array([3, 3]),
+                        np.array([1, 1])],
+               strides=[np.array([2, 2]), np.array([1, 1]), np.array([1, 1]), np.array([1, 1]), np.array([1, 1]),
+                        np.array([1, 1])],
                channels=[1, 80, 20, 100, 20, 100, 100],
                k=[10, 1, 13, 1, 13, 1],
                connections_per_output=[4, None, 4, None, 4, None],
@@ -178,8 +196,10 @@ elif EXPERIMENT == 8:
 elif EXPERIMENT == 9:
     experiment(clazz=ecc.CpuEccMachine,
                output=np.array([1, 1]),
-               kernels=[np.array([5, 5]), np.array([1, 1]), np.array([3, 3]), np.array([1, 1]), np.array([3, 3]), np.array([1, 1])],
-               strides=[np.array([1, 1]), np.array([1, 1]), np.array([1, 1]), np.array([1, 1]), np.array([1, 1]), np.array([1, 1])],
+               kernels=[np.array([5, 5]), np.array([1, 1]), np.array([3, 3]), np.array([1, 1]), np.array([3, 3]),
+                        np.array([1, 1])],
+               strides=[np.array([1, 1]), np.array([1, 1]), np.array([1, 1]), np.array([1, 1]), np.array([1, 1]),
+                        np.array([1, 1])],
                channels=[1, 80, 20, 200, 20, 200, 200],
                k=[10, 1, 20, 1, 20, 1],
                connections_per_output=[4, None, 4, None, 4, None],
@@ -189,12 +209,14 @@ elif EXPERIMENT == 9:
 elif EXPERIMENT == 10:
     experiment(clazz=ecc.CpuEccMachine,
                output=np.array([5, 5]),
-               kernels=[np.array([5, 5]), np.array([3, 3]), np.array([3, 3]), np.array([3, 3]), np.array([3, 3]), np.array([3, 3])],
-               strides=[np.array([1, 1]), np.array([1, 1]), np.array([1, 1]), np.array([1, 1]), np.array([1, 1]), np.array([1, 1])],
+               kernels=[np.array([5, 5]), np.array([3, 3]), np.array([3, 3]), np.array([3, 3]), np.array([3, 3]),
+                        np.array([3, 3])],
+               strides=[np.array([1, 1]), np.array([1, 1]), np.array([1, 1]), np.array([1, 1]), np.array([1, 1]),
+                        np.array([1, 1])],
                channels=[1, 80, 40, 40, 40, 40, 40],
                k=[10, 1, 1, 1, 1, 1],
                connections_per_output=[4, None, None, None, None, None],
-               w=5*5, h=8*5, save_file=n,
+               w=5 * 5, h=8 * 5, save_file=n,
                interval=20000,
                superimpose=(1, 1))
 elif EXPERIMENT == 11:
@@ -205,8 +227,21 @@ elif EXPERIMENT == 11:
                channels=[1, 20],
                k=[10],
                connections_per_output=[None],
-               w=24*5, h=24*4, save_file=n,
+               w=24 * 5, h=24 * 4, save_file=n,
                interval=20000,
                update_activity_during_eval=False,
                superimpose=(1, 1))
-
+elif EXPERIMENT == 12:
+    experiment(clazz=ecc.CpuEccMachine,
+               output=np.array([1, 1]),
+               kernels=[np.array([10, 10])],
+               strides=[np.array([1, 1])],
+               channels=[1, 5 * 30],
+               k=[5],
+               connections_per_output=[None],
+               dropout=[0.2],
+               w=5 * 3, h=5 * 2, save_file=n,
+               top1_per_region=[True],
+               interval=20000,
+               update_activity_during_eval=False,
+               superimpose=(1, 1))

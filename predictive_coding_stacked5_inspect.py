@@ -26,13 +26,14 @@ def rand_patch(patch_size):
     return img[left_bottom[0]:top_right[0], left_bottom[1]:top_right[1]]
 
 
-def experiment(clazz, k, w, h, save_file, test_patches=20000):
+def experiment(clazz, w, h, save_file, k=None, test_patches=20000):
     model_file = save_file + ".model"
     m = clazz.load(model_file)
     assert w * h == m.get_out_volume(m.len - 1)
-    m.set_k(m.len-1,k)
+    if k is not None:
+        m.set_k(m.len-1, k)
     patch_size = np.array(m.get_in_shape(0))
-    print("PATCH_SIZE=", patch_size, "Params=", m.learnable_paramemters())
+    print("PATCH_SIZE=", patch_size, "Params=", m.learnable_parameters())
     fig, axs = plt.subplots(w, h)
     for a in axs:
         for b in a:
@@ -69,6 +70,7 @@ def experiment(clazz, k, w, h, save_file, test_patches=20000):
         img, sdr = normalise_img(rand_patch(patch_size[:2]))
         m.run(sdr)
         axs[0, 0].imshow(img)
+        print(m.last_output_sdr())
         for top in m.last_output_sdr():
             i = top % w
             j = top // w
@@ -76,6 +78,6 @@ def experiment(clazz, k, w, h, save_file, test_patches=20000):
         plt.pause(15)
 
 
-EXPERIMENT = 6
+EXPERIMENT = 12
 n = "predictive_coding_stacked5_experiment" + str(EXPERIMENT)
-experiment(clazz=ecc.CpuEccMachine, k=4, w=10, h=10, save_file=n)
+experiment(clazz=ecc.CpuEccMachine, w=5*3, h=5*2, save_file=n)

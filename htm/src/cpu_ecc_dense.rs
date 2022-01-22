@@ -9,7 +9,7 @@ use ndalgebra::buffer::Buffer;
 use crate::cpu_bitset::CpuBitset;
 use std::cmp::Ordering;
 use serde::{Serialize, Deserialize};
-use crate::{Shape, resolve_range, EncoderTarget, Synapse, top_large_k_indices, top_small_k_indices, Shape3, from_xyz, Shape2, from_xy, range_contains, SparseOrDense, EccMachine, OclEccSparse, OclEccDense, CpuEccMachine, top_small_k_by_channel, DenseWeight, w_idx, kernel_column_weight_sum, debug_assert_approx_eq_weight, EccLayerD};
+use crate::{Shape, resolve_range, EncoderTarget, Synapse, top_large_k_indices, top_small_k_indices, Shape3, from_xyz, Shape2, from_xy, range_contains, SparseOrDense, EccMachine, OclEccSparse, OclEccDense, CpuEccMachine, top_small_k_by_channel, DenseWeight, w_idx, kernel_column_weight_sum, debug_assert_approx_eq_weight, EccLayerD, kernel_column_dropped_weights_count};
 use std::collections::{Bound, HashSet};
 use crate::vector_field::{VectorFieldOne, VectorFieldDiv, VectorFieldAdd, VectorFieldMul, ArrayCast, VectorFieldSub, VectorFieldPartialOrd};
 use crate::population::Population;
@@ -20,6 +20,7 @@ use std::iter::Sum;
 use ocl::core::DeviceInfo::MaxConstantArgs;
 use crate::ecc::{EccLayer, as_usize, Idx, as_idx, Rand, xorshift_rand};
 use crate::sdr::SDR;
+use rand::prelude::SliceRandom;
 
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -49,6 +50,49 @@ pub struct CpuEccDense<D: DenseWeight> {
 impl<D: DenseWeight> CpuEccDense<D> {
     pub fn into_machine(self) -> CpuEccMachine<D> {
         CpuEccMachine::new_singleton(SparseOrDense::Dense(self))
+    }
+    pub fn restore_dropped_out_weights(&mut self) {
+        self.w.iter_mut().filter(|w|!w.is_valid()).for_each(|w|*w=D::ZERO)
+    }
+    pub fn dropout_f32(&mut self, number_of_connections_to_drop:f32, rng:&mut impl Rng) {
+        self.dropout((self.out_volume() as f32 * number_of_connections_to_drop) as usize,rng)
+    }
+    pub fn dropout(&mut self, number_of_connections_to_drop:usize, rng:&mut impl Rng) {
+        assert!(number_of_connections_to_drop<=self.w.len(),"number_of_connections_to_drop={} > number_of_connections=={}",number_of_connections_to_drop,self.w.len());
+        let mut indices:Vec<Idx> = (0..as_idx(self.w.len())).collect();
+        indices.shuffle(rng);
+        for i in 0..number_of_connections_to_drop{
+            self.w[as_usize(indices[i])] = D::IMPOSSIBLE_WEIGHT;
+        }
+        self.renormalise_all()
+    }
+    pub fn dropout_per_kernel_f32(&mut self, number_of_connections_to_drop_per_kernel_column:f32, rng:&mut impl Rng) {
+        self.dropout_per_kernel((self.kernel_column().product() as f32 * number_of_connections_to_drop_per_kernel_column) as usize,rng)
+    }
+    pub fn dropout_per_kernel(&mut self, number_of_connections_to_drop_per_kernel_column:usize, rng:&mut impl Rng) {
+        let kv = self.kernel_column().product();
+        let v = self.out_volume();
+        assert!(number_of_connections_to_drop_per_kernel_column<=as_usize(kv),"number_of_connections_to_drop_per_kernel_column={} > kernel_column_volume=={}",number_of_connections_to_drop_per_kernel_column,kv);
+        for out_idx in 0..v {
+            let mut indices:Vec<Idx> = (0..kv).collect();
+            indices.shuffle(rng);
+            for i in 0..number_of_connections_to_drop_per_kernel_column {
+                let idx_within_kernel = indices[i];
+                let w_idx = w_idx(out_idx,idx_within_kernel,v);
+                self.w[as_usize(w_idx)] = D::IMPOSSIBLE_WEIGHT;
+            }
+        }
+        self.renormalise_all()
+    }
+    pub fn renormalise_all(&mut self){
+        for output_idx in 0..self.out_volume(){
+            self.renormalise(output_idx)
+        }
+    }
+    pub fn renormalise(&mut self,output_idx:Idx){
+        let kv = self.kernel().product();
+        let v = self.out_volume();
+        D::normalize_precise(&mut self.w,output_idx,kv,v);
     }
     pub fn set_top1_per_region(&mut self, top1_per_region:bool) {
         if top1_per_region{
@@ -169,6 +213,7 @@ impl<D: DenseWeight> CpuEccDense<D> {
         let new_v = out_shape.product();
         let kernel_column = first_layer.kernel_column();
         let kv = kernel_column.product();
+
         let mut slf = Self {
             w: vec![D::IMPOSSIBLE_WEIGHT; as_usize(kv * new_v)],
             input_shape: in_shape,
@@ -182,6 +227,9 @@ impl<D: DenseWeight> CpuEccDense<D> {
             activity: vec![D::INITIAL_ACTIVITY; as_usize(new_v)],
             sums: vec![D::ZERO; as_usize(new_v)],
         };
+        #[cfg(debug_assertions)]
+        let mut w_written_to = vec![false; slf.w.len()];
+
         let mut channel_offset = 0;
         for l in 0..layers.len() {
             let l = f(&layers[l]);
@@ -195,15 +243,20 @@ impl<D: DenseWeight> CpuEccDense<D> {
                         for idx_within_kernel_column in 0..kv {
                             let original_w_idx = w_idx(original_output_idx, idx_within_kernel_column, v);
                             let new_w_idx = w_idx(new_output_idx, idx_within_kernel_column, new_v);
-                            assert!(slf.w[as_usize(new_w_idx)].eq(D::IMPOSSIBLE_WEIGHT));
+                            #[cfg(debug_assertions)]
+                            debug_assert!(!w_written_to[as_usize(new_w_idx)]);
                             slf.w[as_usize(new_w_idx)] = l.w[as_usize(original_w_idx)];
+                            #[cfg(debug_assertions)]{
+                                w_written_to[as_usize(new_w_idx)] = true;
+                            }
                         }
                     }
                 }
             }
             channel_offset += l.out_channels();
         }
-        debug_assert!(slf.w.iter().find(|&&x| x.eq(D::IMPOSSIBLE_WEIGHT)).is_none());
+        #[cfg(debug_assertions)]
+        debug_assert!(w_written_to.into_iter().all(|a|a));
         slf
     }
 
@@ -239,6 +292,12 @@ impl<D: DenseWeight> CpuEccDense<D> {
     }
     pub fn get_weights(&self) -> &[D] {
         &self.w
+    }
+    pub fn get_dropped_weights_count(&self) -> usize{
+        self.w.iter().filter(|&w|!w.is_valid()).count()
+    }
+    pub fn get_dropped_weights_of_kernel_column_count(&self,output_neuron_idx:Idx) -> usize{
+        kernel_column_dropped_weights_count(self.kernel_column().product(),self.out_volume(),output_neuron_idx, &self.w)
     }
     pub fn get_weights_mut(&mut self) -> &mut [D] {
         &mut self.w
@@ -276,10 +335,17 @@ impl<D: DenseWeight> CpuEccDense<D> {
             //Giving us the total of k winners per output column.
             //The channels of each column are arranged contiguously. Regions are also contiguous.
             let channel_region_offset = region_size * region_idx;
-            let region_range = channel_region_offset..channel_region_offset + region_size;
-            let top1 = self.sums[region_range.clone()].iter().zip(self.activity[region_range].iter()).map(|(&a, &b)| a + b).position_max_by(|&a:&D, &b:&D| if a.le(b) { Ordering::Less } else { Ordering::Greater }).unwrap();
-            if self.sums[top1].ge(t){
-                output.push(as_idx(channel_region_offset + top1));
+            let mut top1_idx=channel_region_offset;
+            let mut top1_val=self.sums[top1_idx]+self.activity[top1_idx];
+            for i in channel_region_offset+1..channel_region_offset + region_size{
+                let r = self.sums[i]+self.activity[i];
+                if r.gt(top1_val){
+                    top1_val = r;
+                    top1_idx = i;
+                }
+            }
+            if self.sums[top1_idx].ge(t){
+                output.push(as_idx(top1_idx));
             }
         }
     }
@@ -411,8 +477,10 @@ impl<D: DenseWeight> EccLayer for CpuEccDense<D> {
                         debug_assert_eq!(w_index, self.w_index(&input_pos, &output_pos));
                         debug_assert!(used_w.insert(w_index), "{}", w_index);
                         let w = self.w[as_usize(w_index)];
-                        self.sums[as_usize(output_idx)] += w;
-                        debug_assert!(self.sums[as_usize(output_idx)].le(D::TOTAL_SUM), "{:?}->{:?}={}@{}<={}", input_pos, output_pos, output_idx, self.sums[as_usize(output_idx)], D::TOTAL_SUM);
+                        if w.is_valid() { // the connection is disabled
+                            self.sums[as_usize(output_idx)] += w;
+                            debug_assert!(self.sums[as_usize(output_idx)].le(D::TOTAL_SUM), "{:?}->{:?}={}@{}<={}", input_pos, output_pos, output_idx, self.sums[as_usize(output_idx)], D::TOTAL_SUM);
+                        }
                     }
                 }
             }
@@ -434,7 +502,6 @@ impl<D: DenseWeight> EccLayer for CpuEccDense<D> {
         }
         let v = self.out_volume();
         let p = self.plasticity;
-        let one_minus_p = D::TOTAL_SUM - p;
         let kernel_column = self.kernel_column();
         let kv = kernel_column.product();
         let input_pos: Vec<[Idx; 3]> = input.iter().map(|&i| self.input_shape.pos(i)).collect();
@@ -447,13 +514,14 @@ impl<D: DenseWeight> EccLayer for CpuEccDense<D> {
                 if input_range.start.all_le(input_pos.grid()) && input_pos.grid().all_lt(&input_range.end) {
                     let w_index = Self::w_index_(&input_pos, &kernel_offset, output_idx, &kernel_column, v);
                     debug_assert_eq!(w_index, self.w_index(input_pos, &output_pos));
-                    if self.w[as_usize(w_index)].le(one_minus_p) {
-                        self.w[as_usize(w_index)] += p;
+                    let w = self.w[as_usize(w_index)];
+                    if w.is_valid() {
+                        self.w[as_usize(w_index)] = w+p;
                         active_inputs += 1;
                     }
                 }
             }
-            D::normalize(&mut self.w, active_inputs, output_idx, p, kv, v);
+            D::normalize_recommended(&mut self.w, active_inputs, output_idx, p, kv, v);
         }
         #[cfg(debug_assertions)] {
             for output_idx in 0..v {
@@ -708,4 +776,86 @@ mod tests {
         assert_eq!(output, output2);
         Ok(())
     }
+
+
+    #[test]
+    fn test9() -> Result<(), String> {
+        test9_::<u32>()
+    }
+
+    #[test]
+    fn test9f() -> Result<(), String> {
+        test9_::<f32>()
+    }
+
+    fn test9_<D: DenseWeight>() -> Result<(), String> {
+        let s = auto_gen_seed64();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(s);
+        let k = 16;
+        let mut a = CpuEccDense::<D>::new([1, 1], [4, 4], [1, 1], 3, 4, 1, &mut rng);
+        a.set_threshold_f32(0.2);
+        let mut a2 = a.clone();
+        a2.set_top1_per_region(true);
+        println!("seed=={}",s);
+        assert_eq!(a2.k(),1);
+        assert_eq!(a.k(),1);
+        assert!(a.threshold.eq(a2.threshold),"threshold {:?}!={:?}",a.threshold,a2.threshold);
+        for i in 0..1024 {
+            let input: Vec<u32> = (0..k).map(|_| rng.gen_range(0..a.in_volume() as u32)).collect();
+            let mut input = CpuSDR::from(input);
+            input.normalize();
+            assert_ne!(input.len(), 0);
+            assert!(a.w.iter().zip(a2.w.iter()).all(|(a,b)|a.eq(*b)),"w {:?}!={:?}",a.w,a2.w);
+            assert!(a.sums.iter().zip(a2.sums.iter()).all(|(a,b)|a.eq(*b)),"sums {:?}!={:?}",a.sums,a2.sums);
+            assert!(a.activity.iter().zip(a2.activity.iter()).all(|(a,b)|a.eq(*b)),"activity {:?}!={:?}",a.activity,a2.activity);
+            let mut o = a.run(&input);
+            let mut o2 = a2.run(&input);
+            assert_eq!(o,o2,"outputs i=={}",i);
+            a.learn(&input, &o);
+            a2.learn(&input, &o2);
+        }
+        Ok(())
+    }
+
+
+    #[test]
+    fn test10() -> Result<(), String> {
+        test10_::<u32>()
+    }
+
+    #[test]
+    fn test10f() -> Result<(), String> {
+        test10_::<f32>()
+    }
+
+    fn test10_<D: DenseWeight>() -> Result<(), String> {
+        let s = auto_gen_seed64();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(s);
+        let k = 16;
+        let mut a = CpuEccDense::<D>::new([2, 2], [4, 4], [1, 1], 3, 4, 1, &mut rng);
+        a.set_threshold_f32(0.2);
+        let mut a2 = a.clone();
+        a2.set_top1_per_region(true);
+        println!("seed=={}",s);
+        assert_eq!(a2.k(),1);
+        assert_ieq!(a.k(),1);
+        assert!(a.threshold.eq(a2.threshold),"threshold {:?}!={:?}",a.threshold,a2.threshold);
+        for i in 0..1024 {
+            let input: Vec<u32> = (0..k).map(|_| rng.gen_range(0..a.in_volume() as u32)).collect();
+            let mut input = CpuSDR::from(input);
+            input.normalize();
+            assert_ne!(input.len(), 0);
+            assert!(a.w.iter().zip(a2.w.iter()).all(|(a,b)|a.eq(*b)),"w {:?}!={:?}",a.w,a2.w);
+            assert!(a.sums.iter().zip(a2.sums.iter()).all(|(a,b)|a.eq(*b)),"sums {:?}!={:?}",a.sums,a2.sums);
+            assert!(a.activity.iter().zip(a2.activity.iter()).all(|(a,b)|a.eq(*b)),"activity {:?}!={:?}",a.activity,a2.activity);
+            let mut o = a.run(&input);
+            let mut o2 = a2.run(&input);
+            assert_eq!(o,o2,"outputs i=={}",i);
+            a.learn(&input, &o);
+            a2.learn(&input, &o2);
+        }
+        Ok(())
+    }
+
+
 }

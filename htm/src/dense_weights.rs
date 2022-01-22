@@ -37,6 +37,10 @@ pub trait DenseWeight: Add<Output=Self> + AddAssign + Sub<Output=Self> + SubAssi
     fn ge(self, b: Self) -> bool;
     fn le(self, b: Self) -> bool;
     fn eq(self, b: Self) -> bool;
+    fn mul(self, b: Idx) -> Self;
+    fn is_valid(self)->bool{
+        !self.eq(Self::IMPOSSIBLE_WEIGHT)
+    }
     fn approx_eq(self, b: Self) -> bool;
     fn min_w(self, b: Self) -> Self {
         if self.lt(b) { self } else { b }
@@ -48,7 +52,16 @@ pub trait DenseWeight: Add<Output=Self> + AddAssign + Sub<Output=Self> + SubAssi
     fn initialise_weight_matrix(kernel_column_volume: Idx, output_volume: Idx, seed: Vec<f32>) -> Vec<Self>;
     fn default_threshold(out_channels: Idx) -> Self;
     fn normalize_stochastic(weights: &mut [Self], active_inputs: Idx, output_idx: Idx, plasticity: Self, rand_seed: Rand, kernel_column_volume: Idx, output_volume: Idx) -> Idx;
-    fn normalize(weights: &mut [Self], active_inputs: Idx, output_idx: Idx, plasticity: Self, kernel_column_volume: Idx, output_volume: Idx);
+    fn normalize(weights: &mut [Self], weight_sum:Self, output_idx: Idx, kernel_column_volume: Idx, output_volume: Idx);
+    fn normalize_quick(weights: &mut [Self], active_inputs: Idx, output_idx: Idx, plasticity: Self, kernel_column_volume: Idx, output_volume: Idx){
+        let w_sum = Self::TOTAL_SUM + plasticity.mul(active_inputs);
+        Self::normalize(weights,w_sum,output_idx, kernel_column_volume, output_volume)
+    }
+    fn normalize_precise(weights: &mut [Self], output_idx: Idx, kernel_column_volume: Idx, output_volume: Idx){
+        let w_sum = kernel_column_weight_sum(kernel_column_volume, output_volume, output_idx, weights);
+        Self::normalize(weights,w_sum,output_idx,kernel_column_volume,output_volume)
+    }
+    fn normalize_recommended(weights: &mut [Self], active_inputs: Idx, output_idx: Idx, plasticity: Self, kernel_column_volume: Idx, output_volume: Idx);
 }
 
 // fn debug_assert_eq_weight<D: DenseWeight>(a: D, b: D) {
@@ -94,7 +107,9 @@ impl DenseWeight for u32 {
     fn eq(self, b: Self) -> bool {
         self == b
     }
-
+    fn mul(self, b: Idx) -> Self{
+        self*b
+    }
     fn approx_eq(self, b: Self) -> bool {
         if self < b { b - self < Self::APPROX_EPSILON } else { self - b < Self::APPROX_EPSILON }
     }
@@ -162,18 +177,22 @@ impl DenseWeight for u32 {
         rand_seed
     }
 
-    fn normalize(weights: &mut [Self], active_inputs: Idx, output_idx: Idx, plasticity: Self, kernel_column_volume: Idx, output_volume: Idx) {
+    fn normalize(weights: &mut [Self], sum_before:Self, output_idx: Idx, kernel_column_volume: Idx, output_volume: Idx) {
         let kv = kernel_column_volume;
         let v = output_volume;
-        let sum_before = kernel_column_weight_sum(kv, v, output_idx, &weights);
         let w_factor = Self::TOTAL_SUM as f64 / sum_before as f64;
         for input_within_kernel_column in 0..kv {
             let w_idx = w_idx(output_idx, input_within_kernel_column, v);
             let w = weights[as_usize(w_idx)];
-            let new_w = (w as f64 * w_factor) as u32;
-            weights[as_usize(w_idx)] = new_w;
+            if w.is_valid() {
+                let new_w = (w as f64 * w_factor) as u32;
+                weights[as_usize(w_idx)] = new_w;
+            }
         }
         debug_assert_approx_eq_weight(Self::TOTAL_SUM, kernel_column_weight_sum(kv, v, output_idx, &weights));
+    }
+    fn normalize_recommended(weights: &mut [Self], active_inputs: Idx, output_idx: Idx, plasticity: Self, kernel_column_volume: Idx, output_volume: Idx){
+        Self::normalize_precise(weights,output_idx,kernel_column_volume,output_volume)
     }
 }
 
@@ -205,6 +224,9 @@ impl DenseWeight for f32 {
     fn eq(self, b: Self) -> bool {
         self == b
     }
+    fn mul(self, b: Idx) -> Self{
+        self*b as f32
+    }
     fn approx_eq(self, b: Self) -> bool {
         (self - b).abs() < Self::APPROX_EPSILON
     }
@@ -221,7 +243,9 @@ impl DenseWeight for f32 {
             let w_sum = kernel_column_weight_sum(kv, v, output_idx, &w);
             for input_within_kernel_column in 0..kv {
                 let w_idx = w_idx(output_idx, input_within_kernel_column, v);
-                w[as_usize(w_idx)] /= w_sum;
+                let weight = w[as_usize(w_idx)];
+                debug_assert!(0.<=weight&&weight<=1.);
+                w[as_usize(w_idx)] = weight/w_sum;
             }
             debug_assert_approx_eq_weight(1., kernel_column_weight_sum(kv, v, output_idx, &w));
         }
@@ -233,16 +257,20 @@ impl DenseWeight for f32 {
     fn normalize_stochastic(weights: &mut [Self], active_inputs: Idx, output_idx: Idx, plasticity: Self, mut rand_seed: Rand, kernel_column_volume: Idx, output_volume: Idx) -> Idx {
         unimplemented!();
     }
-    fn normalize(weights: &mut [Self], active_inputs: Idx, output_idx: Idx, plasticity: Self, kernel_column_volume: Idx, output_volume: Idx) {
+    fn normalize(weights: &mut [Self], w_sum: Self, output_idx: Idx, kernel_column_volume: Idx, output_volume: Idx) {
         let kv = kernel_column_volume;
         let v = output_volume;
-        let w_sum = Self::TOTAL_SUM + active_inputs as f32 * plasticity;
         debug_assert_approx_eq_weight(w_sum, kernel_column_weight_sum(kv, v, output_idx, &weights));
         for input_within_kernel_column in 0..kv {
             let w_idx = w_idx(output_idx, input_within_kernel_column, v);
-            weights[as_usize(w_idx)] /= w_sum;
+            if weights[as_usize(w_idx)]!=Self::IMPOSSIBLE_WEIGHT {
+                weights[as_usize(w_idx)] /= w_sum;
+            }
         }
         debug_assert_approx_eq_weight(1., kernel_column_weight_sum(kv, v, output_idx, &weights));
+    }
+    fn normalize_recommended(weights: &mut [Self], active_inputs: Idx, output_idx: Idx, plasticity: Self, kernel_column_volume: Idx, output_volume: Idx){
+        Self::normalize_quick(weights,active_inputs,output_idx,plasticity,kernel_column_volume,output_volume)
     }
 }
 
@@ -253,7 +281,14 @@ pub fn w_idx(output_idx: Idx, idx_within_kernel_column: Idx, output_volume: Idx)
 }
 
 #[inline]
-pub fn kernel_column_weight_sum<D: Sum + Copy>(kernel_column_volume: Idx, out_volume: Idx, output_neuron_idx: Idx, w: &[D]) -> D {
+pub fn kernel_column_weight_sum<D: DenseWeight>(kernel_column_volume: Idx, out_volume: Idx, output_neuron_idx: Idx, w: &[D]) -> D {
     assert!(output_neuron_idx < out_volume);
-    (0..kernel_column_volume).map(|i| w[as_usize(w_idx(output_neuron_idx, i, out_volume))]).sum()
+    (0..kernel_column_volume).map(|i| w[as_usize(w_idx(output_neuron_idx, i, out_volume))]).filter(|&w|w.is_valid()).sum()
 }
+
+#[inline]
+pub fn kernel_column_dropped_weights_count<D: DenseWeight>(kernel_column_volume: Idx, out_volume: Idx, output_neuron_idx: Idx, w: &[D]) -> usize {
+    assert!(output_neuron_idx < out_volume);
+    (0..kernel_column_volume).map(|i| w[as_usize(w_idx(output_neuron_idx, i, out_volume))]).filter(|&w|!w.is_valid()).count()
+}
+
