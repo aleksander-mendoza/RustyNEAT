@@ -28,6 +28,22 @@ use std::fs::{File, OpenOptions};
 use serde::{Serialize, Deserialize};
 
 
+macro_rules! impl_save_load {
+    ($class_name:ident, $inner_field:ident) => {
+        #[pymethods]
+        impl $class_name {
+            #[text_signature = "(file)"]
+            pub fn save(&self, file: String) -> PyResult<()> {
+                pickle(&self.$inner_field, file)
+            }
+            #[staticmethod]
+            #[text_signature = "(file)"]
+            pub fn load(file: String) -> PyResult<Self> {
+                unpickle(file).map(|s| Self { $inner_field: s })
+            }
+        }
+    };
+}
 
 macro_rules! impl_to_ocl {
     ($cpu_class_name:ident,$ocl_class_name:ident,$field:ident) => {
@@ -79,6 +95,7 @@ macro_rules! impl_to_cpu {
 
 pub(crate) use impl_to_ocl;
 pub(crate) use impl_to_cpu;
+pub(crate) use impl_save_load;
 
 pub fn arr3<'py, T:Element+Copy+FromPyObject<'py>>(py: Python<'py>, t: &'py PyObject) -> PyResult<[T; 3]> {
     Ok(if let Ok(t) = t.extract::<(T, T, T)>(py) {

@@ -20,7 +20,15 @@ mod ecc;
 mod sdr;
 mod cpu_ecc_dense;
 mod dense_weights;
+mod cpu_ecc_population;
+mod conv_shape;
+mod conv_weights;
+mod cpu_ecc_machine;
 
+pub use cpu_ecc_population::*;
+pub use cpu_ecc_machine::*;
+pub use conv_weights::*;
+pub use conv_shape::*;
 pub use sdr::*;
 pub use ecc::*;
 pub use dense_weights::*;

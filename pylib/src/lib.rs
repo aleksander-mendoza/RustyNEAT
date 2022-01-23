@@ -7,6 +7,7 @@ mod py_ocl;
 mod py_htm;
 mod py_ecc;
 mod util;
+mod py_ecc_population;
 
 use pyo3::prelude::*;
 use pyo3::{wrap_pyfunction, wrap_pymodule, PyObjectProtocol};
@@ -82,15 +83,11 @@ pub fn ndalgebra(py: Python, m: &PyModule) -> PyResult<()> {
 #[pymodule]
 pub fn ecc(py: Python, m: &PyModule) -> PyResult<()> {
     use py_ecc::*;
+    use py_ecc_population::*;
     m.add_class::<CpuEccDense>()?;
-    m.add_class::<CpuEccDenseUInt>()?;
-    m.add_class::<CpuEccSparse>()?;
     m.add_class::<CpuEccMachine>()?;
-    m.add_class::<CpuEccMachineUInt>()?;
-    m.add_class::<OclEccMachine>()?;
-    m.add_class::<OclEccDense>()?;
-    m.add_class::<OclEccSparse>()?;
-    // m.add_class::<CpuHOM>()?;
+    m.add_class::<CpuEccPopulation>()?;
+    m.add_class::<ConvWeights>()?;
     Ok(())
 }
 

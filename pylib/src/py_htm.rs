@@ -29,6 +29,7 @@ use crate::util::*;
 use std::any::{Any, TypeId};
 use pyo3::ffi::PyFloat_Type;
 
+#[derive(Default)]
 #[pyclass]
 pub struct CpuSDR {
     pub(crate) sdr: htm::CpuSDR,

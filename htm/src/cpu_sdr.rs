@@ -12,7 +12,7 @@ use serde::{Serialize, Deserialize};
 use crate::vector_field::{VectorField, VectorFieldMul};
 use crate::sdr::SDR;
 
-#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Default)]
 pub struct CpuSDR(Vec<Idx>);
 
 impl PartialEq<Vec<Idx>> for CpuSDR {

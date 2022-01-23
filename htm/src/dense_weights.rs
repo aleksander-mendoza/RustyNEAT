@@ -9,7 +9,7 @@ use ndalgebra::buffer::Buffer;
 use crate::cpu_bitset::CpuBitset;
 use std::cmp::Ordering;
 use serde::{Serialize, Deserialize};
-use crate::{Shape, resolve_range, EncoderTarget, Synapse, top_large_k_indices, top_small_k_indices, Shape3, from_xyz, Shape2, from_xy, range_contains, SparseOrDense, EccMachine, OclEccSparse, OclEccDense, CpuEccMachine, top_small_k_by_channel};
+use crate::{Shape, resolve_range, EncoderTarget, Synapse, top_large_k_indices, top_small_k_indices, Shape3, from_xyz, Shape2, from_xy, range_contains};
 use std::collections::{Bound, HashSet};
 use crate::vector_field::{VectorFieldOne, VectorFieldDiv, VectorFieldAdd, VectorFieldMul, ArrayCast, VectorFieldSub, VectorFieldPartialOrd};
 use crate::population::Population;
