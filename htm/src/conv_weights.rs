@@ -1,4 +1,4 @@
-use crate::{DenseWeight, ConvShape, Idx, as_idx, as_usize, w_idx, Shape, VectorFieldOne, Shape2, Shape3, from_xyz, debug_assert_approx_eq_weight, kernel_column_weight_sum, kernel_column_dropped_weights_count, VectorFieldPartialOrd, CpuSDR, from_xy, SDR};
+use crate::{DenseWeight, ConvShape, Idx, as_idx, as_usize, w_idx, Shape, VectorFieldOne, Shape2, Shape3, from_xyz, debug_assert_approx_eq_weight, kernel_column_weight_sum, kernel_column_dropped_weights_count, VectorFieldPartialOrd, CpuSDR, from_xy, SDR, kernel_column_weight_copy};
 use std::ops::{Deref, DerefMut};
 use rand::Rng;
 use rand::prelude::SliceRandom;
@@ -194,7 +194,11 @@ impl<D: DenseWeight> ConvWeights<D> {
         let v = self.out_volume();
         kernel_column_weight_sum(kv, v, output_neuron_idx, &self.w)
     }
-
+    pub fn incoming_weight_copy(&self, output_neuron_idx: Idx) -> Vec<D> {
+        let kv = self.kernel_column_volume();
+        let v = self.out_volume();
+        kernel_column_weight_copy(kv, v, output_neuron_idx, &self.w)
+    }
     pub fn get_weights(&self) -> &[D] {
         &self.w
     }

@@ -281,6 +281,11 @@ pub fn w_idx(output_idx: Idx, idx_within_kernel_column: Idx, output_volume: Idx)
 }
 
 #[inline]
+pub fn kernel_column_weight_copy<D: DenseWeight>(kernel_column_volume: Idx, out_volume: Idx, output_neuron_idx: Idx, w: &[D]) -> Vec<D> {
+    assert!(output_neuron_idx < out_volume);
+    (0..kernel_column_volume).map(|i| w[as_usize(w_idx(output_neuron_idx, i, out_volume))]).collect()
+}
+#[inline]
 pub fn kernel_column_weight_sum<D: DenseWeight>(kernel_column_volume: Idx, out_volume: Idx, output_neuron_idx: Idx, w: &[D]) -> D {
     assert!(output_neuron_idx < out_volume);
     (0..kernel_column_volume).map(|i| w[as_usize(w_idx(output_neuron_idx, i, out_volume))]).filter(|&w|w.is_valid()).sum()

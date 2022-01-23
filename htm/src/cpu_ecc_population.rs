@@ -152,7 +152,10 @@ impl<D: DenseWeight> CpuEccPopulation<D> {
             self.activity[as_usize(winner)] -= D::ACTIVITY_PENALTY;
         }
     }
-
+    /**sum(self.sums[i] for i in output)*/
+    pub fn sums_for_sdr(&self, output:&CpuSDR)-> D{
+        output.iter().map(|i|self.sums[as_usize(*i)]).sum()
+    }
     pub fn min_activity(&self) -> D {
         self.activity.iter().cloned().reduce(D::min_w).unwrap()
     }

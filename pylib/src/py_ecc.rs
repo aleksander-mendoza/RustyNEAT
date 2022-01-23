@@ -274,17 +274,6 @@ impl CpuEccMachine {
     }
 
     #[text_signature = "(layer,output_neuron)"]
-    pub fn get_weights(&self, layer: usize, output_neuron: Option<Idx>) -> Vec<f32> {
-        let a = &self.ecc[layer];
-        if let Some(output_neuron_idx) = output_neuron {
-            let w = a.get_weights();
-            let v = a.out_volume();
-            (0..a.kernel_column().product()).map(|i| w[as_usize(w_idx(output_neuron_idx, i, v))]).collect()
-        } else {
-            a.get_weights().to_vec()
-        }
-    }
-    #[text_signature = "(layer,output_neuron)"]
     pub fn get_dropped_weights_count(&self, layer: usize, output_neuron: Option<Idx>) -> usize {
         let a = &self.ecc[layer];
         if let Some(output_neuron_idx) = output_neuron {
@@ -296,6 +285,14 @@ impl CpuEccMachine {
     #[text_signature = "(layer,output_neuron)"]
     pub fn get_weight_sum(&self, layer: usize, output_neuron: Idx) -> f32 {
         self.ecc[layer].incoming_weight_sum(output_neuron)
+    }
+    #[text_signature = "(layer,output_neuron_idx)"]
+    pub fn get_weights(&self, layer:usize, output_neuron_idx: Option<Idx>) -> Vec<f32> {
+        if let Some(output_neuron_idx) = output_neuron_idx{
+            self.ecc[layer].weights().incoming_weight_copy(output_neuron_idx).to_vec()
+        }else {
+            self.ecc[layer].get_weights().to_vec()
+        }
     }
 }
 
@@ -526,6 +523,18 @@ impl CpuEccDense {
     #[text_signature = "(output_neuron_idx)"]
     pub fn incoming_weight_sum_f32(&self, output_neuron_idx: Idx) -> f32 {
         self.ecc.incoming_weight_sum_f32(output_neuron_idx)
+    }
+    #[text_signature = "(sdr)"]
+    pub fn sums_for_sdr(&self, sdr: &CpuSDR) -> f32 {
+        self.ecc.population().sums_for_sdr(&sdr.sdr)
+    }
+    #[text_signature = "(output_neuron_idx)"]
+    pub fn get_weights(&self, output_neuron_idx: Option<Idx>) -> Vec<f32> {
+        if let Some(output_neuron_idx) = output_neuron_idx{
+            self.ecc.weights().incoming_weight_copy(output_neuron_idx).to_vec()
+        }else {
+            self.ecc.get_weights().to_vec()
+        }
     }
 }
 

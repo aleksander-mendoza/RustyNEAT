@@ -189,16 +189,7 @@ impl ConvWeights {
     pub fn normalize(&mut self, output_idx: Idx) {
         self.ecc.normalize(output_idx)
     }
-    #[text_signature = "(layer,output_neuron)"]
-    pub fn get_weights(&self, output_neuron: Option<Idx>) -> Vec<f32> {
-        if let Some(output_neuron_idx) = output_neuron {
-            let w = self.ecc.get_weights();
-            let v = self.ecc.out_volume();
-            (0..self.ecc.kernel_column_volume()).map(|i| w[as_usize(w_idx(output_neuron_idx, i, v))]).collect()
-        } else {
-            self.ecc.get_weights().to_vec()
-        }
-    }
+
     #[text_signature = "(output_neuron)"]
     pub fn get_dropped_weights_count(&self, output_neuron: Option<Idx>) -> usize {
         if let Some(output_neuron_idx) = output_neuron {
@@ -210,6 +201,14 @@ impl ConvWeights {
     #[text_signature = "(output_neuron)"]
     pub fn get_weight_sum(&self, output_neuron: Idx) -> f32 {
         self.ecc.incoming_weight_sum(output_neuron)
+    }
+    #[text_signature = "(output_idx)"]
+    pub fn get_weights(&mut self, output_neuron_idx: Option<Idx>) -> Vec<f32>{
+        if let Some(output_neuron_idx) = output_neuron_idx{
+            self.ecc.incoming_weight_copy(output_neuron_idx).to_vec()
+        }else {
+            self.ecc.get_weights().to_vec()
+        }
     }
 }
 
@@ -255,6 +254,7 @@ impl CpuEccPopulation {
         self.ecc.set_threshold(threshold)
     }
 
+
     #[getter]
     pub fn get_region_size(&self) -> Idx {
         self.ecc.get_region_size()
@@ -284,6 +284,10 @@ impl CpuEccPopulation {
     #[text_signature = "()"]
     pub fn reset_sums(&mut self) {
         self.ecc.reset_sums()
+    }
+    #[text_signature = "(sdr)"]
+    pub fn sums_for_sdr(&self, output:&CpuSDR)-> f32{
+        self.ecc.sums_for_sdr(&output.sdr)
     }
     #[text_signature = "(sdr)"]
     pub fn decrement_activities(&mut self,sdr:&CpuSDR) {
