@@ -43,6 +43,19 @@ def visualise_connection_heatmap(in_w, in_h, ecc_net, out_w, out_h):
     plt.show()
 
 
+def compute_confusion_matrix_fit(conf_mat, ecc_net, metric_l2=True):
+    assert ecc_net.out_grid == [1, 1]
+    fit = torch.empty(ecc_net.out_channels)
+    for i in range(ecc_net.out_channels):
+        corr = conf_mat[i]/conf_mat[i].sum()
+        wei = torch.tensor(ecc_net.get_weights(i))
+        if metric_l2:
+            fit[i] = corr @ wei
+        else:  # l1
+            fit[i] = (corr - wei).abs().sum()
+    return fit
+
+
 class Experiment:
 
     def __init__(self, w, h, experiment_id):
@@ -55,6 +68,7 @@ class Experiment:
         self.save_file = "predictive_coding_stacked6_" + str(experiment_id)
         self.num_of_snapshots = 1
         self.drift = np.array([0, 0])
+        self.plot = True
 
     def save(self):
         pass
@@ -71,10 +85,11 @@ class Experiment:
     def experiment(self):
         patch_size = self.input_shape[:2]
         print("PATCH_SIZE=", self.input_shape)
-        fig, axs = plt.subplots(self.w, self.h)
-        for a in axs:
-            for b in a:
-                b.set_axis_off()
+        if self.plot:
+            fig, axs = plt.subplots(self.w, self.h)
+            for a in axs:
+                for b in a:
+                    b.set_axis_off()
         enc = htm.EncoderBuilder()
         img_w, img_h, img_c = self.input_shape
         img_encoder = enc.add_image(img_w, img_h, img_c, 0.8)
@@ -120,16 +135,79 @@ class Experiment:
                 all_total_sum.append(total_sum)
                 print("processed=", all_processed)
                 print("sums=", all_total_sum)
-                for i in range(self.w):
-                    for j in range(self.h):
-                        axs[i, j].imshow(stats[:, :, i + j * self.w])
-                plt.pause(0.01)
-                if SAVE:
-                    img_file_name = self.save_file + " before.png"
-                    if s > 0 or os.path.exists(img_file_name):
-                        img_file_name = self.save_file + " after.png"
-                    plt.savefig(img_file_name)
-        plt.show()
+                if self.plot:
+                    for i in range(self.w):
+                        for j in range(self.h):
+                            axs[i, j].imshow(stats[:, :, i + j * self.w])
+                    plt.pause(0.01)
+                    if SAVE:
+                        img_file_name = self.save_file + " before.png"
+                        if s > 0 or os.path.exists(img_file_name):
+                            img_file_name = self.save_file + " after.png"
+                        plt.savefig(img_file_name)
+        if self.plot:
+            plt.show()
+
+    def measure_cross_correlation(self):
+        save = self.save_file + " conf_mat.pt"
+        if os.path.exists(save):
+            with open(save, "rb") as f:
+                confusion_matrix = torch.load(f)
+        else:
+            patch_size = self.input_shape[:2]
+            print("PATCH_SIZE=", self.input_shape)
+            enc = htm.EncoderBuilder()
+            img_w, img_h, img_c = self.input_shape
+            img_encoder = enc.add_image(img_w, img_h, img_c, 0.8)
+
+            def normalise_img(img):
+                sdr = htm.CpuSDR()
+                img_encoder.encode(sdr, img.unsqueeze(2).numpy())
+                return img, sdr
+
+            curr = set()
+            confusion_matrix = torch.zeros([self.w*self.h, self.w*self.h])
+            for s in tqdm(range(self.test_patches), desc="measuring"):
+                img_idx = int(np.random.rand() * len(MNIST))
+                img = MNIST[img_idx]
+                r = np.random.rand(2)
+                min_left_bottom = (img.shape - patch_size - self.drift) * r
+                min_left_bottom = min_left_bottom.astype(int)
+                for _ in range(self.num_of_snapshots):
+                    left_bottom = min_left_bottom + (np.random.rand(2) * (self.drift + 1)).astype(int)
+                    assert np.all(left_bottom >= 0)
+                    assert np.all(left_bottom < img.shape - patch_size), left_bottom
+                    top_right = left_bottom + patch_size
+                    snapshot = img[left_bottom[0]:top_right[0], left_bottom[1]:top_right[1]]
+                    snapshot, sdr = normalise_img(snapshot)
+                    out_sdr = self.run(sdr, learn=True, update_activity=True)
+                    if len(out_sdr) > 0:
+                        curr.add(out_sdr.item())
+                self.take_action()
+                curr_list = list(curr)
+                for i in range(len(curr_list)):
+                    for j in range(i + 1, len(curr_list)):
+                        confusion_matrix[curr_list[i], curr_list[j]] += 1
+                        confusion_matrix[curr_list[j], curr_list[i]] += 1
+                curr.clear()
+
+            with open(save, "wb+") as f:
+                torch.save(confusion_matrix, f)
+        if self.plot:
+            plt.imshow(confusion_matrix)
+            plt.show()
+            fig, axs = plt.subplots(self.w, self.h)
+            for a in axs:
+                for b in a:
+                    b.set_axis_off()
+            for i in range(self.w):
+                for j in range(self.h):
+                    img = confusion_matrix[i + j * self.w]
+                    img = img.reshape([self.w, self.h])
+                    img = img.T
+                    axs[i, j].imshow(img)
+            plt.show()
+        return confusion_matrix
 
     def eval_with_classifier_head(self):
         print("PATCH_SIZE=", self.input_shape)
@@ -274,28 +352,32 @@ class Experiment3(Experiment):
         return self.layer2.sums_for_sdr(output_sdr)
 
 
-class Experiment22(Experiment):
-    def __init__(self):
-        super().__init__(3, 3, "experiment22")
+class Experiment21(Experiment):
+    def __init__(self, w, h):
+        super().__init__(w, h, "experiment21oc" + str(w * h))
         ex2 = Experiment2(7, 7)
+        ex2.num_of_snapshots = 6
+        ex2.drift = np.array([3, 3])
+        self.conf_mat = ex2.measure_cross_correlation()
         self.layer2_save_file = self.save_file + " layer2.model"
-
         if os.path.exists(self.layer2_save_file):
             self.layer2 = ecc.CpuEccDense.load(self.layer2_save_file)
         else:
             self.layer2 = ecc.CpuEccDense([1, 1], [1, 1], [1, 1], ex2.layer1.out_channels, self.w * self.h, 1)
-            self.layer2.set_threshold(1 / self.layer2.in_channels)
+            self.layer2.threshold = 1 / self.layer2.in_channels
         self.layer1 = ex2.layer1
         self.input_shape = ex2.input_shape
         self.sdr = None
-        self.drift = np.array([3, 3])
-        self.num_of_snapshots = 6
+        self.drift = ex2.drift
+        self.num_of_snapshots = ex2.num_of_snapshots
 
     def run(self, sdr, learn, update_activity):
         pre_sdr = self.layer1.infer(sdr)
         fin_sdr = self.layer2.infer(pre_sdr)
-        if self.sdr is None:
+        if self.sdr is None or len(self.sdr) == 0:
             self.sdr = fin_sdr
+            if update_activity:
+                self.layer2.decrement_activities(fin_sdr)
         if learn:
             self.layer2.learn(pre_sdr, self.sdr)
         return self.sdr
@@ -304,6 +386,12 @@ class Experiment22(Experiment):
         self.sdr = None
 
     def save(self):
+        fit = compute_confusion_matrix_fit(self.conf_mat, self.layer2, metric_l2=True)
+        print("fit l2=", fit)
+        print(fit.sum())
+        fit = compute_confusion_matrix_fit(self.conf_mat, self.layer2, metric_l2=False)
+        print("fit l1=", fit)
+        print(fit.sum())
         # visualise_connection_heatmap(7, 7, self.layer2, 3, 3)
         self.layer2.save(self.layer2_save_file)
 
@@ -311,4 +399,55 @@ class Experiment22(Experiment):
         return self.layer2.sums_for_sdr(output_sdr)
 
 
-Experiment22().experiment()
+class Experiment22(Experiment):
+    def __init__(self,w,h):
+        super().__init__(w,h, "experiment22")
+        ex2 = Experiment2(7, 7)
+        self.conf_mat = ex2.measure_cross_correlation()
+        self.layer2_save_file = self.save_file + " layer2.model"
+        self.layer1_to_layer2_save_file = self.save_file + " layer1_to_layer2.model"
+        self.layer2_to_layer2_save_file = self.save_file + " layer2_to_layer2.model"
+        if os.path.exists(self.layer2_save_file):
+            self.layer1_to_layer2 = ecc.ConvWeights.load(self.layer1_to_layer2_save_file)
+            self.layer2_to_layer2 = ecc.ConvWeights.load(self.layer2_to_layer2_save_file)
+            self.layer2 = ecc.CpuEccPopulation.load(self.layer2_save_file)
+        else:
+            c = ex2.layer1.out_channels
+            self.layer1_to_layer2 = ecc.ConvWeights([1, 1, c], [1, 1], [1, 1], self.w * self.h)
+            self.layer2_to_layer2 = ecc.ConvWeights([1, 1, c], [1, 1], [1, 1], c)
+            self.layer2 = ecc.CpuEccPopulation([1, 1, c], 1)
+            self.layer2.threshold = 1 / c
+        self.layer1 = ex2.layer1
+        self.input_shape = ex2.input_shape
+        self.sdr = htm.CpuSDR()
+        self.drift = np.array([3, 3])
+        self.num_of_snapshots = 6
+
+    def run(self, sdr, learn, update_activity):
+        pre_sdr = self.layer1.infer(sdr)
+        self.layer1_to_layer2.reset_and_forward(pre_sdr, self.layer2)
+        self.layer2_to_layer2.forward(self.sdr, self.layer2)
+        new_state = self.layer2.determine_winners_top1_per_region()
+        self.layer2.decrement_activities(new_state)
+        if learn:
+            self.layer1_to_layer2.learn(pre_sdr, new_state)
+            self.layer2_to_layer2.learn(self.sdr, new_state)
+        self.sdr = new_state
+        return new_state
+
+    def take_action(self):
+        self.sdr = htm.CpuSDR()
+
+    def save(self):
+        # visualise_connection_heatmap(7, 7, self.layer2, 3, 3)
+        self.layer2.save(self.layer2_save_file)
+        self.layer1_to_layer2.save(self.layer1_to_layer2_save_file)
+        self.layer2_to_layer2.save(self.layer2_to_layer2_save_file)
+
+    def sums(self, output_sdr):
+        return self.layer2.sums_for_sdr(output_sdr)
+
+
+# torch.set_printoptions(threshold=10_000)
+
+Experiment22(4,4).experiment()

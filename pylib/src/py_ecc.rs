@@ -57,6 +57,14 @@ impl PySequenceProtocol for CpuEccMachine {
 }
 
 
+#[pyproto]
+impl PySequenceProtocol for CpuEccDense {
+    fn __len__(&self) -> usize {
+        self.ecc.len()
+    }
+}
+
+
 #[pymethods]
 impl CpuEccMachine {
     #[getter]
@@ -301,6 +309,14 @@ impl_save_load!(CpuEccDense,ecc);
 
 #[pymethods]
 impl CpuEccDense {
+    #[text_signature = "()"]
+    pub fn reset_sums(&mut self) {
+        self.ecc.population_mut().reset_sums()
+    }
+    #[text_signature = "(output)"]
+    pub fn decrement_activities(&mut self,output:&mut CpuSDR) {
+        self.ecc.decrement_activities(&mut output.sdr)
+    }
     #[getter]
     pub fn get_in_shape(&self) -> Vec<Idx> {
         self.ecc.in_shape().to_vec()
@@ -357,19 +373,19 @@ impl CpuEccDense {
     pub fn set_k(&mut self, k: Idx) {
         self.ecc.set_k(k)
     }
-    #[text_signature = "()"]
+    #[getter]
     fn get_threshold(&self) -> f32 {
         self.ecc.get_threshold()
     }
-    #[text_signature = "(threshold)"]
+    #[setter]
     fn set_threshold(&mut self, threshold: f32) {
         self.ecc.set_threshold(threshold)
     }
-    #[text_signature = "()"]
+    #[getter]
     fn get_plasticity(&self) -> f32 {
         self.ecc.get_plasticity()
     }
-    #[text_signature = "(plasticity)"]
+    #[setter]
     fn set_plasticity(&mut self, plasticity: f32) {
         self.ecc.set_plasticity(plasticity)
     }

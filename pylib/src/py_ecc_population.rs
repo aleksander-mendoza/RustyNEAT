@@ -51,6 +51,14 @@ pub struct ConvWeights {
 #[pymethods]
 impl ConvWeights {
     #[getter]
+    pub fn get_out_grid(&self) -> Vec<Idx> {
+        self.ecc.out_grid().to_vec()
+    }
+    #[getter]
+    pub fn get_in_grid(&self) -> Vec<Idx> {
+        self.ecc.in_grid().to_vec()
+    }
+    #[getter]
     fn get_plasticity(&self) -> f32 {
         self.ecc.get_plasticity()
     }
@@ -95,7 +103,11 @@ impl ConvWeights {
     pub fn forward(&mut self, input: &CpuSDR, pop:&mut CpuEccPopulation) {
         self.ecc.forward(&input.sdr, &mut pop.ecc);
     }
-
+    #[text_signature = "(input_sdr,target_population)"]
+    pub fn reset_and_forward(&mut self, input: &CpuSDR, pop:&mut CpuEccPopulation) {
+        pop.ecc.reset_sums();
+        self.ecc.forward(&input.sdr, &mut pop.ecc);
+    }
     #[text_signature = "(input_sdr,output_sdr,target_population)"]
     pub fn infer_in_place(&self, input: &CpuSDR, output:&mut CpuSDR, pop:&mut CpuEccPopulation){
         self.ecc.infer_in_place(&input.sdr, &mut output.sdr, &mut pop.ecc);
@@ -181,6 +193,7 @@ impl ConvWeights {
         }
         Ok(())
     }
+
     #[text_signature = "()"]
     pub fn normalize_all(&mut self) {
         self.ecc.normalize_all()
@@ -245,11 +258,11 @@ impl CpuEccPopulation {
     pub fn set_k(&mut self, k: Idx) {
         self.ecc.set_k(k)
     }
-    #[text_signature = "()"]
+    #[getter]
     fn get_threshold(&self) -> f32 {
         self.ecc.get_threshold()
     }
-    #[text_signature = "(threshold)"]
+    #[setter]
     fn set_threshold(&mut self, threshold: f32) {
         self.ecc.set_threshold(threshold)
     }
@@ -284,6 +297,26 @@ impl CpuEccPopulation {
     #[text_signature = "()"]
     pub fn reset_sums(&mut self) {
         self.ecc.reset_sums()
+    }
+    #[text_signature = "(output)"]
+    pub fn determine_winners_topk_in_place(&self,output:&mut CpuSDR) {
+        self.ecc.determine_winners_topk(&mut output.sdr)
+    }
+    #[text_signature = "(output)"]
+    pub fn determine_winners_top1_per_region_in_place(&self,output:&mut CpuSDR) {
+        self.ecc.determine_winners_top1_per_region(&mut output.sdr)
+    }
+    #[text_signature = "()"]
+    pub fn determine_winners_topk(&self) ->CpuSDR{
+        let mut output = CpuSDR{sdr:htm::CpuSDR::new()};
+        self.ecc.determine_winners_topk(&mut output.sdr);
+        output
+    }
+    #[text_signature = "()"]
+    pub fn determine_winners_top1_per_region(&self)->CpuSDR {
+        let mut output = CpuSDR{sdr:htm::CpuSDR::new()};
+        self.ecc.determine_winners_top1_per_region(&mut output.sdr);
+        output
     }
     #[text_signature = "(sdr)"]
     pub fn sums_for_sdr(&self, output:&CpuSDR)-> f32{
