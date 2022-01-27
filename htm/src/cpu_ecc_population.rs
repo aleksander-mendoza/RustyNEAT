@@ -22,6 +22,7 @@ use crate::ecc::{EccLayer, as_usize, Idx, as_idx, Rand, xorshift_rand};
 use crate::sdr::SDR;
 use rand::prelude::SliceRandom;
 use failure::Fail;
+use rayon::prelude::*;
 
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -180,6 +181,9 @@ impl<D: DenseWeight> CpuEccPopulation<D> {
     pub fn activity_f32(&self, output_idx: usize) -> f32 {
         D::w_to_f32(self.activity(output_idx))
     }
+    pub fn r(&self, idx: usize) -> D {
+        self.sums[idx]+self.activity[idx]
+    }
     pub fn determine_winners_topk(&self, output: &mut CpuSDR) {
         let t = self.threshold;
         let a = as_usize(self.shape().grid().product());
@@ -220,9 +224,9 @@ impl<D: DenseWeight> CpuEccPopulation<D> {
             //The channels of each column are arranged contiguously. Regions are also contiguous.
             let channel_region_offset = region_size * region_idx;
             let mut top1_idx=channel_region_offset;
-            let mut top1_val=self.sums[top1_idx]+self.activity[top1_idx];
+            let mut top1_val=self.r(top1_idx);
             for i in channel_region_offset+1..channel_region_offset + region_size{
-                let r = self.sums[i]+self.activity[i];
+                let r = self.r(i);
                 if r.gt(top1_val){
                     top1_val = r;
                     top1_idx = i;
@@ -234,7 +238,27 @@ impl<D: DenseWeight> CpuEccPopulation<D> {
         }
     }
 }
-
+impl<D: DenseWeight+Send+Sync> CpuEccPopulation<D> {
+    pub fn parallel_determine_winners_top1_per_region(&self, output: &mut CpuSDR) {
+        let t = self.threshold;
+        let a = as_usize(self.shape().grid().product());
+        let k = as_usize(self.k());
+        assert_eq!(self.shape().channels() % self.k(), 0);
+        let region_size = as_usize(self.shape().channels() / self.k());
+        output.clear();
+        for region_idx in 0..a * k {//There are k regions per column, each has region_size neurons.
+            //We need to pick the top 1 winner within each region.
+            //Giving us the total of k winners per output column.
+            //The channels of each column are arranged contiguously. Regions are also contiguous.
+            let channel_region_offset = region_size * region_idx;
+            let range = channel_region_offset..channel_region_offset + region_size;
+            let top1_idx = range.into_par_iter().max_by(|&a,&b|if self.r(a).gt(self.r(b)){Ordering::Greater}else{Ordering::Less}).unwrap();
+            if self.sums[top1_idx].ge(t){
+                output.push(as_idx(top1_idx));
+            }
+        }
+    }
+}
 impl CpuEccPopulation<f32> {
     pub fn reset_activity(&mut self) {
         let min = self.min_activity();

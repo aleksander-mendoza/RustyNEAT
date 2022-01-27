@@ -88,6 +88,7 @@ pub fn ecc(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<CpuEccMachine>()?;
     m.add_class::<CpuEccPopulation>()?;
     m.add_class::<ConvWeights>()?;
+    m.add_class::<WeightSums>()?;
     Ok(())
 }
 

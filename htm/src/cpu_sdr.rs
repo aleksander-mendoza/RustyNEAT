@@ -176,6 +176,10 @@ impl CpuSDR {
     pub fn binary_search(&self, neuron_index: u32) -> bool {
         self.0.binary_search(&neuron_index).is_ok()
     }
+    pub fn sorted(mut self) -> Self {
+        self.sort();
+        self
+    }
     pub fn is_normalized(&self) -> bool {
         if self.0.is_empty() { return true; }
         let mut prev = self.0[0];

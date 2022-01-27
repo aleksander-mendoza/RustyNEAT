@@ -43,7 +43,24 @@ impl<D: DenseWeight> DerefMut for CpuEccDense<D> {
         self.weights_mut()
     }
 }
-
+impl<D: DenseWeight + Send + Sync> CpuEccDense<D> {
+    pub fn parallel_run(&mut self, input: &CpuSDR) -> CpuSDR {
+        let Self{w,p} = self;
+        w.parallel_run(input, p)
+    }
+    pub fn parallel_run_in_place(&mut self, input: &CpuSDR, output: &mut CpuSDR) {
+        let Self{w,p} = self;
+        w.parallel_run_in_place(input, output, p)
+    }
+    pub fn parallel_infer(&mut self, input: &CpuSDR) -> CpuSDR {
+        let Self{w,p} = self;
+        w.parallel_infer(input, p)
+    }
+    pub fn parallel_infer_in_place(&mut self, input: &CpuSDR, output: &mut CpuSDR) {
+        let Self{w,p} = self;
+        w.parallel_infer_in_place(input, output,p)
+    }
+}
 impl<D: DenseWeight> CpuEccDense<D> {
     pub fn into_machine(self) -> CpuEccMachine<D> {
         CpuEccMachine::new_singleton(self)
@@ -67,6 +84,10 @@ impl<D: DenseWeight> CpuEccDense<D> {
     }
     pub fn new(shape: ConvShape, k: Idx, rng: &mut impl Rng) -> Self {
         Self { p: CpuEccPopulation::new(shape.output_shape(), k), w: ConvWeights::new(shape, rng) }
+    }
+    pub fn from(weights:ConvWeights<D>, pop:CpuEccPopulation<D>) -> Self {
+        assert_eq!(weights.out_shape(),pop.shape());
+        Self { p:pop, w:weights}
     }
     pub fn concat<T>(layers: &[T], f: impl Fn(&T) -> &Self) -> Self {
         let w = ConvWeights::concat(layers, |p| f(p).weights());

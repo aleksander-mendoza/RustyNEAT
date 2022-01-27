@@ -91,6 +91,11 @@ pub trait Shape<T: Num + Copy + Debug + PartialOrd, const DIM: usize>: Eq + Part
         let from = in_position.add(stride).max(kernel_size).sub(kernel_size).div(stride);
         from..to
     }
+    fn conv_out_range_clipped_both_sides(&self, stride: &Self, kernel_size: &Self, max_bounds:&Self)->Range<Self>{
+        let mut r = self.conv_out_range_clipped(stride,kernel_size);
+        r.end = r.end.min(max_bounds);
+        r
+    }
     fn conv_out_size(&self, stride: &Self, kernel_size: &Self) -> Self {
         let input = self;
         assert!(kernel_size.all_le(input), "Kernel size {:?} is larger than the input shape {:?} ", kernel_size, input);

@@ -1,4 +1,5 @@
 import gym
+from rusty_neat import ndalgebra as nd, ecc, htm
 
 env = gym.make("Pong-ram-v0")
 env.reset()

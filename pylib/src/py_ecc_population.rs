@@ -30,13 +30,23 @@ use crate::py_htm::{CpuSDR, OclSDR};
 use rand::SeedableRng;
 use pyo3::ffi::PyFloat_Type;
 
+
+///
+/// WeightSums(shape)
+///
+///
+#[pyclass]
+pub struct WeightSums {
+    pub ecc: htm::WeightSums<f32>,
+}
+
 ///
 /// CpuEccPopulation(shape, k: int)
 ///
 ///
 #[pyclass]
 pub struct CpuEccPopulation {
-    ecc: htm::CpuEccPopulation<f32>,
+    pub ecc: htm::CpuEccPopulation<f32>,
 }
 
 ///
@@ -45,8 +55,52 @@ pub struct CpuEccPopulation {
 ///
 #[pyclass]
 pub struct ConvWeights {
-    ecc: htm::ConvWeights<f32>,
+    pub ecc: htm::ConvWeights<f32>,
 }
+
+#[pymethods]
+impl WeightSums {
+    #[text_signature = "(index)"]
+    pub fn get(&self, i:Idx) -> f32 {
+        self.ecc[i]
+    }
+    #[text_signature = "()"]
+    pub fn as_list(&self) -> Vec<f32> {
+        self.ecc.as_slice().to_vec()
+    }
+    #[text_signature = "(index, value)"]
+    pub fn set(&mut self, i:Idx, v:f32) {
+        self.ecc[i] = v
+    }
+    #[text_signature = "(parallel)"]
+    pub fn clear_all(&mut self, parallel:Option<bool>) {
+        if parallel.unwrap_or(false) {
+            self.ecc.parallel_clear_all()
+        }else{
+            self.ecc.clear_all()
+        }
+    }
+    #[text_signature = "(sdr,parallel)"]
+    pub fn clear(&mut self,sdr:&CpuSDR, parallel:Option<bool>) {
+        if parallel.unwrap_or(false) {
+            self.ecc.parallel_clear(&sdr.sdr)
+        }else{
+            self.ecc.clear(&sdr.sdr)
+        }
+    }
+    #[new]
+    pub fn new(shape: [Idx; 3]) -> Self{
+        Self { ecc: htm::WeightSums::new(shape) }
+    }
+}
+
+#[pyproto]
+impl PySequenceProtocol for WeightSums {
+    fn __len__(&self) -> usize {
+        as_usize(self.ecc.len())
+    }
+}
+
 
 #[pymethods]
 impl ConvWeights {
@@ -99,48 +153,89 @@ impl ConvWeights {
     pub fn get_stride(&self) -> Vec<Idx> {
         self.ecc.stride().to_vec()
     }
-    #[text_signature = "(input_sdr,target_population)"]
-    pub fn forward(&mut self, input: &CpuSDR, pop:&mut CpuEccPopulation) {
-        self.ecc.forward(&input.sdr, &mut pop.ecc);
-    }
-    #[text_signature = "(input_sdr,target_population)"]
-    pub fn reset_and_forward(&mut self, input: &CpuSDR, pop:&mut CpuEccPopulation) {
-        pop.ecc.reset_sums();
-        self.ecc.forward(&input.sdr, &mut pop.ecc);
-    }
-    #[text_signature = "(input_sdr,output_sdr,target_population)"]
-    pub fn infer_in_place(&self, input: &CpuSDR, output:&mut CpuSDR, pop:&mut CpuEccPopulation){
-        self.ecc.infer_in_place(&input.sdr, &mut output.sdr, &mut pop.ecc);
-    }
-    #[text_signature = "(input_sdr,target_population)"]
-    pub fn infer(&self, input: &CpuSDR, target:&mut CpuEccPopulation)->CpuSDR{
-        CpuSDR{sdr:self.ecc.infer(&input.sdr,&mut target.ecc)}
-    }
-    #[text_signature = "(input_sdr,output_sdr,target_population,update_activity=True,learn=False)"]
-    pub fn run_in_place(&mut self, input: &CpuSDR,output: &mut CpuSDR, target:&mut CpuEccPopulation,update_activity:bool,learn:bool) {
-        self.ecc.infer_in_place(&input.sdr, &mut output.sdr, &mut target.ecc);
-        if update_activity {
-            target.ecc.decrement_activities(&output.sdr)
-        }
-        if learn{
-            self.ecc.learn(&input.sdr,&output.sdr)
+    #[text_signature = "(input_sdr,target_population,parallel)"]
+    pub fn forward(&mut self, input: &CpuSDR, pop:&mut CpuEccPopulation, parallel:Option<bool>) {
+        if parallel.unwrap_or(false) {
+            self.ecc.parallel_forward(&input.sdr, &mut pop.ecc);
+        }else{
+            self.ecc.forward(&input.sdr, &mut pop.ecc);
         }
     }
-    #[text_signature = "(input_sdr,target_population,update_activity=True,learn=False)"]
-    pub fn run(&mut self, input: &CpuSDR, target:&mut CpuEccPopulation, update_activity:bool,learn:bool)->CpuSDR{
-        let mut output = htm::CpuSDR::new();
-        self.ecc.infer_in_place(&input.sdr,&mut output,&mut target.ecc);
-        if update_activity {
-            target.ecc.decrement_activities(&output)
-        }
-        if learn{
-            self.ecc.learn(&input.sdr,&output)
-        }
-        CpuSDR{sdr:output}
+    #[text_signature = "(input_sdr,target_population,multiplier)"]
+    pub fn forward_with_multiplier(&mut self, input: &CpuSDR, pop:&mut CpuEccPopulation,multiplier:f32) {
+        self.ecc.forward_with_multiplier(&input.sdr, &mut pop.ecc,multiplier);
     }
-    #[text_signature = "(input_sdr,output_sdr)"]
-    pub fn learn(&mut self,input: &CpuSDR,output: &CpuSDR) {
-        self.ecc.learn(&input.sdr,&output.sdr);
+    #[text_signature = "(input_sdr,target_population,parallel)"]
+    pub fn reset_and_forward(&mut self, input: &CpuSDR, pop:&mut CpuEccPopulation, parallel:Option<bool>) {
+        if parallel.unwrap_or(false) {
+            self.ecc.parallel_reset_and_forward(&input.sdr, &mut pop.ecc);
+        }else{
+            self.ecc.reset_and_forward(&input.sdr, &mut pop.ecc);
+        }
+    }
+    #[text_signature = "(output_sdr,weight_sums,parallel)"]
+    pub fn normalize_with_stored_sums(&mut self, output: &CpuSDR, sums:&mut WeightSums,parallel:Option<bool>) {
+        if parallel.unwrap_or(false){
+            self.ecc.parallel_normalize_with_stored_sums(&output.sdr, &mut sums.ecc);
+        }else {
+            self.ecc.normalize_with_stored_sums(&output.sdr, &mut sums.ecc);
+        }
+    }
+    #[text_signature = "(input_sdr,output_sdr,target_population,learn, stored_sums, update_activity, parallel)"]
+    pub fn run_in_place(&mut self, input: &CpuSDR, output: &mut CpuSDR, target:&mut CpuEccPopulation, learn: Option<bool>, stored_sums:Option<&mut WeightSums>, update_activity:Option<bool>,parallel:Option<bool>) {
+        if parallel.unwrap_or(false){
+            self.ecc.parallel_infer_in_place(&input.sdr, &mut output.sdr, &mut target.ecc);
+        }else {
+            self.ecc.infer_in_place(&input.sdr, &mut output.sdr, &mut target.ecc);
+        }
+        if update_activity.unwrap_or(true) {
+            target.decrement_activities(&output)
+        }
+        if learn.unwrap_or(false) {
+            self.learn(input, output,stored_sums,parallel)
+        }
+    }
+    #[text_signature = "(input_sdr,output_sdr,learn, stored_sums, parallel)"]
+    pub fn infer_in_place(&mut self, input: &CpuSDR, output: &mut CpuSDR, target:&mut CpuEccPopulation,learn: Option<bool>, stored_sums:Option<&mut WeightSums>, parallel:Option<bool>) {
+        self.run_in_place(input,output,target,learn,stored_sums,Some(false), parallel)
+    }
+
+    #[text_signature = "(input_sdr, target_population, learn, stored_sums, update_activity, parallel)"]
+    pub fn run(&mut self, input: &CpuSDR, target:&mut CpuEccPopulation,learn: Option<bool>, stored_sums:Option<&mut WeightSums>, update_activity:Option<bool>, parallel:Option<bool>) -> CpuSDR {
+        let out = if parallel.unwrap_or(false){
+            self.ecc.parallel_infer(&input.sdr, &mut target.ecc)
+        }else{
+            self.ecc.infer(&input.sdr, &mut target.ecc)
+        };
+        if update_activity.unwrap_or(true) {
+            target.ecc.decrement_activities(&out)
+        }
+        let out = CpuSDR { sdr: out };
+        if learn.unwrap_or(false) {
+            self.learn(input,&out,stored_sums,parallel)
+        }
+        out
+    }
+    #[text_signature = "(input_sdr, target_population, learn, stored_sums, parallel)"]
+    pub fn infer(&mut self, input: &CpuSDR, target:&mut CpuEccPopulation,learn: Option<bool>, stored_sums:Option<&mut WeightSums>, parallel:Option<bool>) -> CpuSDR {
+        self.run(input,target,learn,stored_sums,Some(false),parallel)
+    }
+
+    #[text_signature = "(input_sdr,output_sdr,stored_sums,parallel)"]
+    pub fn learn(&mut self, input: &CpuSDR, output: &CpuSDR,stored_sums:Option<&mut WeightSums>,parallel:Option<bool>) {
+        if parallel.unwrap_or(false){
+            if let Some(stored_sums) = stored_sums{
+                self.ecc.parallel_learn_and_store_sums(&input.sdr, &output.sdr, &mut stored_sums.ecc)
+            }else{
+                self.ecc.parallel_learn(&input.sdr, &output.sdr)
+            }
+        }else {
+            if let Some(stored_sums) = stored_sums{
+                self.ecc.learn_and_store_sums(&input.sdr, &output.sdr, &mut stored_sums.ecc)
+            }else{
+                self.ecc.learn(&input.sdr, &output.sdr)
+            }
+        }
     }
     #[text_signature = "(output_size, column_pos)"]
     pub fn repeat_column(&self, output: PyObject, pretrained_column_pos: Option<PyObject>) -> PyResult<Self> {
@@ -211,6 +306,23 @@ impl ConvWeights {
             self.ecc.get_dropped_weights_count()
         }
     }
+    #[text_signature = "(sums,reset,parallel)"]
+    pub fn store_all_incoming_weight_sums(&self, sums:&mut WeightSums, reset:Option<bool>, parallel:Option<bool>) {
+        if reset.unwrap_or(false){
+            if parallel.unwrap_or(false){
+                self.ecc.store_all_incoming_weight_sums(&mut sums.ecc)
+            }else{
+                self.ecc.parallel_store_all_incoming_weight_sums(&mut sums.ecc)
+            }
+        }else{
+            if parallel.unwrap_or(false){
+                self.ecc.reset_and_store_all_incoming_weight_sums(&mut sums.ecc)
+            }else{
+                self.ecc.parallel_reset_and_store_all_incoming_weight_sums(&mut sums.ecc)
+            }
+        }
+
+    }
     #[text_signature = "(output_neuron)"]
     pub fn get_weight_sum(&self, output_neuron: Idx) -> f32 {
         self.ecc.incoming_weight_sum(output_neuron)
@@ -227,6 +339,7 @@ impl ConvWeights {
 
 impl_save_load!(CpuEccPopulation,ecc);
 impl_save_load!(ConvWeights,ecc);
+impl_save_load!(WeightSums,ecc);
 
 #[pymethods]
 impl CpuEccPopulation {

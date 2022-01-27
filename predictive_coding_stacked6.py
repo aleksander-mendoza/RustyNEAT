@@ -28,11 +28,16 @@ def rand_patch(patch_size, img_idx=None):
     return img[left_bottom[0]:top_right[0], left_bottom[1]:top_right[1]]
 
 
-def visualise_connection_heatmap(in_w, in_h, ecc_net, out_w, out_h):
-    fig, axs = plt.subplots(out_w, out_h)
-    for a in axs:
-        for b in a:
-            b.set_axis_off()
+fig, axs = None, None
+
+
+def visualise_connection_heatmap(in_w, in_h, ecc_net, out_w, out_h, pause=None):
+    global fig, axs
+    if fig is None:
+        fig, axs = plt.subplots(out_w, out_h)
+        for a in axs:
+            for b in a:
+                b.set_axis_off()
     for i in range(out_w):
         for j in range(out_h):
             w = ecc_net.get_weights(i + j * out_w)
@@ -40,6 +45,23 @@ def visualise_connection_heatmap(in_w, in_h, ecc_net, out_w, out_h):
             w = w.reshape(in_w, in_h)
             w.strides = (8, 56)
             axs[i, j].imshow(w)
+    if pause is None:
+        plt.show()
+    else:
+        plt.pause(pause)
+
+
+def visualise_recursive_weights(w, h, ecc_net):
+    fig, axs = plt.subplots(w, h)
+    for a in axs:
+        for b in a:
+            b.set_axis_off()
+    for i in range(w):
+        for j in range(h):
+            weights = np.array(ecc_net.get_weights(i + j * w))
+            weights[i + j * w] = 0
+            weights = weights.reshape([w, h]).T
+            axs[i, j].imshow(weights)
     plt.show()
 
 
@@ -47,7 +69,7 @@ def compute_confusion_matrix_fit(conf_mat, ecc_net, metric_l2=True):
     assert ecc_net.out_grid == [1, 1]
     fit = torch.empty(ecc_net.out_channels)
     for i in range(ecc_net.out_channels):
-        corr = conf_mat[i]/conf_mat[i].sum()
+        corr = conf_mat[i] / conf_mat[i].sum()
         wei = torch.tensor(ecc_net.get_weights(i))
         if metric_l2:
             fit[i] = corr @ wei
@@ -62,6 +84,7 @@ class Experiment:
         self.w = w
         self.h = h
         self.input_shape = None
+        self.output_shape = None
         self.iterations = 1000000
         self.interval = 100000
         self.test_patches = 20000
@@ -166,7 +189,7 @@ class Experiment:
                 return img, sdr
 
             curr = set()
-            confusion_matrix = torch.zeros([self.w*self.h, self.w*self.h])
+            confusion_matrix = torch.zeros([self.w * self.h, self.w * self.h])
             for s in tqdm(range(self.test_patches), desc="measuring"):
                 img_idx = int(np.random.rand() * len(MNIST))
                 img = MNIST[img_idx]
@@ -206,6 +229,7 @@ class Experiment:
                     img = img.reshape([self.w, self.h])
                     img = img.T
                     axs[i, j].imshow(img)
+            plt.savefig(self.save_file + " conf_mat.png")
             plt.show()
         return confusion_matrix
 
@@ -215,6 +239,7 @@ class Experiment:
         enc = htm.EncoderBuilder()
         img_w, img_h, img_c = self.input_shape
         enc_img = enc.add_image(img_w, img_h, img_c, 0.8)
+        out_volume = self.output_shape.prod()
 
         class D(torch.utils.data.Dataset):
             def __init__(self, imgs, lbls, ecc_net):
@@ -230,19 +255,19 @@ class Experiment:
                 sdr = htm.CpuSDR()
                 enc_img.encode(sdr, img.unsqueeze(2).numpy())
                 img_bits = self.ecc_net.run(sdr, learn=False, update_activity=False)
-                img = torch.zeros(m.out_volume)
+                img = torch.zeros(out_volume)
                 img[list(img_bits)] = 1
                 return img, self.lbls[idx]
 
         train_mnist = MNIST[:40000]
         train_labels = LABELS[:40000]
-        train_d = D(train_mnist, train_labels)
+        train_d = D(train_mnist, train_labels, self)
 
         eval_mnist = MNIST[40000:60000]
         eval_labels = LABELS[40000:60000]
-        eval_d = D(eval_mnist, eval_labels)
+        eval_d = D(eval_mnist, eval_labels, self)
 
-        linear = torch.nn.Linear(m.out_volume, 10)
+        linear = torch.nn.Linear(out_volume, 10)
         loss = torch.nn.NLLLoss()
         optim = torch.optim.Adam(linear.parameters())
 
@@ -287,6 +312,7 @@ class Experiment1(Experiment):
             self.layer1 = ecc.CpuEccPopulation(self.input_to_layer1.out_shape, 1)
 
         self.input_shape = np.array(self.input_to_layer1.in_shape)
+        self.output_shape = np.array(self.input_to_layer1.out_shape)
 
     def run(self, sdr, learn, update_activity):
         layer1_sdr = self.input_to_layer1.run(sdr, self.layer1, update_activity=update_activity, learn=learn)
@@ -356,6 +382,7 @@ class Experiment21(Experiment):
     def __init__(self, w, h):
         super().__init__(w, h, "experiment21oc" + str(w * h))
         ex2 = Experiment2(7, 7)
+        ex2.plot = False
         ex2.num_of_snapshots = 6
         ex2.drift = np.array([3, 3])
         self.conf_mat = ex2.measure_cross_correlation()
@@ -369,6 +396,7 @@ class Experiment21(Experiment):
         self.input_shape = ex2.input_shape
         self.sdr = None
         self.drift = ex2.drift
+        self.plot = False
         self.num_of_snapshots = ex2.num_of_snapshots
 
     def run(self, sdr, learn, update_activity):
@@ -386,6 +414,7 @@ class Experiment21(Experiment):
         self.sdr = None
 
     def save(self):
+        visualise_connection_heatmap(7, 7, self.layer2, 3, 3, 0.001)
         fit = compute_confusion_matrix_fit(self.conf_mat, self.layer2, metric_l2=True)
         print("fit l2=", fit)
         print(fit.sum())
@@ -400,9 +429,11 @@ class Experiment21(Experiment):
 
 
 class Experiment22(Experiment):
-    def __init__(self,w,h):
-        super().__init__(w,h, "experiment22")
+    def __init__(self, w, h):
+        super().__init__(w, h, "experiment22")
         ex2 = Experiment2(7, 7)
+        ex2.num_of_snapshots = 6
+        ex2.drift = np.array([3, 3])
         self.conf_mat = ex2.measure_cross_correlation()
         self.layer2_save_file = self.save_file + " layer2.model"
         self.layer1_to_layer2_save_file = self.save_file + " layer1_to_layer2.model"
@@ -448,6 +479,80 @@ class Experiment22(Experiment):
         return self.layer2.sums_for_sdr(output_sdr)
 
 
-# torch.set_printoptions(threshold=10_000)
+class Experiment11(Experiment):
+    def __init__(self):
+        super().__init__(15, 15, "experiment11")
+        ex1 = Experiment1()
+        self.layer1 = ecc.CpuEccDense.new_from(ex1.input_to_layer1, ex1.layer1)
+        self.layer1 = self.layer1.repeat_column([11, 11])
+        self.input_shape = np.array(self.layer1.in_shape)
+        self.output_shape = np.array(self.layer1.out_shape)
 
-Experiment22(4,4).experiment()
+    def run(self, sdr, learn, update_activity):
+        return self.layer1.infer(sdr)
+
+
+class Experiment4(Experiment):
+    def __init__(self, w, h):
+        super().__init__(w, h, "experiment4oc" + str(w * h))
+        self.input_to_layer1_save_file = self.save_file + " input_to_layer1.model"
+        self.layer1_to_layer1_save_file = self.save_file + " layer1_to_layer1.model"
+        self.layer1_save_file = self.save_file + " layer1.model"
+        if os.path.exists(self.input_to_layer1_save_file):
+            self.layer1 = ecc.CpuEccPopulation.load(self.layer1_save_file)
+            self.input_to_layer1 = ecc.ConvWeights.load(self.input_to_layer1_save_file)
+            self.layer1_to_layer1 = ecc.ConvWeights.load(self.layer1_to_layer1_save_file)
+        else:
+            self.layer1 = ecc.CpuEccPopulation([1, 1, self.w * self.h], 1)
+            self.input_to_layer1 = ecc.ConvWeights(self.layer1.shape, [5, 5], [1, 1], 1)
+            self.layer1_to_layer1 = ecc.ConvWeights(self.layer1.shape, [1, 1], [1, 1], self.layer1.channels)
+        self.stored_sums = ecc.WeightSums(self.layer1.shape)
+        self.layer1_sdr = htm.CpuSDR()
+        self.input_shape = np.array(self.input_to_layer1.in_shape)
+        self.output_shape = np.array(self.input_to_layer1.out_shape)
+        self.num_of_snapshots = 6
+        self.drift = np.array([3, 3])
+
+    def run(self, input_sdr, learn, update_activity):
+        self.input_to_layer1.reset_and_forward(input_sdr, self.layer1, parallel=PARALLEL)
+        self.layer1_to_layer1.forward(self.layer1_sdr, self.layer1, parallel=PARALLEL)
+        new_sdr = self.layer1.determine_winners_top1_per_region()
+        if update_activity:
+            self.layer1.decrement_activities(new_sdr)
+        if learn:
+            self.input_to_layer1.learn(input_sdr, new_sdr, self.stored_sums, PARALLEL)
+            self.layer1_to_layer1.learn(self.layer1_sdr, new_sdr, self.stored_sums, PARALLEL)
+            self.input_to_layer1.normalize_with_stored_sums(new_sdr, self.stored_sums, PARALLEL)
+            self.layer1_to_layer1.normalize_with_stored_sums(new_sdr, self.stored_sums, PARALLEL)
+            self.stored_sums.clear(new_sdr, PARALLEL)
+        self.layer1_sdr = new_sdr
+        return new_sdr
+
+    def save(self):
+        self.input_to_layer1.save(self.input_to_layer1_save_file)
+        self.layer1_to_layer1.save(self.layer1_to_layer1_save_file)
+        self.layer1.save(self.layer1_save_file)
+
+    def take_action(self):
+        self.layer1_sdr = htm.CpuSDR()
+
+    def sums(self, output_sdr):
+        return self.layer1.sums_for_sdr(output_sdr)
+
+
+PARALLEL = False
+
+Experiment21(3, 3).experiment()
+
+# e = Experiment4(5, 8)
+# e.experiment()
+# cm = e.measure_cross_correlation()
+# ## produces: predictive_coding_stacked6_experiment4oc40 conf_mat.png
+# visualise_recursive_weights(e.w, e.h, e.layer1_to_layer1)
+# ## produces: predictive_coding_stacked6_experiment4oc40 layer1_to_layer1_weights.png
+
+
+# Experiment11().eval_with_classifier_head()
+# Outcome:
+# train= 0.9173 eval= 0.941
+# train= 0.963725 eval= 0.94775

@@ -29,6 +29,7 @@ use crate::util::*;
 use crate::py_htm::{CpuSDR, OclSDR};
 use rand::SeedableRng;
 use pyo3::ffi::PyFloat_Type;
+use crate::py_ecc_population::{ConvWeights, CpuEccPopulation, WeightSums};
 
 ///
 /// CpuEccDense(output: list[int], kernel: list[int], stride: list[int], in_channels: int, out_channels: int, k: int)
@@ -389,39 +390,61 @@ impl CpuEccDense {
     fn set_plasticity(&mut self, plasticity: f32) {
         self.ecc.set_plasticity(plasticity)
     }
-    #[text_signature = "(input_sdr,output_sdr,learn)"]
-    pub fn run_in_place(&mut self, input: &CpuSDR, output: &mut CpuSDR, learn: Option<bool>) {
-        self.ecc.run_in_place(&input.sdr, &mut output.sdr);
+    #[text_signature = "(input_sdr,output_sdr,learn, stored_sums, update_activity, parallel)"]
+    pub fn run_in_place(&mut self, input: &CpuSDR, output: &mut CpuSDR, learn: Option<bool>, stored_sums:Option<&mut WeightSums>, update_activity:Option<bool>,parallel:Option<bool>) {
+        if parallel.unwrap_or(false){
+            self.ecc.parallel_infer_in_place(&input.sdr, &mut output.sdr);
+        }else {
+            self.ecc.infer_in_place(&input.sdr, &mut output.sdr);
+        }
+        if update_activity.unwrap_or(true) {
+            self.ecc.decrement_activities(&output.sdr)
+        }
         if learn.unwrap_or(false) {
-            self.ecc.learn(&input.sdr, &output.sdr)
+            self.learn(input, output,stored_sums,parallel)
         }
     }
-    #[text_signature = "(input_sdr,output_sdr,learn)"]
-    pub fn infer_in_place(&mut self, input: &CpuSDR, output: &mut CpuSDR, learn: Option<bool>) {
-        self.ecc.infer_in_place(&input.sdr, &mut output.sdr);
-        if learn.unwrap_or(false) {
-            self.ecc.learn(&input.sdr, &output.sdr)
-        }
+    #[text_signature = "(input_sdr,output_sdr,learn, stored_sums, parallel)"]
+    pub fn infer_in_place(&mut self, input: &CpuSDR, output: &mut CpuSDR, learn: Option<bool>, stored_sums:Option<&mut WeightSums>, parallel:Option<bool>) {
+        self.run_in_place(input,output,learn,stored_sums,Some(false), parallel)
     }
-    #[text_signature = "(input_sdr, learn)"]
-    pub fn run(&mut self, input: &CpuSDR, learn: Option<bool>) -> CpuSDR {
-        let out = self.ecc.run(&input.sdr);
-        if learn.unwrap_or(false) {
-            self.ecc.learn(&input.sdr, &out)
+
+    #[text_signature = "(input_sdr, learn, stored_sums, update_activity, parallel)"]
+    pub fn run(&mut self, input: &CpuSDR, learn: Option<bool>, stored_sums:Option<&mut WeightSums>, update_activity:Option<bool>, parallel:Option<bool>) -> CpuSDR {
+        let out = if parallel.unwrap_or(false){
+            self.ecc.parallel_infer(&input.sdr)
+        }else{
+            self.ecc.infer(&input.sdr)
+        };
+        if update_activity.unwrap_or(true) {
+            self.ecc.decrement_activities(&out)
         }
-        CpuSDR { sdr: out }
-    }
-    #[text_signature = "(input_sdr, learn)"]
-    pub fn infer(&mut self, input: &CpuSDR, learn: Option<bool>) -> CpuSDR {
-        let out = self.ecc.infer(&input.sdr);
+        let out = CpuSDR { sdr: out };
         if learn.unwrap_or(false) {
-            self.ecc.learn(&input.sdr, &out)
+            self.learn(input,&out,stored_sums,parallel)
         }
-        CpuSDR { sdr: out }
+        out
     }
-    #[text_signature = "(input_sdr,output_sdr,rand_seed)"]
-    pub fn learn(&mut self, input: &CpuSDR, output: &CpuSDR) {
-        self.ecc.learn(&input.sdr, &output.sdr)
+    #[text_signature = "(input_sdr, learn, stored_sums, parallel)"]
+    pub fn infer(&mut self, input: &CpuSDR, learn: Option<bool>, stored_sums:Option<&mut WeightSums>, parallel:Option<bool>) -> CpuSDR {
+        self.run(input,learn,stored_sums,Some(false),parallel)
+    }
+
+    #[text_signature = "(input_sdr,output_sdr,stored_sums,parallel)"]
+    pub fn learn(&mut self, input: &CpuSDR, output: &CpuSDR,stored_sums:Option<&mut WeightSums>,parallel:Option<bool>) {
+        if parallel.unwrap_or(false){
+            if let Some(stored_sums) = stored_sums{
+                self.ecc.parallel_learn_and_store_sums(&input.sdr, &output.sdr, &mut stored_sums.ecc)
+            }else{
+                self.ecc.parallel_learn(&input.sdr, &output.sdr)
+            }
+        }else {
+            if let Some(stored_sums) = stored_sums{
+                self.ecc.learn_and_store_sums(&input.sdr, &output.sdr, &mut stored_sums.ecc)
+            }else{
+                self.ecc.learn(&input.sdr, &output.sdr)
+            }
+        }
     }
     #[text_signature = "()"]
     pub fn to_machine(&self) -> CpuEccMachine {
@@ -488,7 +511,12 @@ impl CpuEccDense {
         };
         Ok(Self { ecc: htm::CpuEccDense::from_repeated_column(output, &self.ecc, pretrained_column_pos) })
     }
-
+    #[staticmethod]
+    #[text_signature = "(weights, population)"]
+    pub fn new_from(weights: &ConvWeights, population:&CpuEccPopulation) -> Self {
+        assert_eq!(weights.ecc.out_shape(), population.ecc.shape());
+        Self { ecc: htm::CpuEccDense::from(weights.ecc.clone(),population.ecc.clone()) }
+    }
     #[staticmethod]
     #[text_signature = "(layers)"]
     pub fn concat(layers: Vec<PyRef<Self>>) -> Self {
