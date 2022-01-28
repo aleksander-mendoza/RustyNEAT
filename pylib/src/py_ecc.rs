@@ -185,6 +185,11 @@ impl CpuEccMachine {
     pub fn set_threshold(&mut self, layer: usize, threshold: f32) {
         self.ecc[layer].set_threshold(threshold)
     }
+    #[text_signature = "(final_column_grid)"]
+    pub fn repeat_column(&self, py:Python,final_column_grid:PyObject) -> PyResult<Self> {
+        let final_column_grid  =arr2(py,&final_column_grid)?;
+        Ok(Self{ecc:htm::CpuEccMachine::from_repeated_column(final_column_grid,&self.ecc)})
+    }
     #[text_signature = "(layer)"]
     pub fn get_plasticity(&self, layer: usize) -> f32 {
         self.ecc[layer].get_plasticity()

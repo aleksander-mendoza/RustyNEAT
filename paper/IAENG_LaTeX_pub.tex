@@ -1,0 +1,593 @@
+
+%% IAENG_pub.tex 2010/08/30
+%% It is based on the bare_jrnl.tex V1.3 2007/01/11 by Michael Shell
+%% see http://www.michaelshell.org/
+%% for current contact information.
+%%
+%% This is a skeleton file demonstrating the use of IAENGtran.cls
+%% (requires IAENGtran.cls version 1.7 or later) with an IAENG journal/conference paper.
+%%
+%% Support sites:
+%% http://www.michaelshell.org/tex
+%% http://www.ctan.org/tex-archive/macros/latex/contrib/IEEEtran/
+
+% *** Authors should verify (and, if needed, correct) their LaTeX system  ***
+% *** with the testflow diagnostic prior to trusting their LaTeX platform ***
+% *** with production work. IAENG's font choices can trigger bugs that do  ***
+% *** not appear when using other class files.                            ***
+% The testflow support page is at:
+% http://www.michaelshell.org/tex/testflow/
+
+
+%%*************************************************************************
+%% Legal Notice:
+%% This code is offered as-is without any warranty either expressed or
+%% implied; without even the implied warranty of MERCHANTABILITY or
+%% FITNESS FOR A PARTICULAR PURPOSE!
+%% User assumes all risk.
+%% In no event shall IAENG or any contributor to this code be liable for
+%% any damages or losses, including, but not limited to, incidental,
+%% consequential, or any other damages, resulting from the use or misuse
+%% of any information contained here.
+%%
+%% All comments are the opinions of their respective authors and are not
+%% necessarily endorsed by the IAENG.
+%%
+%% This work is distributed under the LaTeX Project Public License (LPPL)
+%% ( http://www.latex-project.org/ ) version 1.3, and may be freely used,
+%% distributed and modified. A copy of the LPPL, version 1.3, is included
+%% in the base LaTeX documentation of all distributions of LaTeX released
+%% 2003/12/01 or later.
+%% Retain all contribution notices and credits.
+%% ** Modified files should be clearly indicated as such, including  **
+%% ** renaming them and changing author support contact information. **
+%%
+%%*************************************************************************
+
+% Note that the a4paper option is mainly intended so that authors in
+% countries using A4 can easily print to A4 and see how their papers will
+% look in print - the typesetting of the document will not typically be
+% affected with changes in paper size (but the bottom and side margins will).
+% Use the testflow package mentioned above to verify correct handling of
+% both paper sizes by the user's LaTeX system.
+%
+% Also note that the "draftcls" or "draftclsnofoot", not "draft", option
+% should be used if it is desired that the figures are to be displayed in
+% draft mode.
+%
+\documentclass[journal]{IAENGtran}
+%
+% If IAENGtran.cls has not been installed into the LaTeX system files,
+% manually specify the path to it like:
+% \documentclass[journal]{../sty/IAENGtran}
+
+
+
+
+
+% Some very useful LaTeX packages include:
+% (uncomment the ones you want to load)
+
+
+% *** MISC UTILITY PACKAGES ***
+%
+%\usepackage{ifpdf}
+% Heiko Oberdiek's ifpdf.sty is very useful if you need conditional
+% compilation based on whether the output is pdf or dvi.
+% usage:
+% \ifpdf
+%   % pdf code
+% \else
+%   % dvi code
+% \fi
+% The latest version of ifpdf.sty can be obtained from:
+% http://www.ctan.org/tex-archive/macros/latex/contrib/oberdiek/
+% Also, note that IAENGtran.cls V1.7 and later provides a builtin
+% \ifCLASSINFOpdf conditional that works the same way.
+% When switching from latex to pdflatex and vice-versa, the compiler may
+% have to be run twice to clear warning/error messages.
+
+
+
+
+
+
+% *** CITATION PACKAGES ***
+%
+%\usepackage{cite}
+% cite.sty was written by Donald Arseneau
+% V1.6 and later of IAENGtran pre-defines the format of the cite.sty package
+% \cite{} output to follow that of IAENG. Loading the cite package will
+% result in citation numbers being automatically sorted and properly
+% "compressed/ranged". e.g., [1], [9], [2], [7], [5], [6] without using
+% cite.sty will become [1], [2], [5]--[7], [9] using cite.sty. cite.sty's
+% \cite will automatically add leading space, if needed. Use cite.sty's
+% noadjust option (cite.sty V3.8 and later) if you want to turn this off.
+% cite.sty is already installed on most LaTeX systems. Be sure and use
+% version 4.0 (2003-05-27) and later if using hyperref.sty. cite.sty does
+% not currently provide for hyperlinked citations.
+% The latest version can be obtained at:
+% http://www.ctan.org/tex-archive/macros/latex/contrib/cite/
+% The documentation is contained in the cite.sty file itself.
+
+
+
+
+
+
+% *** GRAPHICS RELATED PACKAGES ***
+%
+
+   \usepackage[outdir=./]{epstopdf}
+   \usepackage[pdftex]{graphicx}
+  % declare the path(s) where your graphic files are
+  % \graphicspath{{../pdf/}{../jpeg/}}
+  % and their extensions so you won't have to specify these with
+  % every instance of \includegraphics
+   \DeclareGraphicsExtensions{.pdf}
+
+% graphicx was written by David Carlisle and Sebastian Rahtz. It is
+% required if you want graphics, photos, etc. graphicx.sty is already
+% installed on most LaTeX systems. The latest version and documentation can
+% be obtained at:
+% http://www.ctan.org/tex-archive/macros/latex/required/graphics/
+% Another good source of documentation is "Using Imported Graphics in
+% LaTeX2e" by Keith Reckdahl which can be found as epslatex.ps or
+% epslatex.pdf at: http://www.ctan.org/tex-archive/info/
+%
+% latex, and pdflatex in dvi mode, support graphics in encapsulated
+% postscript (.eps) format. pdflatex in pdf mode supports graphics
+% in .pdf, .jpeg, .png and .mps (metapost) formats. Users should ensure
+% that all non-photo figures use a vector format (.eps, .pdf, .mps) and
+% not a bitmapped formats (.jpeg, .png). IAENG frowns on bitmapped formats
+% which can result in "jaggedy"/blurry rendering of lines and letters as
+% well as large increases in file sizes.
+%
+% You can find documentation about the pdfTeX application at:
+% http://www.tug.org/applications/pdftex
+
+
+
+
+
+% *** MATH PACKAGES ***
+%
+\usepackage[cmex10]{amsmath}
+\usepackage{amsthm}
+\usepackage{amssymb}
+
+% A popular package from the American Mathematical Society that provides
+% many useful and powerful commands for dealing with mathematics. If using
+% it, be sure to load this package with the cmex10 option to ensure that
+% only type 1 fonts will utilized at all point sizes. Without this option,
+% it is possible that some math symbols, particularly those within
+% footnotes, will be rendered in bitmap form which will result in a
+% document that can not be IAENG compliant!
+%
+% Also, note that the amsmath package sets \interdisplaylinepenalty to 10000
+% thus preventing page breaks from occurring within multiline equations. Use:
+%\interdisplaylinepenalty=2500
+% after loading amsmath to restore such page breaks as IAENGtran.cls normally
+% does. amsmath.sty is already installed on most LaTeX systems. The latest
+% version and documentation can be obtained at:
+% http://www.ctan.org/tex-archive/macros/latex/required/amslatex/math/
+
+
+
+
+
+% *** SPECIALIZED LIST PACKAGES ***
+%
+%\usepackage{algorithmic}
+% algorithmic.sty was written by Peter Williams and Rogerio Brito.
+% This package provides an algorithmic environment for describing algorithms.
+% You can use the algorithmic environment in-text or within a figure
+% environment to provide for a floating algorithm. Do NOT use the algorithm
+% floating environment provided by algorithm.sty (by the same authors) or
+% algorithm2e.sty (by Christophe Fiorio) as IAENG does not use dedicated
+% algorithm float types and packages that provide these will not provide
+% correct IAENG style captions. The latest version and documentation of
+% algorithmic.sty can be obtained at:
+% http://www.ctan.org/tex-archive/macros/latex/contrib/algorithms/
+% There is also a support site at:
+% http://algorithms.berlios.de/index.html
+% Also of interest may be the (relatively newer and more customizable)
+% algorithmicx.sty package by Szasz Janos:
+% http://www.ctan.org/tex-archive/macros/latex/contrib/algorithmicx/
+
+
+
+
+% *** ALIGNMENT PACKAGES ***
+%
+%\usepackage{array}
+% Frank Mittelbach's and David Carlisle's array.sty patches and improves
+% the standard LaTeX2e array and tabular environments to provide better
+% appearance and additional user controls. As the default LaTeX2e table
+% generation code is lacking to the point of almost being broken with
+% respect to the quality of the end results, all users are strongly
+% advised to use an enhanced (at the very least that provided by array.sty)
+% set of table tools. array.sty is already installed on most systems. The
+% latest version and documentation can be obtained at:
+% http://www.ctan.org/tex-archive/macros/latex/required/tools/
+
+
+%\usepackage{mdwmath}
+%\usepackage{mdwtab}
+% Also highly recommended is Mark Wooding's extremely powerful MDW tools,
+% especially mdwmath.sty and mdwtab.sty which are used to format equations
+% and tables, respectively. The MDWtools set is already installed on most
+% LaTeX systems. The lastest version and documentation is available at:
+% http://www.ctan.org/tex-archive/macros/latex/contrib/mdwtools/
+
+
+% IAENGtran contains the IAENGeqnarray family of commands that can be used to
+% generate multiline equations as well as matrices, tables, etc., of high
+% quality.
+
+
+%\usepackage{eqparbox}
+% Also of notable interest is Scott Pakin's eqparbox package for creating
+% (automatically sized) equal width boxes - aka "natural width parboxes".
+% Available at:
+% http://www.ctan.org/tex-archive/macros/latex/contrib/eqparbox/
+
+
+
+
+
+% *** SUBFIGURE PACKAGES ***
+%\usepackage[tight,footnotesize]{subfigure}
+% subfigure.sty was written by Steven Douglas Cochran. This package makes it
+% easy to put subfigures in your figures. e.g., "Figure 1a and 1b". For IAENG
+% work, it is a good idea to load it with the tight package option to reduce
+% the amount of white space around the subfigures. subfigure.sty is already
+% installed on most LaTeX systems. The latest version and documentation can
+% be obtained at:
+% http://www.ctan.org/tex-archive/obsolete/macros/latex/contrib/subfigure/
+% subfigure.sty has been superceeded by subfig.sty.
+
+
+
+%\usepackage[caption=false]{caption}
+%\usepackage[font=footnotesize]{subfig}
+% subfig.sty, also written by Steven Douglas Cochran, is the modern
+% replacement for subfigure.sty. However, subfig.sty requires and
+% automatically loads Axel Sommerfeldt's caption.sty which will override
+% IAENGtran.cls handling of captions and this will result in nonIAENG style
+% figure/table captions. To prevent this problem, be sure and preload
+% caption.sty with its "caption=false" package option. This is will preserve
+% IAENGtran.cls handing of captions. Version 1.3 (2005/06/28) and later
+% (recommended due to many improvements over 1.2) of subfig.sty supports
+% the caption=false option directly:
+%\usepackage[caption=false,font=footnotesize]{subfig}
+%
+% The latest version and documentation can be obtained at:
+% http://www.ctan.org/tex-archive/macros/latex/contrib/subfig/
+% The latest version and documentation of caption.sty can be obtained at:
+% http://www.ctan.org/tex-archive/macros/latex/contrib/caption/
+
+
+
+
+% *** FLOAT PACKAGES ***
+%
+%\usepackage{fixltx2e}
+% fixltx2e, the successor to the earlier fix2col.sty, was written by
+% Frank Mittelbach and David Carlisle. This package corrects a few problems
+% in the LaTeX2e kernel, the most notable of which is that in current
+% LaTeX2e releases, the ordering of single and double column floats is not
+% guaranteed to be preserved. Thus, an unpatched LaTeX2e can allow a
+% single column figure to be placed prior to an earlier double column
+% figure. The latest version and documentation can be found at:
+% http://www.ctan.org/tex-archive/macros/latex/base/
+
+
+
+%\usepackage{stfloats}
+% stfloats.sty was written by Sigitas Tolusis. This package gives LaTeX2e
+% the ability to do double column floats at the bottom of the page as well
+% as the top. (e.g., "\begin{figure*}[!b]" is not normally possible in
+% LaTeX2e). It also provides a command:
+%\fnbelowfloat
+% to enable the placement of footnotes below bottom floats (the standard
+% LaTeX2e kernel puts them above bottom floats). This is an invasive package
+% which rewrites many portions of the LaTeX2e float routines. It may not work
+% with other packages that modify the LaTeX2e float routines. The latest
+% version and documentation can be obtained at:
+% http://www.ctan.org/tex-archive/macros/latex/contrib/sttools/
+% Documentation is contained in the stfloats.sty comments as well as in the
+% presfull.pdf file. Do not use the stfloats baselinefloat ability as IAENG
+% does not allow \baselineskip to stretch. Authors submitting work to the
+% IAENG should note that IAENG rarely uses double column equations and
+% that authors should try to avoid such use. Do not be tempted to use the
+% cuted.sty or midfloat.sty packages (also by Sigitas Tolusis) as IAENG does
+% not format its papers in such ways.
+
+
+%\ifCLASSOPTIONcaptionsoff
+%  \usepackage[nomarkers]{endfloat}
+% \let\MYoriglatexcaption\caption
+% \renewcommand{\caption}[2][\relax]{\MYoriglatexcaption[#2]{#2}}
+%\fi
+% endfloat.sty was written by James Darrell McCauley and Jeff Goldberg.
+% This package may be useful when used in conjunction with IAENGtran.cls'
+% captionsoff option. Some IAENG journals/societies require that submissions
+% have lists of figures/tables at the end of the paper and that
+% figures/tables without any captions are placed on a page by themselves at
+% the end of the document. If needed, the draftcls IAENGtran class option or
+% \CLASSINPUTbaselinestretch interface can be used to increase the line
+% spacing as well. Be sure and use the nomarkers option of endfloat to
+% prevent endfloat from "marking" where the figures would have been placed
+% in the text. The two hack lines of code above are a slight modification of
+% that suggested by in the endfloat docs (section 8.3.1) to ensure that
+% the full captions always appear in the list of figures/tables - even if
+% the user used the short optional argument of \caption[]{}.
+% IAENG papers do not typically make use of \caption[]'s optional argument,
+% so this should not be an issue. A similar trick can be used to disable
+% captions of packages such as subfig.sty that lack options to turn off
+% the subcaptions:
+% For subfig.sty:
+% \let\MYorigsubfloat\subfloat
+% \renewcommand{\subfloat}[2][\relax]{\MYorigsubfloat[]{#2}}
+% For subfigure.sty:
+% \let\MYorigsubfigure\subfigure
+% \renewcommand{\subfigure}[2][\relax]{\MYorigsubfigure[]{#2}}
+% However, the above trick will not work if both optional arguments of
+% the \subfloat/subfig command are used. Furthermore, there needs to be a
+% description of each subfigure *somewhere* and endfloat does not add
+% subfigure captions to its list of figures. Thus, the best approach is to
+% avoid the use of subfigure captions (many IAENG journals avoid them anyway)
+% and instead reference/explain all the subfigures within the main caption.
+% The latest version of endfloat.sty and its documentation can obtained at:
+% http://www.ctan.org/tex-archive/macros/latex/contrib/endfloat/
+%
+% The IAENGtran \ifCLASSOPTIONcaptionsoff conditional can also be used
+% later in the document, say, to conditionally put the References on a
+% page by themselves.
+
+
+
+
+
+% *** PDF, URL AND HYPERLINK PACKAGES ***
+%
+%\usepackage{url}
+% url.sty was written by Donald Arseneau. It provides better support for
+% handling and breaking URLs. url.sty is already installed on most LaTeX
+% systems. The latest version can be obtained at:
+% http://www.ctan.org/tex-archive/macros/latex/contrib/misc/
+% Read the url.sty source comments for usage information. Basically,
+% \url{my_url_here}.
+
+
+
+
+
+% *** Do not adjust lengths that control margins, column widths, etc. ***
+% *** Do not use packages that alter fonts (such as pslatex).         ***
+% There should be no need to do such things with IAENGtran.cls V1.6 and later.
+% (Unless specifically asked to do so by the journal or conference you plan
+% to submit to, of course. )
+
+
+% correct bad hyphenation here
+% \hyphenation{op-tical net-works semi-conduc-tor}
+
+
+\begin{document}
+%
+% paper title
+% can use linebreaks \\ within to get better formatting as desired
+\title{Nondeterministic functional transducer inference algorithm}
+%
+%
+% author names and IAENG memberships
+% note positions of commas and nonbreaking spaces ( ~ ) LaTeX will not break
+% a structure at a ~ so this keeps an author's name from being broken across
+% two lines.
+% use \thanks{} to gain access to the first footnote area
+% a separate \thanks must be used for each paragraph as LaTeX2e's \thanks
+% was not built to handle multiple paragraphs
+%
+
+\author{Aleksander Mendoza-Drosik}% <-this % stops a space
+
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{definition}{Definition}
+
+
+% note the % following the last \IAENGmembership and also \thanks -
+% these prevent an unwanted space from occurring between the last author name
+% and the end of the author line. i.e., if you had this:
+%
+% \author{....lastname \thanks{...} \thanks{...} }
+%                     ^------------^------------^----Do not want these spaces!
+%
+% a space would be appended to the last name and could cause every name on that
+% line to be shifted left slightly. This is one of those "LaTeX things". For
+% instance, "\textbf{A} \textbf{B}" will typeset as "A B" not "AB". To get
+% "AB" then you have to do: "\textbf{A}\textbf{B}"
+% \thanks is no different in this regard, so shield the last } of each \thanks
+% that ends a line with a % and do not let a space in before the next \thanks.
+% Spaces after \IAENGmembership other than the last one are OK (and needed) as
+% you are supposed to have spaces between the names. For what it is worth,
+% this is a minor point as most people would not even notice if the said evil
+% space somehow managed to creep in.
+
+
+
+% The paper headers
+%\markboth{}%
+%{Shell \MakeLowercase{\textit{et al.}}:}
+% The only time the second header will appear is for the odd numbered pages
+% after the title page when using the twoside option.
+%
+% *** Note that you probably will NOT want to include the author's ***
+% *** name in the headers of peer review papers.                   ***
+% You can use \ifCLASSOPTIONpeerreview for conditional compilation here if
+% you desire.
+
+
+
+
+% If you want to put a publisher's ID mark on the page you can do it like
+% this:
+%\IAENGpubid{0000--0000/00\$00.00~\copyright~2007 IAENG}
+% Remember, if you use this you must call \IAENGpubidadjcol in the second
+% column for its text to clear the IAENGpubid mark.
+
+
+
+% use for special paper notices
+%\IAENGspecialpapernotice{(Invited Paper)}
+
+
+
+
+% make the title area
+\maketitle
+
+\pagestyle{empty}
+\thispagestyle{empty}
+
+
+\begin{abstract}
+%\boldmath
+
+The purpose of this paper is to present an algorithm for inferring nondeterministic functional transducers. It has a lot in common with other well known algorithms such has RPNI and OSTIA. Indeed we will argue that this algorithm is a generalisation of both of them. Functional transducers are all those nondeterministic transducers whose regular relation is a function. Epsilon transitions as well as subsequential output can be erased for such machines, with the exception of output for empty string being lost. Learning partial functional transducers from negative examples is equivalent to learning total from positive-only data. 
+\end{abstract}
+% IAENGtran.cls defaults to using nonbold math in the Abstract.
+% This preserves the distinction between vectors and scalars. However,
+% if the journal you are submitting to favors bold math in the abstract,
+% then you can use LaTeX's standard command \boldmath at the very start
+% of the abstract to achieve this. Many IAENG journals frown on math
+% in the abstract anyway.
+
+% Note that keywords are not normally used for peerreview papers.
+\begin{IAENGkeywords}
+functional transducers, ostia, rpni, nondeterminism, grammatical inference
+\end{IAENGkeywords}
+
+
+
+
+
+
+% For peer review papers, you can put extra information on the cover
+% page as needed:
+% \ifCLASSOPTIONpeerreview
+% \begin{center} \bfseries EDICS Category: 3-BBND \end{center}
+% \fi
+%
+% For peerreview papers, this IAENGtran command inserts a page break and
+% creates the second title. It will be ignored for other modes.
+\IAENGpeerreviewmaketitle
+
+
+\section{Introduction}
+% The very first letter is a 2 line initial drop letter followed
+% by the rest of the first word in caps.
+%
+% form to use if the first word consists of a single letter:
+% \IAENGPARstart{A}{demo} file is ....
+%
+% form to use if you need the single drop letter followed by
+% normal text (unknown if ever used by IAENG):
+% \IAENGPARstart{A}{}demo file is ....
+%
+% Some journals put the first two words in caps:
+% \IAENGPARstart{T}{his demo} file is ....
+%
+% Here we have the typical use of a "T" for an initial drop letter
+% and "HIS" in caps to complete the first word.
+\IAENGPARstart{L}{earning}
+\input{common.tex}
+
+% Can use something like this to put references on a page
+% by themselves when using endfloat and the captionsoff option.
+\ifCLASSOPTIONcaptionsoff
+  \newpage
+\fi
+
+
+
+% trigger a \newpage just before the given reference
+% number - used to balance the columns on the last page
+% adjust value as needed - may need to be readjusted if
+% the document is modified later
+%\IAENGtriggeratref{8}
+% The "triggered" command can be changed if desired:
+%\IAENGtriggercmd{\enlargethispage{-5in}}
+
+% references section
+
+% can use a bibliography generated by BibTeX as a .bbl file
+% BibTeX documentation can be easily obtained at:
+% http://www.ctan.org/tex-archive/biblio/bibtex/contrib/doc/
+% The IAENGtran BibTeX style support page is at:
+% http://www.michaelshell.org/tex/IAENGtran/bibtex/
+%\bibliographystyle{IAENGtran}
+% argument is your BibTeX string definitions and bibliography database(s)
+%\bibliography{IAENGabrv,../bib/paper}
+%
+% <OR> manually copy in the resultant .bbl file
+% set second argument of \begin to the number of references
+% (used to reserve space for the reference number labels box)
+% \begin{thebibliography}{1}
+
+% \bibitem{IJCS}
+% N.~Meghanathan and G.~W. Skelton, ``Risk Notification Message
+% Dissemination Protocol for Energy Efficient Broadcast in Vehicular
+% Ad hoc Networks,'' {\it IAENG International Journal of Computer
+% Science}, vol. 37, no. 1, pp. 1-10, Jul. 2010.
+
+% \end{thebibliography}
+
+
+% >>>>>>>>>>>>>>>>>>>>>> Bibliography <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+\bibliographystyle{BibTeXtran}   % (uses file "BibTeXtran.bst")
+\bibliography{BibTeXrefs}       % (expects the reference in the file "BibTeXrefs.bib")
+
+
+
+% biography section
+%
+% If you have an EPS/PDF photo (graphicx package needed) extra braces are
+% needed around the contents of the optional argument to biography to prevent
+% the LaTeX parser from getting confused when it sees the complicated
+% \includegraphics command within an optional argument. (You could create
+% your own custom macro containing the \includegraphics command to make things
+% simpler here.)
+%\begin{biography}[{\includegraphics[width=1in,height=1.25in,clip,keepaspectratio]{mshell}}]{Michael Shell}
+% or if you just want to reserve a space for a photo:
+
+%\begin{IAENGbiography}{Michael Shell} Biography text here.
+%\end{IAENGbiography}
+
+% insert where needed to balance the two columns on the last page with
+% biographies
+%\newpage
+
+%\begin{IAENGbiographynophoto}{Jane Doe}
+%Biography text here.
+%\end{IAENGbiographynophoto}
+
+% You can push biographies down or up by placing
+% a \vfill before or after them. The appropriate
+% use of \vfill depends on what kind of text is
+% on the last page and whether or not the columns
+% are being equalized.
+
+%\vfill
+
+% Can be used to pull up biographies so that the bottom of the last one
+% is flush with the other column.
+%\enlargethispage{-5in}
+
+
+
+% that's all folks
+\end{document}

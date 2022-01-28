@@ -327,6 +327,11 @@ impl<D: DenseWeight> ConvWeights<D> {
         target.determine_winners_top1_per_region(output);
     }
 
+    // pub fn batch_infer<A,B>(&self, input: &[C], f:impl Fn(&C)->&CpuSDR, target:&mut CpuEccPopulation<D>){
+    //     self.reset_and_forward(input, target);
+    //     target.determine_winners_top1_per_region(output);
+    // }
+
     pub fn infer(&self, input: &CpuSDR, target:&mut CpuEccPopulation<D>)->CpuSDR{
         let mut sdr = CpuSDR::new();
         self.infer_in_place(input,&mut sdr,target);

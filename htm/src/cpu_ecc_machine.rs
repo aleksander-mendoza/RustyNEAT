@@ -3,6 +3,7 @@ use std::ops::{Index, IndexMut};
 use serde::{Serialize, Deserialize};
 use rand::Rng;
 use itertools::Itertools;
+use std::mem::MaybeUninit;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct EccMachine<A:SDR,L:EccLayer<A=A>> {
@@ -167,12 +168,26 @@ impl<A:SDR,L:EccLayer<A=A>> EccMachine<A,L> {
         self.ecc.last().unwrap().shape().out_volume()
     }
 }
-
 impl<D: DenseWeight> CpuEccMachine<D> {
     pub fn new_cpu(output: [Idx; 2], kernels: &[[Idx; 2]], strides: &[[Idx; 2]], channels: &[Idx], k: &[Idx], rng: &mut impl Rng) -> Self {
         Self::new(output, kernels, strides, channels, k, rng,
                   |output, in_channels, out_channels, k, kernel, stride, rng|
                 CpuEccDense::new(ConvShape::new(output, kernel, stride, in_channels, out_channels), k, rng)
             )
+    }
+    pub fn from_repeated_column(mut final_column_grid: [Idx; 2], pretrained: &Self) -> Self {
+        let mut vec = vec![];
+        for layer in pretrained.ecc.iter().rev(){
+            let l = CpuEccDense::from_repeated_column(final_column_grid, layer,[0,0]);
+            final_column_grid = *l.in_grid();
+            vec.push(l);
+        }
+        vec.reverse();
+        #[cfg(debug_assertions)] {
+            for (prev, next) in vec.iter().tuple_windows() {
+                debug_assert!(prev.shape().out_shape().all_eq(next.shape().in_shape()), "{:?}=={:?}", prev.shape().out_shape(), next.shape().in_shape());
+            }
+        }
+        Self{ecc:vec,inputs:pretrained.inputs.iter().map(|_|CpuSDR::new()).collect()}
     }
 }

@@ -1,0 +1,2 @@
+epoch= 0 train= 0.9173 eval= 0.941
+epoch= 1 train= 0.963725 eval= 0.94775

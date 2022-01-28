@@ -123,7 +123,7 @@ class Experiment:
             return img, sdr
 
         test_patches = [normalise_img(rand_patch(patch_size)) for _ in range(self.test_patches)]
-        test_patches = [test_patch for test_patch in test_patches if test_patch[0].sum() > 2]
+        test_patches = [test_patch for test_patch in test_patches if len(test_patch[1]) > 2]
         all_processed = []
         all_total_sum = []
         for s in tqdm(range(self.iterations), desc="training"):
@@ -235,7 +235,7 @@ class Experiment:
 
     def eval_with_classifier_head(self):
         print("PATCH_SIZE=", self.input_shape)
-
+        benchmarks_save = self.save_file + " accuracy.txt"
         enc = htm.EncoderBuilder()
         img_w, img_h, img_c = self.input_shape
         enc_img = enc.add_image(img_w, img_h, img_c, 0.8)
@@ -293,6 +293,8 @@ class Experiment:
                 x = linear(x)
                 eval_accuracy += (x.argmax(1) == y).sum().item()
                 eval_total += x.shape[0]
+            with open(benchmarks_save, "a+") as f:
+                print("epoch=", epoch, "train=", train_accuracy / train_total, "eval=", eval_accuracy / eval_total, file=f)
             print("train=", train_accuracy / train_total, "eval=", eval_accuracy / eval_total)
 
 
@@ -479,6 +481,22 @@ class Experiment22(Experiment):
         return self.layer2.sums_for_sdr(output_sdr)
 
 
+class Experiment23(Experiment):
+    def __init__(self, w, h, no_layer2=False):
+        super().__init__(0, 0, "experiment23oc" + str(w * h) + ("_no_l2" if no_layer2 else ""))
+        ex21 = Experiment21(w, h)
+        self.m = ex21.layer1.repeat_column([23, 23]).to_machine()
+        if not no_layer2:
+            self.m.push(ex21.layer2.repeat_column([23, 23]))
+        self.input_shape = np.array(self.m.in_shape)
+        self.output_shape = np.array(self.m.out_shape)
+        self.plot = False
+
+    def run(self, sdr, learn, update_activity):
+        self.m.infer(sdr)
+        return self.m.last_output_sdr()
+
+
 class Experiment11(Experiment):
     def __init__(self):
         super().__init__(15, 15, "experiment11")
@@ -540,9 +558,110 @@ class Experiment4(Experiment):
         return self.layer1.sums_for_sdr(output_sdr)
 
 
+class Experiment24(Experiment):
+    def __init__(self, w, h):
+        super().__init__(w, h, "experiment24oc" + str(w * h))
+        ex21 = Experiment21(9, 9)
+        self.layer3_save_file = self.save_file + " layer3.model"
+        if os.path.exists(self.layer3_save_file):
+            self.layer3 = ecc.CpuEccDense.load(self.layer3_save_file)
+        else:
+            self.layer3 = ecc.CpuEccDense([1, 1], [5, 5], [1, 1], ex21.layer2.out_channels, self.w*self.h, 1)
+            self.layer3.threshold = 1 / self.layer3.in_channels
+        self.m = ex21.layer1.repeat_column(self.layer3.in_grid).to_machine()
+        self.m.push(ex21.layer2.repeat_column(self.layer3.in_grid))
+        self.input_shape = np.array(self.m.in_shape)
+        self.output_shape = np.array(self.layer3.out_shape)
+
+    def run(self, sdr, learn, update_activity):
+        self.m.infer(sdr)
+        pre_sdr = self.m.last_output_sdr()
+        fin_sdr = self.layer3.run(pre_sdr,learn=learn, update_activity=update_activity)
+        return fin_sdr
+
+    def save(self):
+        self.layer3.save(self.layer3_save_file)
+
+    def sums(self, output_sdr):
+        return self.layer3.sums_for_sdr(output_sdr)
+
+
+class Experiment241(Experiment):
+    def __init__(self, w, h, c):
+        super().__init__(1, c, "experiment241oc" + str(w * h)+"oc"+str(c))
+        ex24 = Experiment24(w, h)
+        self.layer4_save_file = self.save_file + " layer4.model"
+        if os.path.exists(self.layer4_save_file):
+            self.layer4 = ecc.CpuEccDense.load(self.layer4_save_file)
+        else:
+            self.layer4 = ecc.CpuEccDense([1, 1], [1, 1], [1, 1], ex24.layer3.out_channels, c, 1)
+            self.layer4.threshold = 0.000001
+        self.m = ex24.m
+        self.m.push(ex24.layer3)
+        self.input_shape = np.array(self.m.in_shape)
+        self.output_shape = np.array(self.layer4.out_shape)
+        self.sdr = None
+        self.drift = int(self.input_shape[:2].mean()/2+0.5)
+        self.plot = False
+        self.num_of_snapshots = 6
+
+    def run(self, sdr, learn, update_activity):
+        self.m.infer(sdr)
+        pre_sdr = self.m.last_output_sdr()
+        fin_sdr = self.layer4.run(pre_sdr, learn=learn, update_activity=update_activity)
+        if self.sdr is None or len(self.sdr) == 0:
+            self.sdr = fin_sdr
+            if update_activity:
+                self.layer4.decrement_activities(fin_sdr)
+        if learn:
+            self.layer4.learn(pre_sdr, self.sdr)
+        return self.sdr
+
+    def take_action(self):
+        self.sdr = None
+
+    def save(self):
+        self.layer4.save(self.layer4_save_file)
+
+    def sums(self, output_sdr):
+        return self.layer4.sums_for_sdr(output_sdr)
+
+
+class Experiment2411(Experiment):
+    def __init__(self, w, h, c):
+        super().__init__(1, c, "experiment2411oc" + str(w * h)+"oc"+str(c))
+        ex241 = Experiment241(w, h, c)
+        self.m = ex241.m
+        self.m.push(ex241.layer4)
+        self.m = self.m.repeat_column([19,19])
+        self.input_shape = np.array(self.m.in_shape)
+        self.output_shape = np.array(self.m.out_shape)
+
+    def run(self, sdr, learn, update_activity):
+        self.m.infer(sdr)
+        return self.m.last_output_sdr()
+
+
+class Experiment242(Experiment):
+    def __init__(self, w, h):
+        super().__init__(0, 0, "experiment242oc" + str(w * h))
+        ex24 = Experiment24(w, h)
+        self.m = ex24.m
+        self.m.push(ex24.layer3)
+        self.m = self.m.repeat_column([19,19])
+        self.input_shape = np.array(self.m.in_shape)
+        self.output_shape = np.array(self.m.out_shape)
+
+    def run(self, sdr, learn, update_activity):
+        self.m.infer(sdr)
+        return self.m.last_output_sdr()
+
 PARALLEL = False
 
-Experiment21(3, 3).experiment()
+# Experiment24(12, 12).experiment()
+# Experiment242(12, 12).eval_with_classifier_head()
+Experiment241(12, 12, 16).experiment()
+# Experiment2411(8, 8, 16).eval_with_classifier_head()
 
 # e = Experiment4(5, 8)
 # e.experiment()
@@ -551,8 +670,3 @@ Experiment21(3, 3).experiment()
 # visualise_recursive_weights(e.w, e.h, e.layer1_to_layer1)
 # ## produces: predictive_coding_stacked6_experiment4oc40 layer1_to_layer1_weights.png
 
-
-# Experiment11().eval_with_classifier_head()
-# Outcome:
-# train= 0.9173 eval= 0.941
-# train= 0.963725 eval= 0.94775

@@ -2,3 +2,14 @@
 .idea
 rusty_neat.so
 Cargo.lock
+htm.core
+habitat
+habitat-sim
+htm/data
+experiments/MNIST
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.log
+paper/*.pdf
+paper/*.gz
