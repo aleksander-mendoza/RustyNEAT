@@ -559,14 +559,17 @@ the observed data, but instead it forms robust classes of features that generali
  
 
 
-\section{Conclusions}
+\section{Reinforcement learning and control}
 
+\iffalse
 The current dominant view of the brain has been heavily focused on optimisation.
 All existing models of neural networks revolve around the idea that there exists some hidden error function that needs to be minimised. In reality there is nothing about the brain that resembles optimisation. Instead of fitting data, its fundamental principle is to build models of the world. In ECC networks, every single neuron tries to capture certain specific phenomenon of the external world. Every neuron is its own model. Perhaps we could summarise this idea as ``billion brains theory'', because we have billions of neurons and each one of them encodes some idea. The consciousness itself is decentralised. You can never lose your consciousness in its entirety. If your fusiform face area is damaged, you will lose the part of your consciousness that holds models of faces. If your hippocampus is removed, you will lose a fragment of consciousness that holds your recent memories.  In this view, every single neuron behaves like a miniature brain in and of itself. If $\boldsymbol{x}$ encodes the outside world, then each $y_i$ represents some tiny fragment of it. As you increase the number of neurons $\boldsymbol{y}$, you subdivide the world into billions of small interdependent ideas $p(\boldsymbol{x})=p(\boldsymbol{x},a_1)+...+p(\boldsymbol{x},a_{10^9})$.
+\fi
 
-Looking for optimisation mechanisms in the brain is misleading. An external observer, might look at the actions taken by an intelligent agent and notice that its behaviour is often optimal. Hence it seems very tempting to search for optimisation mechanisms in the brain. It is a deception. The brain relies on building models instead. There is no error to be optimised and there is no reward to be maximised. We need to reformulate our existing theories of reinforcement learning in a way that does not include any reward, because it doesn't explicitly exist. It's existence is only implicit and noticeable to an external observer.
+The deep neural networks learn using backpropagation. They are inherently a supervised method of building intelligence. Even when the labels and error comes from the data itself, in a self-supervised manner, the learning still relies on the same supervised mechanisms. Deep nets can be applied to reinforcement learning problems by modelling the reward function. ECC networks on the other hand are purely unsupervised. They can't represent policy or reward function in any meaningful way. However, the biological brains are capable of performing control tasks very well. How could we achieve the same using ECC networks?
 
-The way to reframe the reinforcement learning is through introduction of energy $E$. The reward is defined as the derivative of energy, with respect to time
+
+Reinforcement learning can be reformulated in a purely unsupervised way via introduction of energy $E$. The reward is defined as the derivative of energy, with respect to time
 \[
 R(t) = \frac{dE}{dt}
 \]
@@ -581,11 +584,25 @@ The integral of $R$ is equivalent to sum of future rewards $R$, also commonly kn
 \]
 Suppose that sources of energy are scarce in the environment. Then finding any source of energy already has high probability of maximising the reward. Therefore we do not need to be preoccupied too much with ``maximising'' and should instead focus on ``finding'' anything at all. 
 
-If the agent builds an internal model of the world, that works like a map, it could then use such cognitive map to very quickly and efficiently search for energy sources. This only requires imagination, which is much cheaper than locomotion.
+The agent never receives any reward. It doesn't actually exist. The reward is only something abstract and visible to an external observer, but internally the ECC networks have no concept of reward . This is the key difference between supervised and unsupervised reinforcement learning (figure \ref{fig:rl}). There is no reward. Instead, the network learns by modelling its effective fields. In order to define what this means, we need to assume that the agent is embodied. Let $\boldsymbol{u}$ be a binary vector representing motor neurons.
+Analogically to receptive fields $p(\boldsymbol{x}|y_j)$ modelling input, the effective field
+$p(\boldsymbol{u}|y_j)$ is a model of output. This is the probability that certain pattern of motor neurons activates in response to $y_j$ firing. The $\boldsymbol{y}$ neurons do not know their effective fields, hence feedback input $\boldsymbol{f}$ is necessary. It's a special type of input that carries back information about the action performed by $\boldsymbol{u}$. The receptive field $p(\boldsymbol{f}|y_j)$ works as a proxy for learning effective fields $p(\boldsymbol{u}|y_j)$. In very simple networks, both $\boldsymbol{u}$ and $\boldsymbol{f}$ might be coded using the same population of neurons, but in more complex topologies this may not be the case. Similarly we could think of $\boldsymbol{f}$ as a subpopulation of $\boldsymbol{x}$. 
 
-If we could build Tolmann-Eichenbaum Machine using ECC, we will achieve human-like intelligence.  ECC allow for building models of the world without any labels, reward or error feedback. We only need to find the right topology of the network.
+The agent has two modelling tasks, both unsupervised. One of them is learning to anticipate $\boldsymbol{x}$ and $\boldsymbol{f}$ in the next time-step, knowing the current output $\boldsymbol{u}$. The second task involves planning and it tries to model the right output $\boldsymbol{u}$ that leads to the desired (distant) future internal state $E$ and $\boldsymbol{y}$. The neurons $\boldsymbol{y}$ build an internal model of the outside world and they compete for control over $\boldsymbol{u}$, similarly to how inputs $\boldsymbol{x}$ ``compete'' to trigger changes in $\boldsymbol{y}$.
+
+\begin{figure}[!htbp]
+	\centering
+	\includegraphics[width=10cm]{supervised reinforcement learning}
+	\includegraphics[width=10cm]{unsupervised reinforcement learning}
+	\caption{Comparison of supervised (top) and unsupervised (bottom) reinforcement learning}
+	\label{fig:rl}
+\end{figure} 
+
+If the agent builds an internal model of the world, that works like a map, it could then use such cognitive map to very quickly and efficiently search for energy sources. This only requires imagination, which is much cheaper than locomotion. The ECC networks do not see any reward. Instead, when the energy increases, certain neurons become temporarily more plastic than usually. This mechanism could be used to bias the cognitive map more towards places and actions that lead to the source of energy.
 
 Once the agent has an internal map, it could then exactly know which aspects of the environment are unexplored. Unlike in the current deep reinforcement learning approaches, an agent with episodic memory would only need to visit a novel place once in order to learn about it. If the world is dynamically changing, then an attention mechanism will be necessary. If an animal sees or hears something unexpected it will focus all its attention on the novel experience. This mechanism can be explained using ECC networks as well. Suppose that the current internal model $\boldsymbol{y}$ explains all the previously experienced observations $p(\boldsymbol{x})=\sum_j p(\boldsymbol{x},y_j)$. If the agent experiences something novel that does not fit into any specific $y$, then it will be surprised. The agent will become curious and focus on the novel experience for a while. After the model  $\boldsymbol{y}$ restructures itself and learns about the new $\boldsymbol{x}$, then the agent become ``bored''. 
+
+
 
 \section{Time and feedback (bonus)}
 
