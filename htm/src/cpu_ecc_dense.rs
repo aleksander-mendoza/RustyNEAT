@@ -333,7 +333,7 @@ mod tests {
                                                 &[1, 1, 1],
                                                 &mut rng);
         for _ in 0..16 {
-            let input: Vec<u32> = (0..k).map(|_| rng.gen_range(0..a.in_volume() as u32)).collect();
+            let input: Vec<u32> = (0..k).map(|_| rng.gen_range(0..a.in_volume().unwrap() as u32)).collect();
             let mut input = CpuSDR::from(input);
             input.normalize();
             assert_ne!(input.len(), 0);
@@ -359,7 +359,7 @@ mod tests {
                                                 &mut rng);
         let mut number_of_empty_outputs = 0;
         for _ in 0..1024 {
-            let input: Vec<u32> = (0..k).map(|_| rng.gen_range(0..a.in_volume() as u32)).collect();
+            let input: Vec<u32> = (0..k).map(|_| rng.gen_range(0..a.in_volume().unwrap() as u32)).collect();
             let mut input = CpuSDR::from(input);
             input.normalize();
             assert_ne!(input.len(), 0);

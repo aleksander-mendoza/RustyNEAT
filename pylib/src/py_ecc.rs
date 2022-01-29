@@ -73,28 +73,36 @@ impl CpuEccMachine {
         self.ecc.len()
     }
     #[getter]
-    pub fn in_shape(&self) -> Vec<Idx> {
-        self.ecc[0].shape().in_shape().to_vec()
+    pub fn in_shape(&self) -> Option<Vec<Idx>> {
+        self.ecc.in_shape().map(|f|f.to_vec())
     }
     #[getter]
-    pub fn in_volume(&self) -> Idx {
-        self.ecc[0].shape().in_volume()
+    pub fn in_volume(&self) -> Option<u32> {
+        self.ecc.in_volume()
     }
     #[getter]
-    pub fn in_channels(&self) -> Idx {
-        self.ecc[0].shape().in_channels()
+    pub fn in_channels(&self) -> Option<u32> {
+        self.ecc.in_channels()
     }
     #[getter]
-    pub fn out_shape(&self) -> Vec<Idx> {
-        self.ecc.last().shape().out_shape().to_vec()
+    pub fn out_shape(&self) -> Option<Vec<Idx>> {
+        self.ecc.out_shape().map(|f|f.to_vec())
     }
     #[getter]
-    pub fn out_volume(&self) -> Idx {
-        self.ecc.last().shape().out_volume()
+    pub fn out_volume(&self) -> Option<u32> {
+        self.ecc.out_volume()
     }
     #[getter]
-    pub fn out_channels(&self) -> Idx {
-        self.ecc.last().shape().out_channels()
+    pub fn out_channels(&self) -> Option<u32> {
+        self.ecc.out_channels()
+    }
+    #[getter]
+    pub fn get_out_grid(&self) -> Option<Vec<Idx>> {
+        self.ecc.out_grid().map(|f|f.to_vec())
+    }
+    #[getter]
+    pub fn get_in_grid(&self) -> Option<Vec<Idx>> {
+        self.ecc.in_grid().map(|f|f.to_vec())
     }
     #[text_signature = "(layer)"]
     pub fn get_in_shape(&self, layer: usize) -> Vec<Idx> {
@@ -140,17 +148,24 @@ impl CpuEccMachine {
     pub fn learnable_parameters(&self) -> usize {
         self.ecc.learnable_parameters()
     }
-    #[text_signature = "(input_sdr)"]
-    pub fn run(&mut self, input: &CpuSDR) {
-        self.ecc.run(&input.sdr);
+    #[text_signature = "(input_sdr, up_to_layer, learn, update_activity)"]
+    pub fn run(&mut self, input: &CpuSDR, up_to_layer:Option<usize>, learn: Option<bool>, update_activity:Option<bool>) {
+        let up_to_layer = up_to_layer.unwrap_or(self.ecc.len());
+        self.ecc.infer_up_to_layer(up_to_layer,&input.sdr);
+        if update_activity.unwrap_or(true) {
+            self.ecc.decrement_activities_up_to_layer(up_to_layer)
+        }
+        if learn.unwrap_or(false) {
+            self.ecc.learn_up_to_layer(up_to_layer)
+        }
     }
-    #[text_signature = "(input_sdr)"]
-    pub fn infer(&mut self, input: &CpuSDR) {
-        self.ecc.infer(&input.sdr);
+    #[text_signature = "(input_sdr,learn)"]
+    pub fn infer(&mut self, input: &CpuSDR,up_to_layer:Option<usize>, learn: Option<bool>) {
+        self.run(input,up_to_layer,learn,Some(false));
     }
     #[text_signature = "()"]
-    pub fn learn(&mut self) {
-        self.ecc.learn();
+    pub fn learn(&mut self, up_to_layer:Option<usize>) {
+        self.ecc.learn_up_to_layer(up_to_layer.unwrap_or(self.ecc.len()))
     }
     #[text_signature = "()"]
     pub fn last_output_sdr(&self) -> CpuSDR {
@@ -206,8 +221,16 @@ impl CpuEccMachine {
     pub fn get_max_incoming_synapses(&self, layer: usize) -> Idx {
         self.ecc[layer].get_max_incoming_synapses()
     }
+    #[text_signature = "(layer,file)"]
+    pub fn save_layer(&self, layer: usize, file:String) -> PyResult<()> {
+        pickle(&self.ecc[layer], file)
+    }
     #[new]
-    pub fn new(output: PyObject, kernels: Vec<PyObject>, strides: Vec<PyObject>, channels: Vec<Idx>, k: Vec<Idx>) -> PyResult<Self> {
+    pub fn new(output: Option<PyObject>, kernels: Option<Vec<PyObject>>, strides: Option<Vec<PyObject>>, channels: Option<Vec<Idx>>, k: Option<Vec<Idx>>) -> PyResult<Self> {
+        let kernels = kernels.unwrap_or(vec![]);
+        let strides = strides.unwrap_or(vec![]);
+        let channels = channels.unwrap_or(vec![]);
+        let k = k.unwrap_or(vec![]);
         let layers = kernels.len();
         if layers != strides.len() {
             return Err(PyValueError::new_err(format!("{}==len(kernels)!=len(strides)=={}", layers, strides.len())));
@@ -215,6 +238,14 @@ impl CpuEccMachine {
         if layers != k.len() {
             return Err(PyValueError::new_err(format!("{}==len(kernels)!=len(k)=={}", layers, k.len())));
         }
+        let output = if let Some(output) = output{
+            output
+        }else{
+            if layers != 0 {
+                return Err(PyValueError::new_err(format!("0==len(kernels) but output is missing")));
+            }
+            return Ok(Self{ecc:htm::CpuEccMachine::new_empty()})
+        };
         if layers + 1 != channels.len() {
             return Err(PyValueError::new_err(format!("{}==len(kernels)+1!=len(channels)=={}", layers + 1, channels.len())));
         }
@@ -264,16 +295,31 @@ impl CpuEccMachine {
     }
 
     #[text_signature = "()"]
-    pub fn pop(&mut self, py: Python) -> CpuEccDense {
-        assert!(self.ecc.len() > 1, "Can't pop, because then the machine would have no layers");
-        CpuEccDense { ecc: self.ecc.pop().expect("Nothing to pop") }
+    pub fn pop(&mut self) -> Option<CpuEccDense> {
+        self.ecc.pop().map(|ecc|CpuEccDense { ecc })
+    }
+
+    #[text_signature = "()"]
+    pub fn pop_front(&mut self) -> Option<CpuEccDense> {
+        self.ecc.pop_front().map(|ecc|CpuEccDense { ecc })
     }
 
     #[text_signature = "(top_layer)"]
     pub fn push(&mut self, top: &CpuEccDense) {
         self.ecc.push(top.ecc.clone())
     }
-
+    #[text_signature = "(bottom_layer)"]
+    pub fn prepend(&mut self, bottom: &CpuEccDense) {
+        self.ecc.prepend(bottom.ecc.clone())
+    }
+    #[text_signature = "(top_layer,column_pos)"]
+    pub fn push_repeated_column(&mut self, top: &CpuEccDense,column_pos: Option<[Idx; 2]>) {
+        self.ecc.push_repeated_column(&top.ecc,column_pos.unwrap_or([0,0]))
+    }
+    #[text_signature = "(bottom_layer,column_pos)"]
+    pub fn prepend_repeated_column(&mut self, bottom: &CpuEccDense,column_pos: Option<[Idx; 2]>) {
+        self.ecc.prepend_repeated_column(&bottom.ecc,column_pos.unwrap_or([0,0]))
+    }
     #[text_signature = "(layer)"]
     pub fn set_initial_activity(&mut self, layer: usize) {
         self.ecc[layer].population_mut().set_initial_activity()
@@ -307,6 +353,14 @@ impl CpuEccMachine {
         }else {
             self.ecc[layer].get_weights().to_vec()
         }
+    }
+    #[text_signature = "(layer)"]
+    pub fn sums_for_output_sdr(&self, layer:usize) -> f32 {
+        self.ecc[layer].population().sums_for_sdr(self.ecc.output_sdr(layer))
+    }
+    #[text_signature = "(layer, sdr)"]
+    pub fn sums_for_sdr(&self, layer:usize, sdr:&CpuSDR) -> f32 {
+        self.ecc[layer].population().sums_for_sdr(&sdr.sdr)
     }
 }
 

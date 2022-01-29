@@ -660,8 +660,8 @@ PARALLEL = False
 
 # Experiment24(12, 12).experiment()
 # Experiment242(12, 12).eval_with_classifier_head()
-Experiment241(12, 12, 16).experiment()
-# Experiment2411(8, 8, 16).eval_with_classifier_head()
+# Experiment241(12, 12, 16).experiment()
+# Experiment2411(12, 12, 16).eval_with_classifier_head()
 
 # e = Experiment4(5, 8)
 # e.experiment()

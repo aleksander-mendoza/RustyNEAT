@@ -1,11 +1,12 @@
 /target
 .idea
+htm/data
 rusty_neat.so
 Cargo.lock
 htm.core
 habitat
 habitat-sim
-htm/data
+experiments/htm/data
 experiments/MNIST
 paper/*.aux
 paper/*.bbl
