@@ -13,7 +13,7 @@ from tqdm import tqdm
 import pickle
 from torch.utils.data import DataLoader
 
-SAVE = True
+SAVE = False
 MNIST, LABELS = torch.load('htm/data/mnist.pt')
 
 
@@ -80,7 +80,7 @@ def compute_confusion_matrix_fit(conf_mat, ecc_net, metric_l2=True):
 
 class Experiment:
 
-    def __init__(self, w, h, channels, kernels, strides):
+    def __init__(self, w, h, channels, kernels, strides, threshold=None):
         assert len(channels) == len(kernels) == len(strides)
         self.w = w
         self.h = h
@@ -98,7 +98,9 @@ class Experiment:
         self.m = None
         self.head = None
         self.in_shape = None
+        self.out_shape = None
         self.in_grid = None
+        self.threshold = threshold
 
     def save_file(self, idx=-1):
         if idx < 0:
@@ -128,23 +130,35 @@ class Experiment:
         self.m = ecc.CpuEccMachine()
         top = self.load_layer(-1)
         if top is None:
-            self.m.push(ecc.CpuEccDense([1, 1], self.kernel(-1), self.stride(-1),
-                                        in_channels=self.channels[-2],
-                                        out_channels=self.channels[-1],
-                                        k=1))
+            l = ecc.CpuEccDense([1, 1], self.kernel(-1), self.stride(-1),
+                                in_channels=self.channels[-2],
+                                out_channels=self.channels[-1],
+                                k=1)
+            if self.threshold == 'in':
+                l.threshold = 1 / l.in_channels
+            elif type(self.threshold) is float:
+                l.threshold = self.threshold
+            self.m.push(l)
         else:
             self.m.push(top)
         for idx in reversed(range(len(self) - 1)):
-            self.m.prepend_repeat_column(self.load_layer(idx))
-        self.in_shape = self.m.in_shape
-        self.in_grid = self.m.in_grid
+            self.m.prepend_repeated_column(self.load_layer(idx))
+        self.update_shapes()
+
+    def update_shapes(self):
+        self.in_shape = np.array(self.m.in_shape)
+        self.out_shape = np.array(self.m.out_shape)
+        self.in_grid = np.array(self.m.in_grid)
 
     def make_full_column_machine(self):
         self.m = ecc.CpuEccMachine()
-        self.m.push(self.load_layer(0))
-        self.m = self.m.repeat_column(htm.conv_out_size())
+        bottom = self.load_layer(0)
+        out_size = htm.conv_out_size([28, 28], bottom.stride, bottom.kernel)[:2]
+        bottom = bottom.repeat_column(out_size)
+        self.m.push(bottom)
         for idx in range(1, len(self)):
-            self.m.push_repeat_column(self.load_layer(idx))
+            self.m.push_repeated_column(self.load_layer(idx))
+        self.update_shapes()
 
     def save(self, idx=-1):
         if idx == -1 and self.head is not None:
@@ -163,6 +177,15 @@ class Experiment:
     def experiment(self):
         self.make_single_column_machine()
         self.head = self.m.pop()
+        with open(self.save_file() + " params.txt", "w+") as f:
+            print({
+                'drift': self.drift,
+                'num_of_snapshots': self.num_of_snapshots,
+                'w:': self.w,
+                'h:': self.h,
+                'test_patches': self.test_patches,
+                'iterations': self.iterations
+            }, file=f)
         patch_size = np.array(self.in_grid)
         print("PATCH_SIZE=", self.in_shape)
         if self.plot:
@@ -183,7 +206,7 @@ class Experiment:
         test_patches = [test_patch for test_patch in test_patches if len(test_patch[1]) > 2]
         all_processed = []
         all_total_sum = []
-        stats_shape = self.in_grid + [self.w * self.h]
+        stats_shape = list(self.in_grid) + [self.w * self.h]
         for s in tqdm(range(self.iterations), desc="training"):
             img_idx = int(np.random.rand() * len(MNIST))
             img = MNIST[img_idx]
@@ -194,7 +217,7 @@ class Experiment:
             for _ in range(self.num_of_snapshots):
                 left_bottom = min_left_bottom + (np.random.rand(2) * (self.drift + 1)).astype(int)
                 assert np.all(left_bottom >= 0)
-                assert np.all(left_bottom < img.shape - patch_size), left_bottom
+                assert np.all(left_bottom <= img.shape - patch_size), left_bottom
                 top_right = left_bottom + patch_size
                 snapshot = img[left_bottom[0]:top_right[0], left_bottom[1]:top_right[1]]
                 snapshot, sdr = normalise_img(snapshot)
@@ -237,15 +260,16 @@ class Experiment:
             plt.show()
 
     def measure_cross_correlation(self):
-        save = self.save_file + " conf_mat.pt"
+        save = self.save_file() + " conf_mat.pt"
+        self.make_single_column_machine()
         if os.path.exists(save):
             with open(save, "rb") as f:
                 confusion_matrix = torch.load(f)
         else:
-            patch_size = self.input_shape[:2]
-            print("PATCH_SIZE=", self.input_shape)
+            patch_size = self.in_shape[:2]
+            print("PATCH_SIZE=", self.in_shape)
             enc = htm.EncoderBuilder()
-            img_w, img_h, img_c = self.input_shape
+            img_w, img_h, img_c = self.in_shape
             img_encoder = enc.add_image(img_w, img_h, img_c, 0.8)
 
             def normalise_img(img):
@@ -268,10 +292,10 @@ class Experiment:
                     top_right = left_bottom + patch_size
                     snapshot = img[left_bottom[0]:top_right[0], left_bottom[1]:top_right[1]]
                     snapshot, sdr = normalise_img(snapshot)
-                    out_sdr = self.run(sdr, learn=True, update_activity=True)
+                    self.m.infer(sdr)
+                    out_sdr = self.m.last_output_sdr()
                     if len(out_sdr) > 0:
                         curr.add(out_sdr.item())
-                self.take_action()
                 curr_list = list(curr)
                 for i in range(len(curr_list)):
                     for j in range(i + 1, len(curr_list)):
@@ -294,23 +318,24 @@ class Experiment:
                     img = img.reshape([self.w, self.h])
                     img = img.T
                     axs[i, j].imshow(img)
-            plt.savefig(self.save_file + " conf_mat.png")
+            plt.savefig(self.save_file() + " conf_mat.png")
             plt.show()
         return confusion_matrix
 
     def eval_with_classifier_head(self):
-        print("PATCH_SIZE=", self.input_shape)
-        benchmarks_save = self.save_file + " accuracy.txt"
+        self.make_full_column_machine()
+        print("PATCH_SIZE=", self.in_shape)
+        benchmarks_save = self.save_file() + " accuracy.txt"
         enc = htm.EncoderBuilder()
-        img_w, img_h, img_c = self.input_shape
+        img_w, img_h, img_c = self.in_shape
         enc_img = enc.add_image(img_w, img_h, img_c, 0.8)
-        out_volume = self.output_shape.prod()
+        out_volume = self.out_shape.prod()
 
         class D(torch.utils.data.Dataset):
-            def __init__(self, imgs, lbls, ecc_net):
+            def __init__(self, imgs, lbls, m):
                 self.imgs = imgs
                 self.lbls = lbls
-                self.ecc_net = ecc_net
+                self.m = m
 
             def __len__(self):
                 return len(self.imgs)
@@ -319,18 +344,19 @@ class Experiment:
                 img = self.imgs[idx]
                 sdr = htm.CpuSDR()
                 enc_img.encode(sdr, img.unsqueeze(2).numpy())
-                img_bits = self.ecc_net.run(sdr, learn=False, update_activity=False)
+                self.m.infer(sdr)
+                img_bits = self.m.last_output_sdr()
                 img = torch.zeros(out_volume)
                 img[list(img_bits)] = 1
                 return img, self.lbls[idx]
 
         train_mnist = MNIST[:40000]
         train_labels = LABELS[:40000]
-        train_d = D(train_mnist, train_labels, self)
+        train_d = D(train_mnist, train_labels, self.m)
 
         eval_mnist = MNIST[40000:60000]
         eval_labels = LABELS[40000:60000]
-        eval_d = D(eval_mnist, eval_labels, self)
+        eval_d = D(eval_mnist, eval_labels, self.m)
 
         linear = torch.nn.Linear(out_volume, 10)
         loss = torch.nn.NLLLoss()
@@ -364,4 +390,9 @@ class Experiment:
             print("train=", train_accuracy / train_total, "eval=", eval_accuracy / eval_total)
 
 
-Experiment(4, 4, [1], [5], [1]).experiment()
+e = Experiment(12, 12, [1, 49, 9, 144, 9], [6, 1, 5, 1, 5], [1, 1, 1, 1, 1])
+# e.threshold = 'in'
+# e.num_of_snapshots = 6
+# e.drift = np.array([6, 6])
+e.experiment()
+e.eval_with_classifier_head()

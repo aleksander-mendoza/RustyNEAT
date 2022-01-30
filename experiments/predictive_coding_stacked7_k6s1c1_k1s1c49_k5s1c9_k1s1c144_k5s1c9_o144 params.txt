@@ -1,0 +1,1 @@
+{'drift': array([0, 0]), 'num_of_snapshots': 1, 'w:': 12, 'h:': 12, 'test_patches': 20000, 'iterations': 1000000}
