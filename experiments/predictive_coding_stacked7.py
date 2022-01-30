@@ -13,7 +13,7 @@ from tqdm import tqdm
 import pickle
 from torch.utils.data import DataLoader
 
-SAVE = False
+
 MNIST, LABELS = torch.load('htm/data/mnist.pt')
 
 
@@ -390,9 +390,10 @@ class Experiment:
             print("train=", train_accuracy / train_total, "eval=", eval_accuracy / eval_total)
 
 
-e = Experiment(12, 12, [1, 49, 9, 144, 9], [6, 1, 5, 1, 5], [1, 1, 1, 1, 1])
-# e.threshold = 'in'
-# e.num_of_snapshots = 6
-# e.drift = np.array([6, 6])
+SAVE = True
+e = Experiment(3, 3, [1, 49, 9, 144, 9, 144], [6, 1, 5, 1, 5, 1], [1, 1, 1, 1, 1, 1])
+e.threshold = 'in'
+e.num_of_snapshots = 6
+e.drift = np.array([8, 8])
 e.experiment()
 e.eval_with_classifier_head()
