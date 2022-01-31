@@ -101,6 +101,7 @@ class Experiment:
         self.out_shape = None
         self.in_grid = None
         self.threshold = threshold
+        self.epochs = 5
 
     def save_file(self, idx=-1):
         if idx < 0:
@@ -365,7 +366,7 @@ class Experiment:
         train_dataloader = DataLoader(train_d, batch_size=64, shuffle=True)
         eval_dataloader = DataLoader(eval_d, batch_size=64, shuffle=True)
 
-        for epoch in range(100):
+        for epoch in range(self.epochs):
             train_accuracy = 0
             train_total = 0
             for x, y in tqdm(train_dataloader, desc="train"):
@@ -391,9 +392,21 @@ class Experiment:
 
 
 SAVE = True
-e = Experiment(3, 3, [1, 49, 9, 144, 9, 144], [6, 1, 5, 1, 5, 1], [1, 1, 1, 1, 1, 1])
-e.threshold = 'in'
+e = Experiment(4, 4, [1, 49, 9, 144, 9, 144], [6, 1, 5, 1, 5, 1], [1, 1, 1, 1, 1, 1])
+e.threshold = 0.0000001
+e.plot = False
 e.num_of_snapshots = 6
 e.drift = np.array([8, 8])
+e.epochs = 1
 e.experiment()
 e.eval_with_classifier_head()
+
+# 
+# e = Experiment(4, 4, [1, 49, 9, 144, 9, 144], [6, 1, 5, 1, 5, 1], [1, 1, 1, 1, 1, 1])
+# e.threshold = 0.0000001
+# e.plot = False
+# e.num_of_snapshots = 6
+# e.drift = np.array([8, 8])
+# e.epochs = 1
+# e.experiment()
+# e.eval_with_classifier_head()
