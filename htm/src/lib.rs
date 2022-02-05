@@ -24,7 +24,10 @@ mod cpu_ecc_population;
 mod conv_shape;
 mod conv_weights;
 mod cpu_ecc_machine;
+mod parallel;
+mod cpu_sdr_dataset;
 
+pub use cpu_sdr_dataset::*;
 pub use cpu_ecc_population::*;
 pub use cpu_ecc_machine::*;
 pub use conv_weights::*;

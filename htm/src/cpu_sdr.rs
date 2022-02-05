@@ -5,12 +5,13 @@ use std::fmt::{Display, Formatter, Debug};
 use ocl::core::{MemInfo, MemInfoResult, BufferRegion, Mem, ArgVal};
 use ndalgebra::buffer::Buffer;
 use crate::ecc_program::EccProgram;
-use crate::{CpuBitset, EncoderTarget, Shape, Idx, as_idx, as_usize, OclSDR};
+use crate::{CpuBitset, EncoderTarget, Shape, Idx, as_idx, as_usize, OclSDR, range_contains, VectorFieldSub, VectorFieldPartialOrd, VectorFieldRem, VectorFieldAdd, ConvShape, Shape3, Shape2, VectorFieldRng};
 use std::collections::{HashMap, HashSet};
 use std::borrow::Borrow;
 use serde::{Serialize, Deserialize};
 use crate::vector_field::{VectorField, VectorFieldMul};
 use crate::sdr::SDR;
+use rand::Rng;
 
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Default)]
 pub struct CpuSDR(Vec<Idx>);
@@ -396,6 +397,35 @@ impl CpuSDR {
         }
         self.0.extend_from_slice(other.as_slice());
         self.0.sort()
+    }
+
+    pub fn subregion(&self, total_shape:&[Idx;3], subregion_range:&Range<[Idx;3]>)->CpuSDR{
+        CpuSDR(self.iter().cloned().filter(|&i|range_contains(subregion_range,&total_shape.pos(i))).collect())
+    }
+    pub fn subregion2d(&self, total_shape:&[Idx;3], subregion_range:&Range<[Idx;2]>)->CpuSDR{
+        CpuSDR(self.iter().cloned().filter(|&i|range_contains(subregion_range,total_shape.pos(i).grid())).collect())
+    }
+    pub fn conv_rand_subregion(&self, shape:&ConvShape, rng:&mut impl Rng)->CpuSDR{
+        self.conv_subregion(shape,&shape.out_grid().rand_vec(rng))
+    }
+    pub fn conv_subregion(&self, shape:&ConvShape, output_column_position:&[Idx;2])->CpuSDR{
+        let mut s = CpuSDR::new();
+        let r = shape.in_range(output_column_position);
+        let kc = shape.kernel_column();
+        for &i in self.iter(){
+            let pos = shape.in_shape().pos(i);
+            if range_contains(&r,pos.grid()){
+                let pos_within_subregion = pos.grid().sub(&r.start).add_channels(pos.channels());
+                s.push(kc.idx(pos_within_subregion))
+            }
+        }
+        s
+    }
+    pub fn rand_subregion(&self, total_shape:&[Idx;3], subregion_size:&[Idx;3], rng:&mut impl Rng)->CpuSDR{
+        assert!(subregion_size.all_le(total_shape),"subregion exceeds total region");
+        let offset:[Idx;3] = rng.gen();
+        let offset = offset.rem(&total_shape.sub(subregion_size).add_scalar(1));
+        self.subregion(total_shape,&(offset..offset.add(subregion_size)))
     }
 }
 

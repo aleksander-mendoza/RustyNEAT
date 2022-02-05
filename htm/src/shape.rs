@@ -52,6 +52,18 @@ pub trait Shape<T: Num + Copy + Debug + PartialOrd, const DIM: usize>: Eq + Part
         let to = from.add(kernel_size);
         from..to
     }
+    /**returns the range of inputs that connect to a specific patch of output neuron.
+    That output patch starts this position specified by this vector*/
+    fn conv_in_range_with_custom_size(&self, output_patch_size: &Self, stride: &Self, kernel_size: &Self) -> Range<Self> {
+        if output_patch_size.all_gt_scalar(T::zero()){
+            let from = self.conv_in_range_begin(stride);
+            let to = self.add(output_patch_size).sub_scalar(T::one()).conv_in_range_begin(stride);
+            let to = to.add(kernel_size);
+            from..to
+        }else{
+            Self::new_const(T::zero())..Self::new_const(T::zero())
+        }
+    }
     /**returns the range of outputs that connect to a specific input neuron*/
     fn conv_out_range(&self, stride: &Self, kernel_size: &Self) -> Range<Self> {
         let in_position = self;//position of an input neuron.
@@ -91,8 +103,8 @@ pub trait Shape<T: Num + Copy + Debug + PartialOrd, const DIM: usize>: Eq + Part
         let from = in_position.add(stride).max(kernel_size).sub(kernel_size).div(stride);
         from..to
     }
-    fn conv_out_range_clipped_both_sides(&self, stride: &Self, kernel_size: &Self, max_bounds:&Self)->Range<Self>{
-        let mut r = self.conv_out_range_clipped(stride,kernel_size);
+    fn conv_out_range_clipped_both_sides(&self, stride: &Self, kernel_size: &Self, max_bounds: &Self) -> Range<Self> {
+        let mut r = self.conv_out_range_clipped(stride, kernel_size);
         r.end = r.end.min(max_bounds);
         r
     }
@@ -242,15 +254,16 @@ mod tests {
                 for sx in 1..5 {
                     let i = [output_idx].conv_in_range(&[sx], &[x]);
                     let i_r = i.start[0]..i.end[0];
-                    for i in i_r.clone(){
-                        let o = [i].conv_out_range(&[sx],&[x]);
+                    for i in i_r.clone() {
+                        let o = [i].conv_out_range(&[sx], &[x]);
                         let o_r = o.start[0]..o.end[0];
-                        assert!(o_r.contains(&output_idx), "o_r={:?}, i_r={:?} output_idx={} sx={} x={}",o_r, i_r, output_idx, sx, x)
+                        assert!(o_r.contains(&output_idx), "o_r={:?}, i_r={:?} output_idx={} sx={} x={}", o_r, i_r, output_idx, sx, x)
                     }
                 }
             }
         }
     }
+
     #[test]
     fn test7() {
         for input_idx in 0..24 {
@@ -258,47 +271,49 @@ mod tests {
                 for sx in 1..5 {
                     let o = [input_idx].conv_out_range(&[sx], &[x]);
                     let o_r = o.start[0]..o.end[0];
-                    for o in o_r.clone(){
-                        let i = [o].conv_in_range(&[sx],&[x]);
+                    for o in o_r.clone() {
+                        let i = [o].conv_in_range(&[sx], &[x]);
                         let i_r = i.start[0]..i.end[0];
-                        assert!(i_r.contains(&input_idx), "o_r={:?}, i_r={:?} input_idx={} sx={} x={}",o_r, i_r, input_idx, sx, x)
+                        assert!(i_r.contains(&input_idx), "o_r={:?}, i_r={:?} input_idx={} sx={} x={}", o_r, i_r, input_idx, sx, x)
                     }
                 }
             }
         }
     }
+
     #[test]
     fn test8() {
         let mut rng = rand::thread_rng();
         let max = 128usize;
-        for _ in 0..54{
+        for _ in 0..54 {
             let k = rng.gen_range(2usize..8);
-            let arr:Vec<usize> = (0..64).map(|_|rng.gen_range(0..max)).collect();
-            let mut candidates = vec![0;max];
+            let arr: Vec<usize> = (0..64).map(|_| rng.gen_range(0..max)).collect();
+            let mut candidates = vec![0; max];
             let mut o = Vec::new();
-            top_large_k_indices(k,&arr,&mut candidates,|&a|a,|t|o.push(t));
-            let mut top_values1:Vec<usize> = o.iter().map(|&i|arr[i]).collect();
-            let mut arr_ind:Vec<(usize,usize)> = arr.into_iter().enumerate().collect();
-            arr_ind.sort_by_key(|&(_,v)|v);
-            let top_values2:Vec<usize> = arr_ind[64-k..].iter().map(|&(_,v)|v).collect();
+            top_large_k_indices(k, &arr, &mut candidates, |&a| a, |t| o.push(t));
+            let mut top_values1: Vec<usize> = o.iter().map(|&i| arr[i]).collect();
+            let mut arr_ind: Vec<(usize, usize)> = arr.into_iter().enumerate().collect();
+            arr_ind.sort_by_key(|&(_, v)| v);
+            let top_values2: Vec<usize> = arr_ind[64 - k..].iter().map(|&(_, v)| v).collect();
             top_values1.sort();
-            assert_eq!(top_values1,top_values2)
+            assert_eq!(top_values1, top_values2)
         }
     }
+
     #[test]
     fn test9() {
         let mut rng = rand::thread_rng();
         let max = 128usize;
-        for _ in 0..54{
+        for _ in 0..54 {
             let k = rng.gen_range(2usize..8);
-            let arr:Vec<usize> = (0..64).map(|_|rng.gen_range(0..max)).collect();
-            let o = top_small_k_indices(k,arr.len(),|i|arr[i],|a,b|a>b);
-            let mut top_values1:Vec<usize> = o.into_iter().map(|(i,v)|v).collect();
-            let mut arr_ind:Vec<(usize,usize)> = arr.into_iter().enumerate().collect();
-            arr_ind.sort_by_key(|&(_,v)|v);
-            let top_values2:Vec<usize> = arr_ind[64-k..].iter().map(|&(_,v)|v).collect();
+            let arr: Vec<usize> = (0..64).map(|_| rng.gen_range(0..max)).collect();
+            let o = top_small_k_indices(k, arr.len(), |i| arr[i], |a, b| a > b);
+            let mut top_values1: Vec<usize> = o.into_iter().map(|(i, v)| v).collect();
+            let mut arr_ind: Vec<(usize, usize)> = arr.into_iter().enumerate().collect();
+            arr_ind.sort_by_key(|&(_, v)| v);
+            let top_values2: Vec<usize> = arr_ind[64 - k..].iter().map(|&(_, v)| v).collect();
             top_values1.sort();
-            assert_eq!(top_values1,top_values2)
+            assert_eq!(top_values1, top_values2)
         }
     }
 
@@ -306,18 +321,20 @@ mod tests {
     fn test10() {
         let mut rng = rand::thread_rng();
         let max = 128usize;
-        for _ in 0..54{
-            let arr:Vec<usize> = (0..64).map(|_|rng.gen_range(0..max)).collect();
-            let o = top_small_k_indices(1,arr.len(),|i|arr[i],|a,b|a>b);
-            let (top_idx,top_val) = o[0];
-            assert_eq!(top_val,*arr.iter().max().unwrap());
-            assert_eq!(top_idx,arr.len()-1-arr.iter().rev().position_max().unwrap());
+        for _ in 0..54 {
+            let arr: Vec<usize> = (0..64).map(|_| rng.gen_range(0..max)).collect();
+            let o = top_small_k_indices(1, arr.len(), |i| arr[i], |a, b| a > b);
+            let (top_idx, top_val) = o[0];
+            assert_eq!(top_val, *arr.iter().max().unwrap());
+            assert_eq!(top_idx, arr.len() - 1 - arr.iter().rev().position_max().unwrap());
         }
     }
 }
-pub fn range_contains<T: Copy + PartialOrd + Debug,const DIM:usize>(range:&Range<[T;DIM]>,element:&[T;DIM]) -> bool {
+
+pub fn range_contains<T: Copy + PartialOrd + Debug, const DIM: usize>(range: &Range<[T; DIM]>, element: &[T; DIM]) -> bool {
     range.start.all_le(element) && element.all_lt(&range.end)
 }
+
 pub fn resolve_range<T: Add<Output=T> + Copy + One + Zero + PartialOrd + Debug>(input_size: T, input_range: impl RangeBounds<T>) -> Range<T> {
     let b = match input_range.start_bound() {
         Bound::Included(&x) => x,
@@ -334,25 +351,26 @@ pub fn resolve_range<T: Add<Output=T> + Copy + One + Zero + PartialOrd + Debug>(
     b..e
 }
 
-pub fn top_small_k_indices<V:Copy+Debug>(mut k: usize, n:usize, f: impl Fn(usize) -> V, gt:fn(V,V)->bool) -> Vec<(usize,V)>{
-    debug_assert!(k<=n);
-    let mut heap:Vec<(usize,V)> = (0..k).map(&f).enumerate().collect();
-    heap.sort_by(|v1,v2|if gt(v1.1,v2.1){Greater}else{Less});
-    for (idx,v) in (k..n).map(f).enumerate(){
-        let idx = idx+k;
+pub fn top_small_k_indices<V: Copy + Debug>(mut k: usize, n: usize, f: impl Fn(usize) -> V, gt: fn(V, V) -> bool) -> Vec<(usize, V)> {
+    debug_assert!(k <= n);
+    let mut heap: Vec<(usize, V)> = (0..k).map(&f).enumerate().collect();
+    heap.sort_by(|v1, v2| if gt(v1.1, v2.1) { Greater } else { Less });
+    for (idx, v) in (k..n).map(f).enumerate() {
+        let idx = idx + k;
         if gt(v, heap[0].1) {
             let mut i = 1;
-            while i < k && gt(v, heap[i].1){
-                heap[i-1] = heap[i];
-                i +=1
+            while i < k && gt(v, heap[i].1) {
+                heap[i - 1] = heap[i];
+                i += 1
             }
-            heap[i-1] = (idx,v);
+            heap[i - 1] = (idx, v);
         }
     }
-    debug_assert!(heap.iter().tuple_windows().all(|(smaller,larger)|!gt(smaller.1,larger.1)));
-    debug_assert_eq!(HashSet::<usize>::from_iter(heap.iter().map(|v|v.0)).len(),heap.len(),"{:?}",heap);
+    debug_assert!(heap.iter().tuple_windows().all(|(smaller, larger)| !gt(smaller.1, larger.1)));
+    debug_assert_eq!(HashSet::<usize>::from_iter(heap.iter().map(|v| v.0)).len(), heap.len(), "{:?}", heap);
     heap
 }
+
 pub fn top_large_k_indices<T>(mut k: usize, values: &[T], candidates_per_value: &mut [usize], f: fn(&T) -> usize, mut output: impl FnMut(usize)) {
     debug_assert!(candidates_per_value.iter().all(|&e| e == 0));
     values.iter().for_each(|v| candidates_per_value[f(v)] += 1);
@@ -375,23 +393,23 @@ pub fn top_large_k_indices<T>(mut k: usize, values: &[T], candidates_per_value: 
     }
 }
 
-pub trait Shape3{
-    type T:Copy;
-    fn grid(&self)->&[Self::T;2];
-    fn right(&self)->&[Self::T;2];
-    fn width(&self)->Self::T;
-    fn height(&self)->Self::T;
-    fn channels(&self)->Self::T;
-    fn width_mut(&mut self)->&mut Self::T;
-    fn height_mut(&mut self)->&mut Self::T;
-    fn channels_mut(&mut self)->&mut Self::T;
+pub trait Shape3 {
+    type T: Copy;
+    fn grid(&self) -> &[Self::T; 2];
+    fn right(&self) -> &[Self::T; 2];
+    fn width(&self) -> Self::T;
+    fn height(&self) -> Self::T;
+    fn channels(&self) -> Self::T;
+    fn width_mut(&mut self) -> &mut Self::T;
+    fn height_mut(&mut self) -> &mut Self::T;
+    fn channels_mut(&mut self) -> &mut Self::T;
 }
 
-impl <T:Copy> Shape3 for [T;3]{
+impl<T: Copy> Shape3 for [T; 3] {
     type T = T;
 
     fn grid(&self) -> &[T; 2] {
-        let [ref a @ .. , _] = self;
+        let [ref a @ .., _] = self;
         a
     }
 
@@ -411,26 +429,27 @@ impl <T:Copy> Shape3 for [T;3]{
     fn channels(&self) -> T {
         self[2]
     }
-    fn width_mut(&mut self) -> &mut T {&mut self[0]}
-    fn height_mut(&mut self) -> &mut T {&mut self[1]}
-    fn channels_mut(&mut self) -> &mut T {&mut self[2]}
-
+    fn width_mut(&mut self) -> &mut T { &mut self[0] }
+    fn height_mut(&mut self) -> &mut T { &mut self[1] }
+    fn channels_mut(&mut self) -> &mut T { &mut self[2] }
 }
-pub trait Shape2{
-    type T:Copy;
-    type A3:Shape3<T=Self::T>;
-    fn add_channels(&self,channels:Self::T) -> Self::A3;
+
+pub trait Shape2 {
+    type T: Copy;
+    type A3: Shape3<T=Self::T>;
+    fn add_channels(&self, channels: Self::T) -> Self::A3;
 
     fn width(&self) -> Self::T;
 
     fn height(&self) -> Self::T;
 }
-impl <T:Copy> Shape2 for [T;2] {
-    type T = T;
-    type A3 = [T;3];
 
-    fn add_channels(&self,channels: T) -> Self::A3 {
-        [self[0],self[1],channels]
+impl<T: Copy> Shape2 for [T; 2] {
+    type T = T;
+    type A3 = [T; 3];
+
+    fn add_channels(&self, channels: T) -> Self::A3 {
+        [self[0], self[1], channels]
     }
 
     fn width(&self) -> T {
@@ -442,9 +461,10 @@ impl <T:Copy> Shape2 for [T;2] {
     }
 }
 
-pub fn from_xy<T>(width:T,height:T) -> [T;2]{
-    [width,height]
+pub fn from_xy<T>(width: T, height: T) -> [T; 2] {
+    [width, height]
 }
-pub fn from_xyz<T>(width:T,height:T,channels:T) -> [T;3]{
-    [width,height,channels]
+
+pub fn from_xyz<T>(width: T, height: T, channels: T) -> [T; 3] {
+    [width, height, channels]
 }

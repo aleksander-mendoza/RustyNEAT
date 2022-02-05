@@ -37,7 +37,7 @@ use crate::py_ecc_population::{ConvWeights, CpuEccPopulation, WeightSums};
 ///
 #[pyclass]
 pub struct CpuEccDense {
-    ecc: htm::CpuEccDense<f32>,
+    pub(crate) ecc: htm::CpuEccDense<f32>,
 }
 
 ///
@@ -46,7 +46,7 @@ pub struct CpuEccDense {
 ///
 #[pyclass]
 pub struct CpuEccMachine {
-    ecc: htm::CpuEccMachine<f32>,
+    pub(crate) ecc: htm::CpuEccMachine<f32>,
 }
 
 
@@ -159,9 +159,35 @@ impl CpuEccMachine {
             self.ecc.learn_up_to_layer(up_to_layer)
         }
     }
+    #[text_signature = "(layer_idx)"]
+    pub fn get_layer(&self, layer:usize) -> CpuEccDense {
+        CpuEccDense{ecc:self.ecc[layer].clone()}
+    }
+    #[text_signature = "(layer_idx,layer_instance)"]
+    pub fn set_layer(&mut self, layer:usize, net:&CpuEccDense)  {
+        assert_eq!(self.ecc[layer].in_shape(),net.ecc.in_shape(),"Input shapes don't match");
+        assert_eq!(self.ecc[layer].out_shape(),net.ecc.out_shape(),"Output shapes don't match");
+        self.ecc[layer] = net.ecc.clone()
+    }
     #[text_signature = "(input_sdr,learn)"]
     pub fn infer(&mut self, input: &CpuSDR,up_to_layer:Option<usize>, learn: Option<bool>) {
         self.run(input,up_to_layer,learn,Some(false));
+    }
+    #[text_signature = "(input_sdr,layer,learn)"]
+    pub fn infer_layer(&mut self, input: &CpuSDR,layer:usize, learn: Option<bool>) ->CpuSDR{
+        self.run_layer(input,layer,learn,Some(false))
+    }
+
+    #[text_signature = "(input_sdr,layer,learn,update_activity)"]
+    pub fn run_layer(&mut self, input: &CpuSDR,layer:usize, learn: Option<bool>, update_activity:Option<bool>) ->CpuSDR{
+        let out = self.ecc[layer].infer(&input.sdr);
+        if update_activity.unwrap_or(true) {
+            self.ecc[layer].decrement_activities(&out)
+        }
+        if learn.unwrap_or(false) {
+            self.ecc[layer].learn(&input.sdr,&out)
+        }
+        CpuSDR{sdr:out}
     }
     #[text_signature = "()"]
     pub fn learn(&mut self, up_to_layer:Option<usize>) {
@@ -369,6 +395,10 @@ impl_save_load!(CpuEccDense,ecc);
 
 #[pymethods]
 impl CpuEccDense {
+    #[text_signature = "(list_of_input_sdrs)"]
+    pub fn batch_infer(&self, input: Vec<PyRef<CpuSDR>>) -> Vec<CpuSDR> {
+        self.ecc.batch_infer(&input,|s|&s.sdr,|o|CpuSDR{sdr:o})
+    }
     #[text_signature = "()"]
     pub fn reset_sums(&mut self) {
         self.ecc.population_mut().reset_sums()

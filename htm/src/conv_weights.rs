@@ -8,6 +8,8 @@ use itertools::Itertools;
 use std::collections::HashSet;
 use serde::{Serialize, Deserialize};
 use rayon::prelude::*;
+use std::thread::JoinHandle;
+use crate::parallel::{parallel_map_vector, parallel_map_collect};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct WeightSums<D: DenseWeight> {
@@ -514,6 +516,26 @@ impl <'a, D:DenseWeight+Send+Sync> ConvWeights<D>{
             let w_slice = unsafe{std::slice::from_raw_parts_mut(w_ptr as *mut D,w_len)};
             D::normalize(w_slice, weight_sums[output_idx], output_idx,  kv, v)
         })
+    }
+
+    pub fn batch_infer<T,O:Send>(&self, input: &[T], f:impl Fn(&T)->&CpuSDR+Send+Sync, target: CpuEccPopulation<D>, of:impl Fn(CpuSDR)->O+Sync) -> Vec<O> {
+        let mut targets:Vec<CpuEccPopulation<D>> = (1..num_cpus::get()).map(|_|target.clone()).collect();
+        targets.push(target);
+        parallel_map_collect(input,&mut targets,|i,t|of(self.infer(f(i), t)))
+    }
+
+    pub fn batch_infer_and_measure_s_expectation<T,O:Send>(&self, input: &[T], f:impl Fn(&T)->&CpuSDR+Send+Sync, target: CpuEccPopulation<D>, of:impl Fn(CpuSDR)->O+Sync) -> (Vec<O>,D,u32) {
+        let mut targets:Vec<(D,u32,CpuEccPopulation<D>)> = (1..num_cpus::get()).map(|_|(D::ZERO,0,target.clone())).collect();
+        targets.push((D::ZERO,0,target));
+        let o_vec = parallel_map_collect(input,&mut targets,|i,(s,missed,t)|{
+            let o_sdr = self.infer(f(i), t);
+            *s+=o_sdr.iter().map(|&k|t.sums[as_usize(k)]).sum();
+            if o_sdr.is_empty(){
+                *missed+=1
+            }
+            of(o_sdr)
+        });
+        (o_vec,targets.iter().map(|(s,_,_)|*s).sum(),targets.iter().map(|(_,s,_)|*s).sum())
     }
 }
 impl ConvWeights<f32>{

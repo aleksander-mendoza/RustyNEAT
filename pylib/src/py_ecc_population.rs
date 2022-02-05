@@ -216,6 +216,10 @@ impl ConvWeights {
         }
         out
     }
+    #[text_signature = "(list_of_input_sdrs, target_population)"]
+    pub fn batch_infer(&self, input: Vec<PyRef<CpuSDR>>, target:&CpuEccPopulation) -> Vec<CpuSDR> {
+        self.ecc.batch_infer(&input,|s|&s.sdr,target.ecc.clone(),|o|CpuSDR{sdr:o})
+    }
     #[text_signature = "(input_sdr, target_population, learn, stored_sums, parallel)"]
     pub fn infer(&mut self, input: &CpuSDR, target:&mut CpuEccPopulation,learn: Option<bool>, stored_sums:Option<&mut WeightSums>, parallel:Option<bool>) -> CpuSDR {
         self.run(input,target,learn,stored_sums,Some(false),parallel)

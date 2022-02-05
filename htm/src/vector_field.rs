@@ -189,8 +189,8 @@ pub trait VectorFieldRemDefaultZero<Scalar: Rem<Output=Scalar> + Copy + Zero>: V
         self.zip(&rhs, |a, b| if b.is_zero(){default_value_for_division_by_zero}else{a % b})
     }
 }
-pub trait VectorFieldRng<Scalar: rand::Fill + Copy>: VectorField<Scalar> {
-    fn rand(&mut self, rng: &mut impl rand::Rng);
+pub trait VectorFieldRng<Scalar: Copy>: VectorField<Scalar> {
+    fn rand_vec(&self, rng: &mut impl rand::Rng)->Self;
 }
 
 
@@ -284,10 +284,12 @@ impl<T: Copy, const DIM: usize> ArrayCast<T, DIM> for [T; DIM] {
     }
 }
 
-impl<T: rand::Fill + Copy, const DIM: usize> VectorFieldRng<T> for [T; DIM] where Standard: Distribution<T>{
-    fn rand(&mut self, rng: &mut impl rand::Rng){
+impl<T: Copy + Rem<Output=T>, const DIM: usize> VectorFieldRng<T> for [T; DIM] where Standard: Distribution<T>{
+    fn rand_vec(&self, rng: &mut impl rand::Rng)->Self{
+        let mut s:[T;DIM] = unsafe{MaybeUninit::uninit().assume_init()};
         for i in 0..DIM{
-            self[i] = rng.gen();
+            s[i] = rng.gen::<T>()%self[i];
         }
+        s
     }
 }

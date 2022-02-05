@@ -8,6 +8,7 @@ mod py_htm;
 mod py_ecc;
 mod util;
 mod py_ecc_population;
+mod py_sdr_dataset;
 
 use pyo3::prelude::*;
 use pyo3::{wrap_pyfunction, wrap_pymodule, PyObjectProtocol};
@@ -95,15 +96,25 @@ pub fn ecc(py: Python, m: &PyModule) -> PyResult<()> {
 #[pymodule]
 pub fn htm(py: Python, m: &PyModule) -> PyResult<()> {
     use py_htm::*;
+    use py_sdr_dataset::*;
     m.add_function(wrap_pyfunction!(bitset_from_bools, m)?)?;
     m.add_function(wrap_pyfunction!(bitset_from_indices, m)?)?;
     m.add_function(wrap_pyfunction!(conv_out_size, m)?)?;
+    m.add_function(wrap_pyfunction!(conv_out_range, m)?)?;
+    m.add_function(wrap_pyfunction!(conv_in_range_begin, m)?)?;
+    m.add_function(wrap_pyfunction!(conv_in_range, m)?)?;
+    m.add_function(wrap_pyfunction!(conv_in_range_with_custom_size, m)?)?;
+    m.add_function(wrap_pyfunction!(conv_out_range_clipped_both_sides, m)?)?;
+    m.add_function(wrap_pyfunction!(conv_compose_array, m)?)?;
     m.add_function(wrap_pyfunction!(conv_stride, m)?)?;
     m.add_function(wrap_pyfunction!(conv_compose, m)?)?;
     m.add_function(wrap_pyfunction!(conv_in_size, m)?)?;
     m.add_function(wrap_pyfunction!(vote, m)?)?;
     m.add_function(wrap_pyfunction!(vote_conv2d, m)?)?;
     m.add_function(wrap_pyfunction!(vote_conv2d_transpose, m)?)?;
+    m.add_class::<CpuSdrDataset>()?;
+    m.add_class::<LinearClassifier>()?;
+    m.add_class::<SubregionIndices>()?;
     m.add_class::<BitsEncoder>()?;
     m.add_class::<CpuBitset>()?;
     m.add_class::<CpuInput>()?;

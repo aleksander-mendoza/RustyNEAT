@@ -17,7 +17,7 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{Encoder, EncoderTarget, EncoderRange, Shape, VectorFieldOne, Synapse, SDR, as_usize, Idx};
+use htm::{Encoder, EncoderTarget, EncoderRange, Shape, VectorFieldOne, Synapse, SDR, as_usize, Idx, Shape3};
 use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
@@ -28,12 +28,14 @@ use serde::Serialize;
 use crate::util::*;
 use std::any::{Any, TypeId};
 use pyo3::ffi::PyFloat_Type;
+use rand::{thread_rng, Rng};
 
 #[derive(Default)]
 #[pyclass]
 pub struct CpuSDR {
     pub(crate) sdr: htm::CpuSDR,
 }
+
 
 #[pyclass]
 pub struct CpuBitset {
@@ -112,8 +114,8 @@ pub struct BitsEncoder {
 #[pyclass]
 pub struct ImageEncoder {
     enc: htm::ImageEncoder,
-    threshold_f32:f32,
-    threshold_i32:i32,
+    threshold_f32: f32,
+    threshold_i32: i32,
 }
 
 #[pyclass]
@@ -188,13 +190,13 @@ impl EncoderBuilder {
         BitsEncoder { enc: self.enc.add_bits(size) }
     }
     #[text_signature = "(width,height,channels, threshold)"]
-    pub fn add_image(&mut self, width: usize, height:usize, channels:usize, threshold:&PyAny) -> PyResult<ImageEncoder> {
-        Ok(if PyFloat::is_type_of(threshold){
-            let threshold:f32 = threshold.extract()?;
-            ImageEncoder::new_f32(self.enc.add_image(width,height,channels), threshold)
-        }else{
-            let threshold:i32 = threshold.extract()?;
-            ImageEncoder::new_i32(self.enc.add_image(width,height,channels), threshold)
+    pub fn add_image(&mut self, width: usize, height: usize, channels: usize, threshold: &PyAny) -> PyResult<ImageEncoder> {
+        Ok(if PyFloat::is_type_of(threshold) {
+            let threshold: f32 = threshold.extract()?;
+            ImageEncoder::new_f32(self.enc.add_image(width, height, channels), threshold)
+        } else {
+            let threshold: i32 = threshold.extract()?;
+            ImageEncoder::new_i32(self.enc.add_image(width, height, channels), threshold)
         })
     }
     #[text_signature = "(from_inclusive,to_exclusive,size,cardinality)"]
@@ -248,33 +250,35 @@ fn encode_err<T, U>(sdr: PyObject, scalar: T, f1: impl FnOnce(&mut htm::CpuSDR, 
     };
     o
 }
-impl ImageEncoder{
-    pub fn new_f32(enc:htm::ImageEncoder,threshold:f32)->Self{
-        Self{
+
+impl ImageEncoder {
+    pub fn new_f32(enc: htm::ImageEncoder, threshold: f32) -> Self {
+        Self {
             enc,
             threshold_f32: threshold,
-            threshold_i32: (256.*threshold) as i32,
+            threshold_i32: (256. * threshold) as i32,
         }
     }
-    pub fn new_i32(enc:htm::ImageEncoder,threshold:i32)->Self{
-        Self{
+    pub fn new_i32(enc: htm::ImageEncoder, threshold: i32) -> Self {
+        Self {
             enc,
             threshold_f32: threshold as f32 / 256.,
             threshold_i32: threshold,
         }
     }
-    fn enc<T:Copy+numpy::Element>(&self, sdr: PyObject, input: &PyAny, convert:impl Fn(T)->bool) -> PyResult<()> {
+    fn enc<T: Copy + numpy::Element>(&self, sdr: PyObject, input: &PyAny, convert: impl Fn(T) -> bool) -> PyResult<()> {
         let array = unsafe { &*(input as *const PyAny as *const PyArray3<T>) };
         let array_shape = array.shape();
         if array_shape.len() != 3 || !self.enc.shape().iter().zip(array_shape.iter()).all(|(&a, &b)| a == b) {
             return Err(PyValueError::new_err(format!("Expected numpy array of shape {:?} but got {:?}", self.enc.shape(), array_shape)));
         }
         encode(sdr, array,
-               |x, s| self.enc.encode(x, |x, y, c| convert(*unsafe{array.get([x, y, c])}.unwrap())),
-               |x, s| self.enc.encode(x, |x, y, c| convert(*unsafe{array.get([x, y, c])}.unwrap())),
-               |x, s| self.enc.encode(x, |x, y, c| convert(*unsafe{array.get([x, y, c])}.unwrap())))
+               |x, s| self.enc.encode(x, |x, y, c| convert(*unsafe { array.get([x, y, c]) }.unwrap())),
+               |x, s| self.enc.encode(x, |x, y, c| convert(*unsafe { array.get([x, y, c]) }.unwrap())),
+               |x, s| self.enc.encode(x, |x, y, c| convert(*unsafe { array.get([x, y, c]) }.unwrap())))
     }
 }
+
 #[pymethods]
 impl ImageEncoder {
     pub fn encode(&self, sdr: PyObject, input: &PyAny) -> PyResult<()> {
@@ -285,18 +289,18 @@ impl ImageEncoder {
             &*(input as *const PyAny as *const PyArrayDyn<u8>)
         };
         let actual_dtype = array.dtype().get_datatype().ok_or_else(|| PyValueError::new_err("No numpy array has no dtype"))?;
-        match actual_dtype{
-            DataType::Bool => self.enc(sdr,input,|f:bool|f),
-            DataType::Int8 => self.enc(sdr,input,|f:i8|f as i32>self.threshold_i32),
-            DataType::Int16 => self.enc(sdr,input,|f:i16|f as i32>self.threshold_i32),
-            DataType::Int32 => self.enc(sdr,input,|f:i32|f as i32>self.threshold_i32),
-            DataType::Int64 => self.enc(sdr,input,|f:i64|f as i32>self.threshold_i32),
-            DataType::Uint8 => self.enc(sdr,input,|f:u8|f as i32>self.threshold_i32),
-            DataType::Uint16 => self.enc(sdr,input,|f:u16|f as i32>self.threshold_i32),
-            DataType::Uint32 => self.enc(sdr,input,|f:u32|f as i32>self.threshold_i32),
-            DataType::Uint64 => self.enc(sdr,input,|f:u64|f as i32>self.threshold_i32),
-            DataType::Float32 => self.enc(sdr,input,|f:f32|f as f32>self.threshold_f32),
-            DataType::Float64 => self.enc(sdr,input,|f:f64|f as f32>self.threshold_f32),
+        match actual_dtype {
+            DataType::Bool => self.enc(sdr, input, |f: bool| f),
+            DataType::Int8 => self.enc(sdr, input, |f: i8| f as i32 > self.threshold_i32),
+            DataType::Int16 => self.enc(sdr, input, |f: i16| f as i32 > self.threshold_i32),
+            DataType::Int32 => self.enc(sdr, input, |f: i32| f as i32 > self.threshold_i32),
+            DataType::Int64 => self.enc(sdr, input, |f: i64| f as i32 > self.threshold_i32),
+            DataType::Uint8 => self.enc(sdr, input, |f: u8| f as i32 > self.threshold_i32),
+            DataType::Uint16 => self.enc(sdr, input, |f: u16| f as i32 > self.threshold_i32),
+            DataType::Uint32 => self.enc(sdr, input, |f: u32| f as i32 > self.threshold_i32),
+            DataType::Uint64 => self.enc(sdr, input, |f: u64| f as i32 > self.threshold_i32),
+            DataType::Float32 => self.enc(sdr, input, |f: f32| f as f32 > self.threshold_f32),
+            DataType::Float64 => self.enc(sdr, input, |f: f64| f as f32 > self.threshold_f32),
             _ => Err(PyValueError::new_err(format!("Unsupported data type {:?}", actual_dtype)))
         }
     }
@@ -843,7 +847,7 @@ impl Segment {
         let gil = Python::acquire_gil();
         let py = gil.python();
         let input_range = input_range.0..input_range.1;
-        let total_region = arrX(py, &total_region, input_range.len(),1, 1)?;
+        let total_region = arrX(py, &total_region, input_range.len(), 1, 1)?;
         let subregion_start = arrX(py, &subregion_start, 0, 0, 0)?;
         let subregion_end = arrX(py, &subregion_end, total_region[0], total_region[1], total_region[2])?;
         Ok(self.seg.add_all_inputs_from_area(input_range, total_region, subregion_start..subregion_end, &mut rand::thread_rng()))
@@ -878,7 +882,7 @@ impl OclSDR {
     }
     #[text_signature = "()"]
     pub fn to_cpu(&self) -> PyResult<CpuSDR> {
-        self.sdr.to_cpu().map(|sdr|CpuSDR {sdr}).map_err(ocl_err_to_py_ex)
+        self.sdr.to_cpu().map(|sdr| CpuSDR { sdr }).map_err(ocl_err_to_py_ex)
     }
 }
 
@@ -905,11 +909,11 @@ impl CpuSDR {
         self.sdr.shrink(number_of_bits_to_retain)
     }
     #[text_signature = "(idx)"]
-    pub fn get(&self, idx: usize)->u32 {
+    pub fn get(&self, idx: usize) -> u32 {
         self.sdr[idx]
     }
     #[text_signature = "(idx, value)"]
-    pub fn set(&mut self, idx: usize, value:u32) {
+    pub fn set(&mut self, idx: usize, value: u32) {
         self.sdr[idx] = value
     }
     #[text_signature = "()"]
@@ -1013,17 +1017,32 @@ impl CpuSDR {
     }
     #[text_signature = "()"]
     pub fn to_numpy_indices<'py>(&self, py: Python<'py>) -> &'py PyArray1<u32> {
-        PyArray1::from_slice(py,self.sdr.as_slice())
+        PyArray1::from_slice(py, self.sdr.as_slice())
     }
     #[text_signature = "()"]
     pub fn clone(&self) -> Self {
         CpuSDR { sdr: self.sdr.clone() }
+    }
+    #[text_signature = "(total_shape,subregion_start,subregion_end)"]
+    pub fn subregion(&self, total_shape: [Idx; 3], subregion_start: [Idx; 3], subregion_end: [Idx; 3]) -> Self {
+        CpuSDR { sdr: self.sdr.subregion(&total_shape, &(subregion_start..subregion_end)) }
+    }
+    #[text_signature = "(total_shape,subregion_size)"]
+    pub fn rand_subregion(&self, total_shape: [Idx; 3], subregion_size: [Idx; 3]) -> Self {
+        CpuSDR { sdr: self.sdr.rand_subregion(&total_shape, &subregion_size, &mut thread_rng()) }
     }
     #[text_signature = "(context, max_cardinality)"]
     fn to_ocl(&self, context: &mut Context, max_cardinality: u32) -> PyResult<OclSDR> {
         let ctx = context.compile_htm_program()?;
         let sdr = self.sdr.to_ocl(ctx.clone(), max_cardinality).map_err(ocl_err_to_py_ex)?;
         Ok(OclSDR { sdr })
+    }
+    fn __getstate__(&self) -> Vec<Idx> {
+        self.sdr.to_vec()
+    }
+
+    fn __setstate__(&mut self, state: Vec<Idx>) {
+        self.sdr.set_from_slice(&state)
     }
 }
 
@@ -1076,6 +1095,67 @@ pub fn conv_in_size(output_size: PyObject, stride: PyObject, kernel: PyObject) -
 }
 
 #[pyfunction]
+#[text_signature = "(output_position,output_size,stride,kernel)"]
+pub fn conv_in_range_with_custom_size(output_pos: PyObject, output_size: PyObject, stride: PyObject, kernel: PyObject) -> PyResult<(Vec<u32>, Vec<u32>)> {
+    let gil = Python::acquire_gil();
+    let py = gil.python();
+    let output_pos = arrX(py, &output_pos, 0, 0, 0)?;
+    let output_size = arrX(py, &output_size, 1, 1, 1)?;
+    let stride = arrX(py, &stride, 1, 1, 1)?;
+    let kernel = arrX(py, &kernel, 1, 1, 1)?;
+    let in_range = output_pos.conv_in_range_with_custom_size(&output_size, &stride, &kernel);
+    Ok((in_range.start.to_vec(), in_range.end.to_vec()))
+}
+
+#[pyfunction]
+#[text_signature = "(output_position,stride,kernel)"]
+pub fn conv_in_range(output_pos: PyObject, stride: PyObject, kernel: PyObject) -> PyResult<(Vec<u32>, Vec<u32>)> {
+    let gil = Python::acquire_gil();
+    let py = gil.python();
+    let output_pos = arrX(py, &output_pos, 0, 0, 0)?;
+    let stride = arrX(py, &stride, 1, 1, 1)?;
+    let kernel = arrX(py, &kernel, 1, 1, 1)?;
+    let in_range = output_pos.conv_in_range(&stride, &kernel);
+    Ok((in_range.start.to_vec(), in_range.end.to_vec()))
+}
+
+#[pyfunction]
+#[text_signature = "(input_position,stride,kernel)"]
+pub fn conv_out_range(input_pos: PyObject, stride: PyObject, kernel: PyObject) -> PyResult<(Vec<u32>, Vec<u32>)> {
+    let gil = Python::acquire_gil();
+    let py = gil.python();
+    let input_pos = arrX(py, &input_pos, 0, 0, 0)?;
+    let stride = arrX(py, &stride, 1, 1, 1)?;
+    let kernel = arrX(py, &kernel, 1, 1, 1)?;
+    let out_range = input_pos.conv_out_range_clipped(&stride, &kernel);
+    Ok((out_range.start.to_vec(), out_range.end.to_vec()))
+}
+
+#[pyfunction]
+#[text_signature = "(input_position,stride,kernel,max_bounds)"]
+pub fn conv_out_range_clipped_both_sides(input_pos: PyObject, stride: PyObject, kernel: PyObject, max_bounds: PyObject) -> PyResult<(Vec<u32>, Vec<u32>)> {
+    let gil = Python::acquire_gil();
+    let py = gil.python();
+    let input_pos = arrX(py, &input_pos, 0, 0, 0)?;
+    let stride = arrX(py, &stride, 1, 1, 1)?;
+    let kernel = arrX(py, &kernel, 1, 1, 1)?;
+    let max_bounds = arrX(py, &max_bounds, 0, 0, 0)?;
+    let out_range = input_pos.conv_out_range_clipped_both_sides(&stride, &kernel, &max_bounds);
+    Ok((out_range.start.to_vec(), out_range.end.to_vec()))
+}
+
+#[pyfunction]
+#[text_signature = "(output_position,stride)"]
+pub fn conv_in_range_begin(output_pos: PyObject, stride: PyObject) -> PyResult<Vec<u32>> {
+    let gil = Python::acquire_gil();
+    let py = gil.python();
+    let output_pos = arrX(py, &output_pos, 0, 0, 0)?;
+    let stride = arrX(py, &stride, 1, 1, 1)?;
+    let begin = output_pos.conv_in_range_begin(&stride);
+    Ok(begin.to_vec())
+}
+
+#[pyfunction]
 #[text_signature = "(input_size,output_size,kernel)"]
 pub fn conv_stride(input_size: PyObject, output_size: PyObject, kernel: PyObject) -> PyResult<Vec<u32>> {
     let gil = Python::acquire_gil();
@@ -1085,6 +1165,20 @@ pub fn conv_stride(input_size: PyObject, output_size: PyObject, kernel: PyObject
     let kernel = arrX(py, &kernel, 1, 1, 1)?;
     let stride = input_size.conv_stride(&output_size, &kernel);
     Ok(stride.to_vec())
+}
+#[pyfunction]
+#[text_signature = "(strides,kernels)"]
+pub fn conv_compose_array(strides: Vec<PyObject>, kernels: Vec<PyObject>) -> PyResult<(Vec<u32>, Vec<u32>)> {
+    assert_eq!(strides.len(),kernels.len());
+    let (mut kernel, mut stride) = ([1;3], [1;3]);
+    let gil = Python::acquire_gil();
+    let py = gil.python();
+    for (s,k) in strides.into_iter().zip(kernels.into_iter()){
+        let s = arrX(py, &s, 1, 1, 1)?;
+        let k = arrX(py, &k, 1, 1, 1)?;
+        (stride, kernel) = stride.conv_compose(&kernel, &s, &k);
+    }
+    Ok((stride.to_vec(), kernel.to_vec()))
 }
 
 #[pyfunction]
@@ -1169,7 +1263,7 @@ impl CpuBitset {
     pub fn reshape(&mut self, shape: PyObject) -> PyResult<()> {
         let gil = Python::acquire_gil();
         let py = gil.python();
-        let [z, y, x] = arrX(py, &shape, self.bits.size(),1, 1)?;
+        let [z, y, x] = arrX(py, &shape, self.bits.size(), 1, 1)?;
         Ok(self.bits.reshape3d(z, y, x))
     }
     #[text_signature = "(file)"]
@@ -1388,6 +1482,8 @@ impl PySequenceProtocol for CpuSDR {
     }
 }
 
+
+
 #[pyproto]
 impl PySequenceProtocol for OclSDR {
     fn __len__(&self) -> usize {
@@ -1443,6 +1539,7 @@ pub struct CpuSDRIter {
     inner: Py<CpuSDR>,
     idx: usize,
 }
+
 #[pyproto]
 impl PyIterProtocol for CpuSDRIter {
     fn __iter__(slf: PyRef<Self>) -> PyRef<Self> {
@@ -1470,6 +1567,7 @@ impl PyIterProtocol for CpuSDR {
         }
     }
 }
+
 #[pyclass]
 pub struct VecIter {
     iter: std::vec::IntoIter<Idx>,
@@ -1485,10 +1583,11 @@ impl PyIterProtocol for VecIter {
         slf.iter.next()
     }
 }
+
 #[pyproto]
 impl PyIterProtocol for OclSDR {
     fn __iter__(slf: PyRef<Self>) -> VecIter {
-        VecIter{iter:slf.sdr.to_vec().into_iter()}
+        VecIter { iter: slf.sdr.to_vec().into_iter() }
     }
 }
 

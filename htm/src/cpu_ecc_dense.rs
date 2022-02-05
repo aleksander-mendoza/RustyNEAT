@@ -60,6 +60,14 @@ impl<D: DenseWeight + Send + Sync> CpuEccDense<D> {
         let Self{w,p} = self;
         w.parallel_infer_in_place(input, output,p)
     }
+    pub fn batch_infer<T,O:Send>(&self, input: &[T], f:impl Fn(&T)->&CpuSDR+Send+Sync, of:impl Fn(CpuSDR)->O+Sync) -> Vec<O>{
+        let Self{w,p} = self;
+        w.batch_infer(input, f,p.clone(),of)
+    }
+    pub fn batch_infer_and_measure_s_expectation<T,O:Send>(&self, input: &[T], f:impl Fn(&T)->&CpuSDR+Send+Sync, of:impl Fn(CpuSDR)->O+Sync) -> (Vec<O>, D, u32) {
+        let Self{w,p} = self;
+        w.batch_infer_and_measure_s_expectation(input, f,p.clone(),of)
+    }
 }
 impl<D: DenseWeight> CpuEccDense<D> {
     pub fn into_machine(self) -> CpuEccMachine<D> {

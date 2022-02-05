@@ -1,5 +1,6 @@
 use crate::{Idx, Shape3, VectorFieldOne, Shape, VectorFieldPartialOrd, range_contains, from_xyz, Shape2, w_idx};
 use serde::{Serialize, Deserialize};
+use std::ops::Range;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct ConvShape {
@@ -14,6 +15,28 @@ pub struct ConvShape {
 }
 
 impl ConvShape {
+    pub fn compose(&self,next:&ConvShape)->ConvShape{
+        assert_eq!(self.out_shape(),next.in_shape());
+        let (kernel,stride) = self.stride().conv_compose(self.kernel(),next.stride(),next.kernel());
+        Self{
+            input_shape: self.input_shape,
+            output_shape: next.output_shape,
+            kernel,
+            stride
+        }
+    }
+    pub fn in_range(&self, output_column_pos:&[Idx;2])->Range<[Idx;2]>{
+        assert!(output_column_pos.all_lt(self.out_grid()));
+        output_column_pos.conv_in_range(self.stride(),self.kernel())
+    }
+    pub fn new_identity(shape: [Idx; 3])->Self{
+        Self{
+            input_shape: shape,
+            output_shape: shape,
+            kernel: [1;2],
+            stride: [1;2]
+        }
+    }
     pub fn new(output: [Idx; 2], kernel: [Idx; 2], stride: [Idx; 2], in_channels: Idx, out_channels: Idx)->Self{
         Self::new_out(in_channels,output.add_channels(out_channels),kernel,stride)
     }
