@@ -238,8 +238,9 @@ class SingleColumnMachine:
         with open(self.machine_shape.save_file(idx + 1) + ".log", "a+") as f:
             print("missed=", all_missed, file=f)
             print("sums=", all_total_sum, file=f)
-        # if plot:
-        #     plt.show()
+        if plot:
+            plt.close(fig)
+            # plt.show()
 
 
 class FullColumnMachine:
@@ -376,11 +377,19 @@ else:
 
 def run_experiments():
     factorizations = {
+        100: (10, 10),
         200: (10, 20),
         256: (16, 16),
         144: (12, 12),
         9: (3, 3),
+        6: (3,2),
+        8: (4,2),
+        24: (6, 4),
+        32: (8, 4),
         16: (4, 4),
+        48: (8, 6),
+        49: (7,7),
+        64: (8, 8),
         1: (1, 1),
         20: (5, 4),
         25: (5, 5),
@@ -389,6 +398,9 @@ def run_experiments():
     e144 = (144, 5, 1, 1, 1, None)
     e200 = (200, 5, 1, 1, 1, None)
     e256 = (256, 5, 1, 1, 1, None)
+
+    def e(c,k):
+        return c, k, 1, 1, 1, None
 
     def c9(d):
         return 9, 1, 1, d, 6, 'in'
@@ -403,10 +415,16 @@ def run_experiments():
         return 25, 1, 1, d, 6, 'in'
 
     experiments = [
-        (1, [i49, c9(3), e144, c9(5), e144, c9(7), e144, c9(10), e144, c9(7)]),
-        (1, [i49, c9(3), e144, c9(5), e144, c16(7), e144, c16(10), e144, c16(7), e144, c16(3)]),
-        (1, [i49, c9(3), e144, c9(5), e144, c16(7), e200, c16(10), e200, c20(7), e200, c20(3)]),
-        (1, [i49, c9(3), e144, c9(5), e144, c16(7), e200, c20(10), e256, c25(7), e200, c20(3)]),
+        (1, [e(6, 6), e(6, 6), e(6, 6), e(6, 6)]),
+        (1, [e(8, 6), e(2*8, 6), e(3*8, 6), e(4*8, 6)]),
+        (1, [e(8, 6), e(2 * 8, 3), e(3 * 8, 3), e(4 * 8, 3)]),
+        (1, [e(16, 6), e(2 * 16, 3), e(3 * 16, 3), e(4 * 16, 3)]),
+        (1, [e(16, 6), e(2 * 16, 6), e(3 * 16, 6), e(4 * 16, 6)]),
+        (1, [e(49, 6), e(100, 6), e(144, 6), e(256, 6)]),
+        # (1, [i49, c9(3), e144, c9(5), e144, c9(7), e144, c9(10), e144, c9(7)]),
+        # (1, [i49, c9(3), e144, c9(5), e144, c16(7), e144, c16(10), e144, c16(7), e144, c16(3)]),
+        # (1, [i49, c9(3), e144, c9(5), e144, c16(7), e200, c16(10), e200, c20(7), e200, c20(3)]),
+        # (1, [i49, c9(3), e144, c9(5), e144, c16(7), e200, c20(10), e256, c25(7), e200, c20(3)]),
     ]
     for experiment in experiments:
         first_channels, layers = experiment
@@ -432,27 +450,35 @@ def run_experiments():
                 print(save_file)
 
 
-def print_accuracy2_results(splits=[0.9]):
-    r = re.compile("[0-9]+$")
-    suff = " accuracy2.txt"
-    experiments = [file[:-len(suff)] for file in os.listdir('predictive_coding_stacked8/') if file.endswith(suff)]
-    for experiment in experiments:
-        channels = [int(r.search(part).group()) for part in experiment.split("_")]
-        print(channels)
-        with open('predictive_coding_stacked8/' + experiment + suff, "r") as f:
-            split_eval_values = [0] * len(splits)
-            split_train_values = [0] * len(splits)
-            for line in f:
-                attributes = line.split(",")
-                attributes = [attr.split("=") for attr in attributes]
-                attributes = {key.strip(): value for key, value in attributes}
-                split_val = float(attributes["split"])
-                if split_val in splits:
-                    split_idx = splits.index(split_val)
-                    split_eval_values[split_idx] = float(attributes["eval_accuracy"])
-                    split_train_values[split_idx] = float(attributes["train_accuracy"])
-            print(split_eval_values)
-            print(split_train_values)
+def print_accuracy2_results(depth, split=0.8, with_drift=None):
+    has_drift = re.compile("d[2-9][0-9]+")
+    if with_drift is None or with_drift is True:
+        pat = re.compile("(k[0-9]+s[0-9]+c[0-9]+d[0-9]+_){" + str(depth) + "}c[0-9]+ accuracy2\\.txt")
+    elif with_drift is False:
+        pat = re.compile("(k[0-9]+s[0-9]+c[0-9]+d1_){" + str(depth) + "}c[0-9]+ accuracy2\\.txt")
+    else:
+        raise Exception("Invalid drift")
+    scores = []
+    for experiment in os.listdir('predictive_coding_stacked8/'):
+        if pat.fullmatch(experiment):
+            if with_drift is True and not has_drift.search(experiment):
+                continue
+            accuracy = 0
+            with open('predictive_coding_stacked8/' + experiment, "r") as f:
+                for line in f:
+                    attributes = line.split(",")
+                    attributes = [attr.split("=") for attr in attributes]
+                    attributes = {key.strip(): value for key, value in attributes}
+                    split_val = float(attributes["split"])
+                    if split_val == split:
+                        accuracy = max(accuracy, float(attributes["eval_accuracy"]))
+            scores.append((experiment, accuracy))
+    scores.sort(key=lambda x: x[1])
+    print("Depth =", depth, ", split =", split)
+    for file, score in scores:
+        print("{:.4f}".format(score), ' '.join(file.split()[0].split('_')))
 
 
-run_experiments()
+# run_experiments()
+# for d in range(16):
+print_accuracy2_results(5, with_drift=True)
