@@ -1,5 +1,5 @@
 import math
-
+import re
 import rusty_neat
 import os
 from rusty_neat import ndalgebra as nd
@@ -80,11 +80,12 @@ def preprocess_mnist():
 
 class MachineShape:
 
-    def __init__(self, channels, kernels, strides):
+    def __init__(self, channels, kernels, strides, drifts):
         assert len(channels) == len(kernels) + 1 == len(strides) + 1
         self.channels = channels
         self.kernels = kernels
         self.strides = strides
+        self.drifts = drifts
 
     def composed_conv(self, idx):
         strides = [[s, s] for s in self.strides]
@@ -93,15 +94,18 @@ class MachineShape:
 
     def save_file(self, idx):
         prefix = "predictive_coding_stacked8/"
-        path = ''.join(["k" + str(k) + "s" + str(s) + "c" + str(c) + "_" for k, c, s in
-                        zip(self.kernels[:idx], self.channels[:idx], self.strides[:idx])])
-        return prefix + path + "o" + str(self.channels[idx])
+        path = ''.join(["k" + str(k) + "s" + str(s) + "c" + str(c) + "d" + str(d) + "_" for k, c, s, d in
+                        zip(self.kernels[:idx], self.channels[:idx], self.strides[:idx], self.drifts[:idx])])
+        return prefix + path + "c" + str(self.channels[idx])
 
     def kernel(self, idx):
         return [self.kernels[idx], self.kernels[idx]]
 
     def stride(self, idx):
         return [self.strides[idx], self.strides[idx]]
+
+    def drift(self, idx):
+        return [self.drifts[idx], self.drifts[idx]]
 
     def __len__(self):
         return len(self.kernels)
@@ -168,16 +172,16 @@ class SingleColumnMachine:
         for idx in reversed(range(len(machine_shape) - 1)):
             self.m.prepend_repeated_column(machine_shape.load_layer(idx))
 
-    def train(self, plot=False, save=True, log=None, drift=[1, 1],
-              snapshots_per_sample=1, iterations=1000000,
+    def train(self, plot=False, save=True, log=None,
+              snapshots_per_sample=1, iterations=2000000,
               interval=100000, test_patches=20000):
         idx = len(self.machine_shape) - 1
         layer = self.m.get_layer(idx)
+        drift = self.machine_shape.drift(idx)
         params = self.machine_shape.load_or_save_params(
             idx,
             w=self.w,
             h=self.h,
-            drift=drift,
             snapshots_per_sample=snapshots_per_sample,
             iterations=iterations,
             interval=interval,
@@ -185,7 +189,6 @@ class SingleColumnMachine:
         )
         w = params['w']
         h = params['h']
-        drift = params['drift']
         snapshots_per_sample = params['snapshots_per_sample']
         iterations = params['iterations']
         interval = params['interval']
@@ -363,12 +366,12 @@ class FullColumnMachine:
                     print(s)
 
 
-SDR_MNIST = Mnist(MachineShape([1], [], []), 0)
-if os.path.exists(SDR_MNIST.file):
-    SDR_MNIST.load()
-else:
-    SDR_MNIST.mnist = preprocess_mnist()
-    SDR_MNIST.save_mnist()
+# SDR_MNIST = Mnist(MachineShape([1], [], [], []), 0)
+# if os.path.exists(SDR_MNIST.file):
+#     SDR_MNIST.load()
+# else:
+#     SDR_MNIST.mnist = preprocess_mnist()
+#     SDR_MNIST.save_mnist()
 
 
 def run_experiments():
@@ -391,15 +394,15 @@ def run_experiments():
     ]
     for experiment in experiments:
         first_channels, layers = experiment
-        kernels, strides, channels = [], [], [first_channels]
+        kernels, strides, channels, drifts = [], [], [first_channels], []
         for layer in layers:
             channel, kernel, stride, drift, snapshots_per_sample, threshold = layer
             kernels.append(kernel)
             strides.append(stride)
             channels.append(channel)
-            s = MachineShape(channels, kernels, strides)
+            drifts.append(drift)
+            s = MachineShape(channels, kernels, strides, drifts)
             save_file = s.save_file(len(kernels)) + " data.pickle"
-            benchmarks2_file = s.save_file(len(kernels)) + " accuracy2.txt"
             if not os.path.exists(save_file):
                 w, h = factorizations[channel]
                 m = SingleColumnMachine(s, w, h, threshold=threshold)
@@ -407,9 +410,53 @@ def run_experiments():
                 m = FullColumnMachine(s)
                 m.eval_with_naive_bayes()
                 m.eval_with_classifier_head()
-            # if not os.path.exists(benchmarks2_file):
-            m = FullColumnMachine(s)
-            m.eval_with_classifier_head(overwrite_benchmarks=True)
 
 
-run_experiments()
+def print_accuracy2_results(splits=[0.9]):
+    r = re.compile("[0-9]+$")
+    suff = " accuracy2.txt"
+    experiments = [file[:-len(suff)] for file in os.listdir('predictive_coding_stacked8/') if file.endswith(suff)]
+    for experiment in experiments:
+        channels = [int(r.search(part).group()) for part in experiment.split("_")]
+        print(channels)
+        with open('predictive_coding_stacked8/' + experiment + suff, "r") as f:
+            split_eval_values = [0] * len(splits)
+            split_train_values = [0] * len(splits)
+            for line in f:
+                attributes = line.split(",")
+                attributes = [attr.split("=") for attr in attributes]
+                attributes = {key.strip(): value for key, value in attributes}
+                split_val = float(attributes["split"])
+                if split_val in splits:
+                    split_idx = splits.index(split_val)
+                    split_eval_values[split_idx] = float(attributes["eval_accuracy"])
+                    split_train_values[split_idx] = float(attributes["train_accuracy"])
+            print(split_eval_values)
+            print(split_train_values)
+
+
+# run_experiments()
+
+pref = re.compile("((k[0-9]+s[0-9]+c[0-9]+_)*)o([0-9]+)(.*)")
+files = os.listdir('predictive_coding_stacked8/')
+for file in files:
+    if file.endswith("data.pickle"):
+        continue
+    m = pref.match(file)
+    # if m is None:
+    #     print()
+    p = m.group(1)
+    oc = m.group(3)
+    suff = m.group(4)
+    p = p.split('_')
+    p.pop()
+    for i in range(len(p)):
+        if p[i].startswith("k1"):
+            p[i] = p[i] + "d3_"
+        else:
+            p[i] = p[i] + "d1_"
+    p = "".join(p)
+    dst = p + "c" + oc + suff
+    print(file," -> ",dst)
+    dst = 'predictive_coding_stacked8/' + dst
+    os.rename('predictive_coding_stacked8/'+file, dst)
