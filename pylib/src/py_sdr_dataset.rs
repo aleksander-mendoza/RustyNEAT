@@ -8,7 +8,6 @@ use pyo3::exceptions::PyValueError;
 use rusty_neat_core::cppn::CPPN;
 use std::iter::FromIterator;
 use pyo3::types::{PyString, PyDateTime, PyDateAccess, PyTimeAccess, PyList, PyInt, PyFloat, PyIterator};
-use rusty_neat_core::num::Num;
 use rusty_neat_core::gpu::{FeedForwardNetOpenCL, FeedForwardNetPicbreeder, FeedForwardNetSubstrate};
 use pyo3::basic::CompareOp;
 use numpy::{PyReadonlyArrayDyn, PyArrayDyn, IntoPyArray, PyArray,Ix1,Ix3,Ix4, PY_ARRAY_API, npyffi, Element, ToNpyDims, DataType, PyReadonlyArray, PyArray3, PyArray1};
@@ -49,6 +48,18 @@ impl SubregionIndices {
     fn get_in_shape(&self) -> Vec<Idx>{
         self.sdr.shape().to_vec()
     }
+    #[getter]
+    fn get_dataset_len(&self) -> usize{
+        self.sdr.dataset_len()
+    }
+    #[text_signature = "(idx)"]
+    fn get_sample_idx(&self, idx:usize) -> u32{
+        self.sdr[idx].channels()
+    }
+    #[text_signature = "(idx)"]
+    fn get_output_column_pos(&self, idx:usize) -> Vec<Idx>{
+        self.sdr[idx].grid().to_vec()
+    }
 }
 
 #[pyclass]
@@ -65,6 +76,22 @@ impl LinearClassifier {
     #[text_signature = "()"]
     pub fn occurrences(&self)->Vec<f32>{
         self.occurrences().to_vec()
+    }
+    #[text_signature = "()"]
+    pub fn square_weights(&mut self){
+        self.c.sqrt_weights()
+    }
+    #[text_signature = "()"]
+    pub fn sqrt_weights(&mut self){
+        self.c.sqrt_weights()
+    }
+    #[text_signature = "()"]
+    pub fn exp_weights(&mut self){
+        self.c.exp_weights()
+    }
+    #[text_signature = "()"]
+    pub fn log_weights(&mut self){
+        self.c.log_weights()
     }
     #[text_signature = "(label)"]
     pub fn occurrences_for_label(&self,lbl:usize)->Vec<f32>{
@@ -88,6 +115,15 @@ impl LinearClassifier {
         PyArray::from_vec(py,v)
     }
 }
+impl CpuSdrDataset{
+    fn to_numpy_<'py,T:Element+Copy>(&self,py:Python<'py>,idx:usize,one:T) -> &'py PyArray<T, Ix3>{
+        let sdr = &self.sdr[idx];
+        let mut arr = PyArray3::zeros(py,self.sdr.shape().map(as_usize),false);
+        let s = unsafe{arr.as_slice_mut().unwrap()};
+        sdr.iter().for_each(|&i|s[as_usize(i)]=one);
+        arr
+    }
+}
 #[pymethods]
 impl CpuSdrDataset {
     #[new]
@@ -101,6 +137,14 @@ impl CpuSdrDataset {
                 htm::CpuSdrDataset::new(shape)
             }
         }
+    }
+    #[text_signature = "(idx)"]
+    fn to_numpy<'py>(&self,py:Python<'py>,idx:usize) -> &'py PyArray<u32, Ix3>{
+        self.to_numpy_(py,idx,1)
+    }
+    #[text_signature = "(idx)"]
+    fn to_bool_numpy<'py>(&self,py:Python<'py>,idx:usize) -> &'py PyArray<bool, Ix3>{
+        self.to_numpy_(py,idx,true)
     }
     #[getter]
     fn get_shape(&self) -> Vec<Idx>{
@@ -130,9 +174,14 @@ impl CpuSdrDataset {
     fn get_area(&self) -> Idx{
         self.sdr.shape().grid().product()
     }
+    #[text_signature = "(min_cardinality)"]
+    pub fn filter_by_cardinality_threshold(&mut self, min_cardinality:Idx){
+        self.sdr.filter_by_cardinality_threshold(min_cardinality)
+    }
     #[text_signature = "(number_of_samples,drift,patches_per_sample,ecc,log)"]
     pub fn train_with_patches(&self, number_of_samples: usize, drift:[Idx;2], patches_per_sample:usize, ecc: &mut CpuEccDense,log:Option<usize>) {
         if let Some(log) = log {
+            assert!(log>0,"Logging interval must be greater than 0");
             self.sdr.train_with_patches(number_of_samples,drift,patches_per_sample,&mut ecc.ecc,&mut rand::thread_rng(),|i|if i % log == 0{println!("Processed samples {}", i+1)})
         } else{
             self.sdr.train_with_patches(number_of_samples,drift,patches_per_sample,&mut ecc.ecc,&mut rand::thread_rng(),|i|{})
@@ -162,6 +211,14 @@ impl CpuSdrDataset {
     fn rand(&self) ->Option<CpuSDR>{
         self.sdr.rand(&mut rand::thread_rng()).map(|sdr|CpuSDR { sdr:sdr.clone()})
     }
+    #[text_signature = "(ecc,indices)"]
+    fn conv_subregion_indices_with_ecc(&self, ecc:&CpuEccDense, indices: &SubregionIndices) -> Self{
+        Self{sdr:self.sdr.conv_subregion_indices_with_ecc(&ecc.ecc,&indices.sdr)}
+    }
+    #[text_signature = "(kernel,stride,indices)"]
+    fn conv_subregion_indices_with_ker(&self, kernel:[Idx;2],stride:[Idx;2], indices: &SubregionIndices) -> Self{
+        Self{sdr:self.sdr.conv_subregion_indices_with_ker(kernel,stride,&indices.sdr)}
+    }
     #[text_signature = "(kernel,stride,number_of_samples,original_dataset)"]
     fn extend_from_conv_rand_subregion(&mut self, kernel:[Idx;2],stride:[Idx;2],number_of_samples:usize, original:&CpuSdrDataset) {
         let conv = ConvShape::new_in(*original.sdr.shape(),1,kernel,stride);
@@ -173,8 +230,16 @@ impl CpuSdrDataset {
         self.sdr.extend_from_conv_subregion_indices(&conv,&indices.sdr,&original.sdr)
     }
     #[text_signature = "(out_shape,number_of_samples)"]
-    fn gen_rand_conv_subregion_indices(&self, out_shape:[Idx;3],number_of_samples:usize) -> SubregionIndices{
+    fn gen_rand_conv_subregion_indices(&self, out_shape:[Idx;2],number_of_samples:usize) -> SubregionIndices{
         SubregionIndices{sdr:self.sdr.gen_rand_conv_subregion_indices(out_shape,number_of_samples,&mut rand::thread_rng())}
+    }
+    #[text_signature = "(kernel,stride,number_of_samples)"]
+    fn gen_rand_conv_subregion_indices_with_ker(&self, kernel:[Idx;2], stride:[Idx;2],number_of_samples:usize) -> SubregionIndices{
+        SubregionIndices{sdr:self.sdr.gen_rand_conv_subregion_indices_with_ker(&kernel,&stride,number_of_samples,&mut rand::thread_rng())}
+    }
+    #[text_signature = "(ecc_dense,number_of_samples)"]
+    fn gen_rand_conv_subregion_indices_with_ecc(&self, ecc:&CpuEccDense,number_of_samples:usize) -> SubregionIndices{
+        SubregionIndices{sdr:self.sdr.gen_rand_conv_subregion_indices_with_ecc(&ecc.ecc,number_of_samples,&mut rand::thread_rng())}
     }
     #[text_signature = "(labels,number_of_classes)"]
     fn count_per_label(&self, labels:&PyAny,number_of_classes:usize) -> PyResult<Vec<f32>>{
@@ -196,6 +261,10 @@ impl CpuSdrDataset {
         match dtype{
             u8::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&u8|*f as usize),
             u32::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&u32|*f as usize),
+            u64::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&u64|*f as usize),
+            i8::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&i8|*f as usize),
+            i32::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&i32|*f as usize),
+            i64::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&i64|*f as usize),
             usize::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&usize|*f),
             d => Err(PyValueError::new_err(format!("Unexpected dtype {:?} of numpy array ", d)))
         }
@@ -219,6 +288,12 @@ impl CpuSdrDataset {
     fn batch_infer(&self,ecc:&CpuEccDense) -> CpuSdrDataset{
         Self{sdr:self.sdr.batch_infer(&ecc.ecc)}
     }
+    #[text_signature = "(start,end)"]
+    pub fn subdataset(&self,start:usize,end:Option<usize>) -> Self{
+        let end = end.unwrap_or(self.sdr.len());
+        Self{sdr:self.sdr.subdataset(start..end)}
+    }
+
     #[text_signature = "(ecc_dense,target)"]
     fn batch_infer_conv_weights(&self,ecc:&ConvWeights,target:&CpuEccPopulation) -> CpuSdrDataset{
         Self{sdr:self.sdr.batch_infer_conv_weights(&ecc.ecc,target.ecc.clone())}
@@ -257,6 +332,10 @@ impl CpuSdrDataset {
         match dtype{
             u8::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&u8|*f as usize),
             u32::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&u32|*f as usize),
+            u64::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&u64|*f as usize),
+            i8::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&i8|*f as usize),
+            i32::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&i32|*f as usize),
+            i64::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&i64|*f as usize),
             usize::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&usize|*f),
             d => Err(PyValueError::new_err(format!("Unexpected dtype {:?} of numpy array ", d)))
         }.map(|c|LinearClassifier{c})
@@ -264,6 +343,8 @@ impl CpuSdrDataset {
 }
 
 impl_save_load!(CpuSdrDataset,sdr);
+impl_save_load!(SubregionIndices,sdr);
+impl_save_load!(LinearClassifier,c);
 
 #[pyproto]
 impl PySequenceProtocol for CpuSdrDataset {
@@ -271,12 +352,29 @@ impl PySequenceProtocol for CpuSdrDataset {
         self.sdr.len()
     }
     fn __getitem__(&self, idx: isize) -> CpuSDR {
-        assert!(idx>0);
+        assert!(idx>=0);
         CpuSDR{sdr:self.sdr[idx as usize].clone()}
     }
 
     fn __setitem__(&mut self, idx: isize, value: PyRef<CpuSDR>) {
-        assert!(idx>0);
+        assert!(idx>=0);
         self.sdr[idx as usize] = value.sdr.clone();
+    }
+}
+
+
+#[pyproto]
+impl PySequenceProtocol for SubregionIndices {
+    fn __len__(&self) -> usize {
+        self.sdr.len()
+    }
+    fn __getitem__(&self, idx: isize) -> Vec<u32> {
+        assert!(idx>=0);
+        self.sdr[idx as usize].to_vec()
+    }
+
+    fn __setitem__(&mut self, idx: isize, value: [Idx;3]) {
+        assert!(idx>=0);
+        self.sdr[idx as usize] = value;
     }
 }

@@ -1,5 +1,6 @@
 /target
 .idea
+experiments/predictive_coding_stacked8/*data.pickle
 htm/data
 rusty_neat.so
 Cargo.lock

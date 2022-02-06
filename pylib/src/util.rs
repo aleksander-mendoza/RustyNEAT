@@ -36,6 +36,10 @@ macro_rules! impl_save_load {
             pub fn save(&self, file: String) -> PyResult<()> {
                 pickle(&self.$inner_field, file)
             }
+            #[text_signature = "()"]
+            pub fn clone(&self) -> Self {
+                Self{$inner_field:self.$inner_field.clone()}
+            }
             #[staticmethod]
             #[text_signature = "(file)"]
             pub fn load(file: String) -> PyResult<Self> {

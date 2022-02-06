@@ -293,3 +293,28 @@ impl<T: Copy + Rem<Output=T>, const DIM: usize> VectorFieldRng<T> for [T; DIM] w
         s
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use crate::VectorFieldRng;
+    use rand::thread_rng;
+
+    #[test]
+    fn test1() {
+        let a = [3,3];
+        let mut c = [[0;2];3];
+        let mut rng = thread_rng();
+        for i in 0..64{
+            let b = a.rand_vec(&mut rng);
+            c[b[0]][0] += 1;
+            c[b[1]][1] += 1;
+        }
+        for c in c.iter() {
+            for &c in c.iter() {
+                assert!(c>0);
+            }
+        }
+    }
+
+}

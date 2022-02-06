@@ -1,3 +1,5 @@
+import math
+
 import rusty_neat
 import os
 from rusty_neat import ndalgebra as nd
@@ -8,7 +10,7 @@ import copy
 from matplotlib import pyplot as plt
 import torch
 import numpy as np
-
+import json
 from tqdm import tqdm
 import pickle
 from torch.utils.data import DataLoader
@@ -16,17 +18,6 @@ from torch.utils.data import DataLoader
 fig, axs = None, None
 
 MNIST, LABELS = torch.load('htm/data/mnist.pt')
-
-
-def rand_patch(patch_size, img_idx=None):
-    if img_idx is None:
-        img_idx = int(np.random.rand() * len(MNIST))
-    img = MNIST[img_idx]
-    r = np.random.rand(2)
-    left_bottom = (img.shape - patch_size) * r
-    left_bottom = left_bottom.astype(int)
-    top_right = left_bottom + patch_size
-    return img[left_bottom[0]:top_right[0], left_bottom[1]:top_right[1]]
 
 
 def visualise_connection_heatmap(in_w, in_h, ecc_net, out_w, out_h, pause=None):
@@ -76,6 +67,17 @@ def compute_confusion_matrix_fit(conf_mat, ecc_net, metric_l2=True):
     return fit
 
 
+def preprocess_mnist():
+    enc = htm.EncoderBuilder()
+    img_w, img_h, img_c = 28, 28, 1
+    enc_img = enc.add_image(img_w, img_h, img_c, 0.8)
+    sdr_mnist = [htm.CpuSDR() for _ in MNIST]
+    for sdr, img in zip(sdr_mnist, MNIST):
+        enc_img.encode(sdr, img.unsqueeze(2).numpy())
+    sdr_dataset = htm.CpuSdrDataset([28, 28, 1], sdr_mnist)
+    return sdr_dataset
+
+
 class MachineShape:
 
     def __init__(self, channels, kernels, strides):
@@ -85,13 +87,12 @@ class MachineShape:
         self.strides = strides
 
     def composed_conv(self, idx):
-        composed_k, composed_s = [1, 1], [1, 1]
-        for k, s in zip(self.kernels[:idx], self.strides[:idx]):
-            composed_k, composed_s = htm.conv_compose(composed_k, composed_s, k, s)
-        return composed_k, composed_s
+        strides = [[s, s] for s in self.strides]
+        kernels = [[k, k] for k in self.kernels]
+        return htm.conv_compose_array(strides=strides[:idx + 1], kernels=kernels[:idx + 1])
 
     def save_file(self, idx):
-        prefix = "predictive_coding_stacked7_"
+        prefix = "predictive_coding_stacked8/"
         path = ''.join(["k" + str(k) + "s" + str(s) + "c" + str(c) + "_" for k, c, s in
                         zip(self.kernels[:idx], self.channels[:idx], self.strides[:idx])])
         return prefix + path + "o" + str(self.channels[idx])
@@ -105,20 +106,23 @@ class MachineShape:
     def __len__(self):
         return len(self.kernels)
 
-    def prev(self):
-        if len(self) == 0:
-            return self
-        kernels = self.kernels[:-1].copy()
-        strides = self.strides[:-1].copy()
-        channels = self.channels[:-1].copy()
-        return MachineShape(channels=channels, kernels=kernels, strides=strides)
-
     def load_layer(self, idx):
-        mf = self.save_file(idx) + ".model"
+        mf = self.save_file(idx + 1) + ".model"
         if os.path.exists(mf):
             return ecc.CpuEccDense.load(mf)
         else:
             return None
+
+    def load_or_save_params(self, idx, **kwrds):
+        f = self.save_file(idx + 1) + " params.txt"
+        if os.path.exists(f):
+            with open(f, "r") as f:
+                d2 = json.load(f)
+                kwrds.update(d2)
+        else:
+            with open(f, "w+") as f:
+                json.dump(kwrds, f)
+        return kwrds
 
 
 class Mnist:
@@ -128,41 +132,31 @@ class Mnist:
         self.layer_idx = layer_idx
         self.file = machine_shape.save_file(layer_idx) + " data.pickle"
         self.mnist = None
-        self.shape = htm.conv_out_size([28, 28], machine_shape.composed_k, machine_shape.composed_s)
+        self.composed_stride, self.composed_kernel = machine_shape.composed_conv(layer_idx)
 
     def load(self):
-        if len(self.machine_shape) == 0:
-            enc = htm.EncoderBuilder()
-            img_w, img_h, img_c = 28, 28, 1
-            enc_img = enc.add_image(img_w, img_h, img_c, 0.8)
-            self.mnist = [htm.CpuSDR() for _ in MNIST]
-            for sdr, img in zip(self.mnist, MNIST):
-                enc_img.encode(sdr, img.unsqueeze(2).numpy())
-        else:
-            with open(self.file, "rb") as f:
-                shape, k, s, self.mnist = pickle.load(f)
-                assert shape == self.shape, str(shape) + " " + str(self.shape)
-                assert k == self.machine_shape.composed_k, str(k) + " " + str(self.machine_shape.composed_k)
-                assert s == self.machine_shape.composed_s, str(s) + " " + str(self.machine_shape.composed_s)
-                self.mnist = [htm.CpuSDR(x) for x in self.mnist]
+        self.mnist = htm.CpuSdrDataset.load(self.file)
 
     def save_mnist(self):
-        with open(self.file, "wb+") as f:
-            om = [list(x) for x in self.mnist]
-            k, s = self.machine_shape.composed_k, self.machine_shape.composed_s
-            pickle.dump((self.shape, k, s, om), f)
+        self.mnist.save(self.file)
 
 
 class SingleColumnMachine:
 
-    def __init__(self, machine_shape: MachineShape):
+    def __init__(self, machine_shape: MachineShape, w, h, threshold=None):
+        assert w * h == machine_shape.channels[-1]
+        self.threshold = threshold
         self.machine_shape = machine_shape
         self.m = ecc.CpuEccMachine()
-        top = self.load_layer(-1)
+        self.w = w
+        self.h = h
+        top = self.machine_shape.load_layer(len(machine_shape) - 1)
         if top is None:
-            l = ecc.CpuEccDense([1, 1], self.kernel(-1), self.stride(-1),
-                                in_channels=self.channels[-2],
-                                out_channels=self.channels[-1],
+            l = ecc.CpuEccDense([1, 1],
+                                kernel=self.machine_shape.kernel(-1),
+                                stride=self.machine_shape.stride(-1),
+                                in_channels=self.machine_shape.channels[-2],
+                                out_channels=self.machine_shape.channels[-1],
                                 k=1)
             if self.threshold == 'in':
                 l.threshold = 1 / l.in_channels
@@ -171,316 +165,151 @@ class SingleColumnMachine:
             self.m.push(l)
         else:
             self.m.push(top)
-        for idx in reversed(range(len(self) - 1)):
-            self.m.prepend_repeated_column(self.load_layer(idx))
-        self.update_shapes()
+        for idx in reversed(range(len(machine_shape) - 1)):
+            self.m.prepend_repeated_column(machine_shape.load_layer(idx))
 
-
-class Experiment:
-
-    def __init__(self, machine_shape, threshold=None):
-        self.machine_shape = machine_shape
-        self.iterations = 1000000
-        self.interval = 100000
-        self.test_patches = 20000
-        self.num_of_snapshots = 1
-        self.drift = np.array([0, 0])
-        self.plot = True
-        self.sdr = None
-        self.m = None
-        self.head = None
-        self.threshold = threshold
-        self.epochs = 5
-        self.input_mnist_shape = None
-        self.input_mnist_kernel = None
-        self.input_mnist_stride = None
-        self.input_mnist = None
-        self.output_mnist_shape = None
-        self.output_mnist = None
-
-    def produce_mnist(self, idx):
-        if idx < 0:
-            idx = len(self) + idx
-        assert self.m.in_shape == [28, 28, 1]
-        self.load_mnist(idx)
+    def train(self, plot=False, save=True, log=None, drift=[1, 1],
+              snapshots_per_sample=1, iterations=1000000,
+              interval=100000, test_patches=20000):
+        idx = len(self.machine_shape) - 1
         layer = self.m.get_layer(idx)
-        self.output_mnist = layer.batch_infer(self.input_mnist)
-        self.output_mnist_shape = layer.out_shape
+        params = self.machine_shape.load_or_save_params(
+            idx,
+            w=self.w,
+            h=self.h,
+            drift=drift,
+            snapshots_per_sample=snapshots_per_sample,
+            iterations=iterations,
+            interval=interval,
+            test_patches=test_patches,
+        )
+        w = params['w']
+        h = params['h']
+        drift = params['drift']
+        snapshots_per_sample = params['snapshots_per_sample']
+        iterations = params['iterations']
+        interval = params['interval']
+        test_patches = params['test_patches']
+        mnist = Mnist(self.machine_shape, idx)
+        mnist.load()
+        print("PATCH_SIZE=", mnist.mnist.shape)
+        compound_stride, compound_kernel = self.machine_shape.composed_conv(idx)
+        compound_stride, compound_kernel = compound_stride[:2], compound_kernel[:2]
+        test_patch_indices = mnist.mnist.gen_rand_conv_subregion_indices_with_ecc(layer, test_patches)
+        test_input_patches = mnist.mnist.conv_subregion_indices_with_ecc(layer, test_patch_indices)
+        test_img_patches = SDR_MNIST.mnist.conv_subregion_indices_with_ker(compound_kernel, compound_stride,
+                                                                           test_patch_indices)
+        all_missed = []
+        all_total_sum = []
+        if plot:
+            fig, axs = plt.subplots(self.w, self.h)
+            for a in axs:
+                for b in a:
+                    b.set_axis_off()
 
-    def update_shapes(self):
-        self.in_shape = np.array(self.m.in_shape)
-        self.out_shape = np.array(self.m.out_shape)
-        self.in_grid = np.array(self.m.in_grid)
+        def eval_ecc():
+            test_outputs, s_sums, missed = test_input_patches.batch_infer_and_measure_s_expectation(layer)
+            receptive_fields = test_img_patches.measure_receptive_fields(test_outputs)
+            receptive_fields = receptive_fields.squeeze(2)
+            all_missed.append(missed / test_patches)
+            all_total_sum.append(s_sums)
+            print("missed=", all_missed)
+            print("sums=", all_total_sum)
+            if plot:
+                for i in range(w):
+                    for j in range(h):
+                        axs[i, j].imshow(receptive_fields[:, :, i + j * w])
+                plt.pause(0.01)
+                if save:
+                    img_file_name = self.machine_shape.save_file(idx + 1) + " before.png"
+                    if s > 0 or os.path.exists(img_file_name):
+                        img_file_name = self.machine_shape.save_file(idx + 1) + " after.png"
+                    plt.savefig(img_file_name)
 
-    def make_full_column_machine(self):
+        for s in tqdm(range(int(math.ceil(iterations / interval))), desc="training"):
+            eval_ecc()
+            mnist.mnist.train_with_patches(interval, drift, snapshots_per_sample, layer, log)
+            if save:
+                layer.save(self.machine_shape.save_file(idx + 1) + ".model")
+        eval_ecc()
+        with open(self.machine_shape.save_file(idx + 1) + ".log", "a+") as f:
+            print("missed=", all_missed, file=f)
+            print("sums=", all_total_sum, file=f)
+        if plot:
+            plt.show()
+
+
+class FullColumnMachine:
+
+    def __init__(self, machine_shape: MachineShape):
+        self.machine_shape = machine_shape
         self.m = ecc.CpuEccMachine()
-        bottom = self.load_layer(0)
+        bottom = machine_shape.load_layer(0)
         out_size = htm.conv_out_size([28, 28], bottom.stride, bottom.kernel)[:2]
         bottom = bottom.repeat_column(out_size)
         self.m.push(bottom)
-        for idx in range(1, len(self)):
-            self.m.push_repeated_column(self.load_layer(idx))
-        self.update_shapes()
+        for idx in range(1, len(machine_shape)):
+            self.m.push_repeated_column(machine_shape.load_layer(idx))
 
-    def save(self, idx):
-        if idx == -1 and self.head is not None:
-            self.head.save(self.save_file(idx) + ".model")
-        else:
-            if idx < 0:
-                idx = len(self) + idx
-            self.m.save_layer(idx, self.save_file(idx) + ".model")
-
-    def sums(self, output_sdr):
-        if self.head is None:
-            return self.m.sums_for_sdr(len(self.kernels) - 1, output_sdr)
-        else:
-            return self.head.sums_for_sdr(output_sdr)
-
-    def dict(self):
-        return {
-            'drift': list(self.drift),
-            'num_of_snapshots': self.num_of_snapshots,
-            'w': self.w,
-            'h': self.h,
-            'test_patches': self.test_patches,
-            'iterations': self.iterations
-        }
-
-    def save_params(self, idx):
-        with open(self.save_file(idx) + " params.txt", "w+") as f:
-            print(self.dict(), file=f)
-
-    def load_params(self, idx):
-        with open(self.save_file(idx) + " params.txt", "r") as f:
-            src = f.read()
-            params = eval(src)
-            if 'drift' in params:
-                self.drift = np.array(params['drift'])
-            for v in ['num_of_snapshots', 'w', 'h', 'test_patches', 'iterations']:
-                self.__dict__[v] = params[v]
-
-    def load_or_save_params(self, idx):
-        if os.path.exists(self.save_file(idx) + " params.txt"):
-            self.load_params(idx)
-        else:
-            self.save_params(idx)
-
-    def experiment(self, idx):
-        if idx < 0:
-            idx = len(self) + idx
-        if self.m is None:
-            self.make_single_column_machine()
-        else:
-            assert self.m.out_shape == [1, 1, self.channels[-1]]
+    def eval_with_classifier_head(self, overwrite=False):
+        idx = len(self.machine_shape) - 1
+        print("PATCH_SIZE=", self.m.in_shape)
         layer = self.m.get_layer(idx)
-        self.load_or_save_params(idx)
-        patch_size = np.array(self.in_grid)
-        print("PATCH_SIZE=", self.in_shape)
-        self.load_mnist(idx)
-        test_patches = [normalise_img(self.rand_patch(patch_size)) for _ in range(self.test_patches)]
-        test_patches = [test_patch for test_patch in test_patches if len(test_patch[1]) > 2]
-        all_processed = []
-        all_total_sum = []
-        stats_shape = list(self.in_grid) + [self.w * self.h]
-        if self.plot:
-            fig, axs = plt.subplots(self.w, self.h)
-            for a in axs:
-                for b in a:
-                    b.set_axis_off()
-        for s in tqdm(range(self.iterations), desc="training"):
-            img_idx = int(np.random.rand() * len(self.input_mnist))
-            img = self.input_mnist[img_idx]
-            r = np.random.rand(2)
-            min_left_bottom = (img.shape - patch_size - self.drift) * r
-            min_left_bottom = min_left_bottom.astype(int)
-            self.sdr = None
-            for _ in range(self.num_of_snapshots):
-                left_bottom = min_left_bottom + (np.random.rand(2) * (self.drift + 1)).astype(int)
-                assert np.all(left_bottom >= 0)
-                assert np.all(left_bottom <= img.shape - patch_size), left_bottom
-                top_right = left_bottom + patch_size
-                snapshot = img[left_bottom[0]:top_right[0], left_bottom[1]:top_right[1]]
-                snapshot, sdr = normalise_img(snapshot)
-                self.m.infer(sdr)
-                pre_sdr = self.m.last_output_sdr()
-                fin_sdr = self.head.infer(pre_sdr)
-                if self.sdr is None or len(self.sdr) == 0:
-                    self.sdr = fin_sdr
-                    self.head.decrement_activities(fin_sdr)
-                self.head.learn(pre_sdr, self.sdr)
-            if s % self.interval == 0:
-                if SAVE:
-                    self.save()
-                stats = torch.zeros(stats_shape)
-                processed = 0
-                total_sum = 0
-                for img, sdr in tqdm(test_patches, desc="eval"):
-                    self.m.infer(sdr)
-                    pre_sdr = self.m.last_output_sdr()
-                    output_sdr = self.head.infer(pre_sdr)
-                    for top in output_sdr:
-                        stats[:, :, top] += img
-                        processed += 1
-                    total_sum += self.sums(output_sdr)
-                all_processed.append(processed / len(test_patches))
-                all_total_sum.append(total_sum)
-                print("processed=", all_processed)
-                print("sums=", all_total_sum)
-                if self.plot:
-                    for i in range(self.w):
-                        for j in range(self.h):
-                            axs[i, j].imshow(stats[:, :, i + j * self.w])
-                    plt.pause(0.01)
-                    if SAVE:
-                        img_file_name = self.save_file() + " before.png"
-                        if s > 0 or os.path.exists(img_file_name):
-                            img_file_name = self.save_file() + " after.png"
-                        plt.savefig(img_file_name)
-        if self.plot:
-            plt.show()
-
-    def measure_cross_correlation(self):
-        save = self.save_file() + " conf_mat.pt"
-        self.make_single_column_machine()
-        if os.path.exists(save):
-            with open(save, "rb") as f:
-                confusion_matrix = torch.load(f)
+        benchmarks_save = self.machine_shape.save_file(idx + 1) + " accuracy.txt"
+        out_mnist = Mnist(self.machine_shape, idx + 1)
+        if os.path.exists(out_mnist.file) and not overwrite:
+            out_mnist.load()
         else:
-            patch_size = self.in_shape[:2]
-            print("PATCH_SIZE=", self.in_shape)
-            enc = htm.EncoderBuilder()
-            img_w, img_h, img_c = self.in_shape
-            img_encoder = enc.add_image(img_w, img_h, img_c, 0.8)
+            in_mnist = Mnist(self.machine_shape, idx)
+            in_mnist.load()
+            out_mnist.mnist = in_mnist.mnist.batch_infer(layer)
 
-            def normalise_img(img):
-                sdr = htm.CpuSDR()
-                img_encoder.encode(sdr, img.unsqueeze(2).numpy())
-                return img, sdr
-
-            curr = set()
-            confusion_matrix = torch.zeros([self.w * self.h, self.w * self.h])
-            for s in tqdm(range(self.test_patches), desc="measuring"):
-                img_idx = int(np.random.rand() * len(self.input_mnist))
-                img = self.input_mnist[img_idx]
-                r = np.random.rand(2)
-                min_left_bottom = (img.shape - patch_size - self.drift) * r
-                min_left_bottom = min_left_bottom.astype(int)
-                for _ in range(self.num_of_snapshots):
-                    left_bottom = min_left_bottom + (np.random.rand(2) * (self.drift + 1)).astype(int)
-                    assert np.all(left_bottom >= 0)
-                    assert np.all(left_bottom < img.shape - patch_size), left_bottom
-                    top_right = left_bottom + patch_size
-                    snapshot = img[left_bottom[0]:top_right[0], left_bottom[1]:top_right[1]]
-                    snapshot, sdr = normalise_img(snapshot)
-                    self.m.infer(sdr)
-                    out_sdr = self.m.last_output_sdr()
-                    if len(out_sdr) > 0:
-                        curr.add(out_sdr.item())
-                curr_list = list(curr)
-                for i in range(len(curr_list)):
-                    for j in range(i + 1, len(curr_list)):
-                        confusion_matrix[curr_list[i], curr_list[j]] += 1
-                        confusion_matrix[curr_list[j], curr_list[i]] += 1
-                curr.clear()
-
-            with open(save, "wb+") as f:
-                torch.save(confusion_matrix, f)
-        if self.plot:
-            plt.imshow(confusion_matrix)
-            plt.show()
-            fig, axs = plt.subplots(self.w, self.h)
-            for a in axs:
-                for b in a:
-                    b.set_axis_off()
-            for i in range(self.w):
-                for j in range(self.h):
-                    img = confusion_matrix[i + j * self.w]
-                    img = img.reshape([self.w, self.h])
-                    img = img.T
-                    axs[i, j].imshow(img)
-            plt.savefig(self.save_file() + " conf_mat.png")
-            plt.show()
-        return confusion_matrix
-
-    def eval_with_classifier_head(self):
-        self.make_full_column_machine()
-        print("PATCH_SIZE=", self.in_shape)
-        benchmarks_save = self.save_file() + " accuracy.txt"
-        enc = htm.EncoderBuilder()
-        img_w, img_h, img_c = self.in_shape
-        enc_img = enc.add_image(img_w, img_h, img_c, 0.8)
-        out_volume = self.out_shape.prod()
-
-        class D(torch.utils.data.Dataset):
-            def __init__(self, imgs, lbls, m):
-                self.imgs = imgs
-                self.lbls = lbls
-                self.m = m
-
-            def __len__(self):
-                return len(self.imgs)
-
-            def __getitem__(self, idx):
-                img = self.imgs[idx]
-                sdr = htm.CpuSDR()
-                enc_img.encode(sdr, img.unsqueeze(2).numpy())
-                self.m.infer(sdr)
-                img_bits = self.m.last_output_sdr()
-                img = torch.zeros(out_volume)
-                img[list(img_bits)] = 1
-                return img, self.lbls[idx]
-
-        train_mnist = MNIST[:40000]
-        train_labels = LABELS[:40000]
-        train_d = D(train_mnist, train_labels, self.m)
-
-        eval_mnist = MNIST[40000:60000]
-        eval_labels = LABELS[40000:60000]
-        eval_d = D(eval_mnist, eval_labels, self.m)
-
-        linear = torch.nn.Linear(out_volume, 10)
-        loss = torch.nn.NLLLoss()
-        optim = torch.optim.Adam(linear.parameters())
-
-        train_dataloader = DataLoader(train_d, batch_size=64, shuffle=True)
-        eval_dataloader = DataLoader(eval_d, batch_size=64, shuffle=True)
-
-        for epoch in range(self.epochs):
-            train_accuracy = 0
-            train_total = 0
-            for x, y in tqdm(train_dataloader, desc="train"):
-                optim.zero_grad()
-                x = linear(x)
-                x = torch.log_softmax(x, dim=1)
-                d = loss(x, y)
-                train_accuracy += (x.argmax(1) == y).sum().item()
-                train_total += x.shape[0]
-                d.backward()
-                optim.step()
-
-            eval_accuracy = 0
-            eval_total = 0
-            for x, y in tqdm(eval_dataloader, desc="eval"):
-                x = linear(x)
-                eval_accuracy += (x.argmax(1) == y).sum().item()
-                eval_total += x.shape[0]
-            with open(benchmarks_save, "a+") as f:
-                print("epoch=", epoch, "train=", train_accuracy / train_total, "eval=", eval_accuracy / eval_total,
-                      file=f)
-            print("train=", train_accuracy / train_total, "eval=", eval_accuracy / eval_total)
+        with open(benchmarks_save, 'w+') as f:
+            for split in [0.1, 0.2, 0.5, 0.8, 0.9]:
+                train_len = int(len(MNIST) * split)
+                eval_len = len(MNIST) - train_len
+                train_data = out_mnist.mnist.subdataset(0, train_len)
+                eval_data = out_mnist.mnist.subdataset(train_len)
+                train_lbls = LABELS[0:train_len].numpy()
+                eval_lbls = LABELS[train_len:].numpy()
+                lc = train_data.fit_linear_regression(train_lbls, 10)
+                lc.log_weights()
+                train_out_lbl = lc.batch_classify(train_data)
+                eval_out_lbl = lc.batch_classify(eval_data)
+                train_accuracy = (train_out_lbl == train_lbls).mean()
+                eval_accuracy = (eval_out_lbl == eval_lbls).mean()
+                s = "split=" + str(split) + \
+                    ", train_len=" + str(train_len) + \
+                    ", eval_len=" + str(eval_len) + \
+                    ", train_accuracy=" + str(train_accuracy) + \
+                    ", eval_accuracy=" + str(eval_accuracy)
+                print(s, file=f)
+                print(s)
 
 
-SAVE = True
-e = Experiment(4, 4, [1, 49, 9, 144, 9, 144], [6, 1, 5, 1, 5, 1], [1, 1, 1, 1, 1, 1])
+SDR_MNIST = Mnist(MachineShape([1], [], []), 0)
+if os.path.exists(SDR_MNIST.file):
+    SDR_MNIST.load()
+else:
+    SDR_MNIST.mnist = preprocess_mnist()
+    SDR_MNIST.save_mnist()
+
+# s = MachineShape([1, 49, 9, 144, 9, 144, 9], [6, 1, 5, 1, 5, 1], [1, 1, 1, 1, 1, 1])
+s = MachineShape([1, 49], [6], [1])
+m = FullColumnMachine(s)
+m.eval_with_classifier_head()
+# m = SingleColumnMachine(s, 7, 7)
+# m.train(save=True, plot=True)
+
 # e.threshold = 0.0000001
 # e.plot = False
 # e.num_of_snapshots = 6
 # e.drift = np.array([8, 8])
 # e.epochs = 1
-e.experiment(0)
-e.eval_with_classifier_head()
+# e.experiment(0)
+# e.eval_with_classifier_head()
 
-# 
+#
 # e = Experiment(4, 4, [1, 49, 9, 144, 9, 144], [6, 1, 5, 1, 5, 1], [1, 1, 1, 1, 1, 1])
 # e.threshold = 0.0000001
 # e.plot = False

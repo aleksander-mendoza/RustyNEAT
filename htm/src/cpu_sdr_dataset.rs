@@ -51,8 +51,15 @@ impl CpuSdrDataset {
             shape,
         }
     }
+    pub fn filter_by_cardinality_threshold(&mut self, min_cardinality:Idx){
+        self.data.retain(|sdr|sdr.cardinality()>=min_cardinality)
+    }
     pub fn shape(&self) -> &[Idx; 3] {
         &self.shape
+    }
+    pub fn subdataset(&self,range:Range<usize>) -> Self {
+        let sub = self.data[range].to_vec();
+        Self{ data: sub, shape: self.shape }
     }
     pub fn new(shape: [Idx; 3]) -> Self {
         Self {
@@ -89,11 +96,24 @@ impl CpuSdrDataset {
             self.push(sdr);
         }
     }
+    pub fn conv_subregion_indices_with_ecc<D:DenseWeight>(&self, ecc:&CpuEccDense<D>, indices: &SubregionIndices) -> Self{
+        assert_eq!(ecc.out_grid(),&[1,1],"EccDense should have only a single output column");
+        self.conv_subregion_indices_with_ker(*ecc.kernel(),*ecc.stride(),indices)
+    }
+    pub fn conv_subregion_indices_with_ker(&self, kernel:[Idx;2],stride:[Idx;2], indices: &SubregionIndices) -> Self{
+        let conv = ConvShape::new_in(self.shape,1,kernel,stride);
+        self.conv_subregion_indices(&conv,indices)
+    }
+    pub fn conv_subregion_indices(&self, conv:&ConvShape, indices: &SubregionIndices) -> Self{
+        let mut s = Self::new(conv.kernel_column());
+        s.extend_from_conv_subregion_indices(conv, indices, self);
+        s
+    }
     pub fn extend_from_conv_subregion_indices(&mut self, conv:&ConvShape, indices: &SubregionIndices, original: &CpuSdrDataset) {
         assert!(!original.is_empty() || indices.is_empty());
         assert_eq!(original.shape(), conv.in_shape(), "Original shape must be equal convolution input shape");
         assert_eq!(self.shape(), &conv.kernel_column(), "Patch shape must be equal kernel column");
-        assert_eq!(indices.shape(), conv.out_shape(), "Indices refer to different shape");
+        assert_eq!(indices.shape(), conv.out_grid(), "Indices refer to different shape");
         assert_eq!(original.len(),indices.dataset_len, "Dataset lengths don't match");
         for i in &indices.indices {
             let sdr = &original[as_usize(i.channels())];
@@ -121,8 +141,8 @@ impl CpuSdrDataset {
         let conv = ConvShape::new_in(*self.shape(),ecc.out_channels(),*ecc.kernel(),*ecc.stride());
         assert!(conv.out_grid().all_ge(&drift),"Drift {:?} is larger than output grid {:?}",drift,conv.out_grid());
         for i in 0..number_of_samples{
-            let i = rng.gen_range(0..self.len());
-            let sample = &self[i];
+            let idx = rng.gen_range(0..self.len());
+            let sample = &self[idx];
             let pos = conv.out_grid().sub(&drift.sub_scalar(1)).rand_vec(rng);
             let mut out=CpuSDR::new();
             for _ in 0..patches_per_sample {
@@ -146,15 +166,19 @@ impl CpuSdrDataset {
         }
         counts
     }
+    /**The shape of receptive fields is [h,w,c,o] where [h,w,c] is the shape of input SDRs (this dataset)
+    and o is the volume of output shape (outputs dataset)*/
     pub fn measure_receptive_fields(&self, outputs: &Self) -> Vec<u32>{
         assert_eq!(self.len(),outputs.len());
         let ov =outputs.shape().size();
         let iv = self.shape().size();
+        let receptive_fields_shape = [iv,ov];
         let mut receptive_fields = vec![0;as_usize(ov*iv)];
         for (o_sdr,i_sdr) in outputs.iter().zip(self.iter()) {
             for &o in o_sdr.iter() {
                 for&i in i_sdr.iter(){
-                    receptive_fields[as_usize(i + o * iv)]+=1;
+                    let idx = receptive_fields_shape.idx([i, o]);
+                    receptive_fields[as_usize(idx)]+=1;
                 }
             }
         }
@@ -207,8 +231,15 @@ impl CpuSdrDataset {
         }
         occurrences
     }
-    pub fn gen_rand_conv_subregion_indices(&self, out_shape: [Idx;3], number_of_samples: usize, rng: &mut impl Rng) -> SubregionIndices {
+    pub fn gen_rand_conv_subregion_indices(&self, out_shape: [Idx;2], number_of_samples: usize, rng: &mut impl Rng) -> SubregionIndices {
         SubregionIndices::gen_rand_conv_subregion_indices(self.len(),out_shape,number_of_samples,rng)
+    }
+    pub fn gen_rand_conv_subregion_indices_with_ker(&self, kernel: &[Idx;2], stride:&[Idx;2], number_of_samples: usize, rng: &mut impl Rng) -> SubregionIndices {
+        self.gen_rand_conv_subregion_indices(self.shape().grid().conv_out_size(stride,kernel),number_of_samples,rng)
+    }
+    pub fn gen_rand_conv_subregion_indices_with_ecc<D:DenseWeight>(&self, ecc: &CpuEccDense<D>, number_of_samples: usize, rng: &mut impl Rng) -> SubregionIndices {
+        assert_eq!(ecc.out_grid(),&[1,1],"EccDense should have only single output column");
+        self.gen_rand_conv_subregion_indices_with_ker(ecc.kernel(),ecc.stride(),number_of_samples,rng)
     }
     // pub fn fit_naive_bayes<T: Into<usize>>(&self, labels: &[T]) -> NaiveBayesClassifier {
     //
@@ -228,11 +259,11 @@ impl CpuSdrDataset {
         }
     }
 }
-
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SubregionIndices {
     dataset_len:usize,
     indices: Vec<[Idx; 3]>,
-    shape: [Idx;3],
+    shape: [Idx;2],
 }
 impl Deref for SubregionIndices{
     type Target = Vec<[Idx; 3]>;
@@ -247,22 +278,25 @@ impl DerefMut for SubregionIndices{
     }
 }
 impl SubregionIndices {
-    pub fn shape(&self)->&[Idx;3]{
+    pub fn shape(&self)->&[Idx;2]{
         &self.shape
     }
-    pub fn gen_rand_conv_subregion_indices(dataset_len: usize, out_shape: [Idx;3], number_of_samples: usize, rng: &mut impl Rng) -> SubregionIndices {
+    pub fn dataset_len(&self)->usize{
+        self.dataset_len
+    }
+    pub fn gen_rand_conv_subregion_indices(dataset_len: usize, out_shape: [Idx;2], number_of_samples: usize, rng: &mut impl Rng) -> SubregionIndices {
         Self {
             dataset_len,
             indices: (0..number_of_samples).map(|_| {
                 let sdr_idx = as_idx(rng.gen_range(0..dataset_len));
-                let pos = out_shape.grid().rand_vec(rng);
+                let pos = out_shape.rand_vec(rng);
                 pos.add_channels(sdr_idx)
             }).collect(),
             shape: out_shape,
         }
     }
 }
-
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct LinearClassifier {
     occurrences: Vec<f32>,
     num_classes: usize,
@@ -287,6 +321,18 @@ impl LinearClassifier{
     pub fn shape(&self)->&[Idx;3]{
         &self.in_shape
     }
+    pub fn square_weights(&mut self){
+        self.occurrences.iter_mut().for_each(|w|*w=*w * *w)
+    }
+    pub fn sqrt_weights(&mut self){
+        self.occurrences.iter_mut().for_each(|w|*w=w.sqrt())
+    }
+    pub fn exp_weights(&mut self){
+        self.occurrences.iter_mut().for_each(|w|*w=w.exp2())
+    }
+    pub fn log_weights(&mut self){
+        self.occurrences.iter_mut().for_each(|w|*w=w.log2())
+    }
     pub fn classify(&self,sdr:&CpuSDR)->usize{
         (0..self.num_classes).map(|lbl|sdr.iter().map(|&i|self.prob(i,lbl)).sum::<f32>()).position_max_by(|&a,&b|if a>b{Ordering::Greater}else{Ordering::Less}).unwrap()
     }
@@ -295,7 +341,7 @@ impl LinearClassifier{
         sdr.data.par_iter().map(|sdr|self.classify(sdr) as u32).collect()
     }
 }
-
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct NaiveBayesClassifier {
     occurrences: Vec<f32>,
     num_classes: usize,
