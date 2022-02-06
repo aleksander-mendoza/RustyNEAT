@@ -146,6 +146,14 @@ impl CpuSdrDataset {
     fn to_bool_numpy<'py>(&self,py:Python<'py>,idx:usize) -> &'py PyArray<bool, Ix3>{
         self.to_numpy_(py,idx,true)
     }
+    #[text_signature = "(idx)"]
+    fn to_f32_numpy<'py>(&self,py:Python<'py>,idx:usize) -> &'py PyArray<f32, Ix3>{
+        self.to_numpy_(py,idx,1.)
+    }
+    #[text_signature = "(idx)"]
+    fn to_f64_numpy<'py>(&self,py:Python<'py>,idx:usize) -> &'py PyArray<f64, Ix3>{
+        self.to_numpy_(py,idx,1.)
+    }
     #[getter]
     fn get_shape(&self) -> Vec<Idx>{
         self.sdr.shape().to_vec()

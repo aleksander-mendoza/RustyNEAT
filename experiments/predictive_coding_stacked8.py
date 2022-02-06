@@ -251,7 +251,82 @@ class FullColumnMachine:
         for idx in range(1, len(machine_shape)):
             self.m.push_repeated_column(machine_shape.load_layer(idx))
 
-    def eval_with_classifier_head(self, overwrite_data=False, overwrite_benchmarks=False):
+    def eval_with_classifier_head(self, overwrite_data=False, overwrite_benchmarks=False, epochs=2):
+        idx = len(self.machine_shape) - 1
+        print("PATCH_SIZE=", self.m.in_shape)
+        layer = self.m.get_layer(idx)
+        benchmarks_save = self.machine_shape.save_file(idx + 1) + " accuracy2.txt"
+        out_mnist = Mnist(self.machine_shape, idx + 1)
+        if os.path.exists(out_mnist.file) and not overwrite_data:
+            out_mnist.load()
+        else:
+            in_mnist = Mnist(self.machine_shape, idx)
+            in_mnist.load()
+            out_mnist.mnist = in_mnist.mnist.batch_infer(layer)
+            out_mnist.save_mnist()
+        if not os.path.exists(benchmarks_save) or overwrite_benchmarks:
+
+            class D(torch.utils.data.Dataset):
+                def __init__(self, imgs, lbls):
+                    self.imgs = imgs
+                    self.lbls = lbls
+
+                def __len__(self):
+                    return len(self.imgs)
+
+                def __getitem__(self, idx):
+                    return self.imgs.to_f32_numpy(idx), self.lbls[idx]
+
+            for split in [0.1, 0.2, 0.5, 0.8, 0.9]:
+                train_len = int(len(MNIST) * split)
+                eval_len = len(MNIST) - train_len
+                train_data = out_mnist.mnist.subdataset(0, train_len)
+                eval_data = out_mnist.mnist.subdataset(train_len)
+                train_lbls = LABELS[0:train_len].numpy()
+                eval_lbls = LABELS[train_len:].numpy()
+                train_d = D(train_data, train_lbls)
+                eval_d = D(eval_data, eval_lbls)
+                linear = torch.nn.Linear(out_mnist.mnist.volume, 10)
+                loss = torch.nn.NLLLoss()
+                optim = torch.optim.Adam(linear.parameters())
+                bs = 64
+                train_dataloader = DataLoader(train_d, batch_size=bs, shuffle=True)
+                eval_dataloader = DataLoader(eval_d, batch_size=bs, shuffle=True)
+
+                for epoch in range(epochs):
+                    train_accuracy = 0
+                    train_total = 0
+                    for x, y in tqdm(train_dataloader, desc="train"):
+                        optim.zero_grad()
+                        bs = x.shape[0]
+                        x = x.reshape(bs, -1)
+                        x = linear(x)
+                        x = torch.log_softmax(x, dim=1)
+                        d = loss(x, y)
+                        train_accuracy += (x.argmax(1) == y).sum().item()
+                        train_total += x.shape[0]
+                        d.backward()
+                        optim.step()
+
+                    eval_accuracy = 0
+                    eval_total = 0
+                    for x, y in tqdm(eval_dataloader, desc="eval"):
+                        bs = x.shape[0]
+                        x = x.reshape(bs, -1)
+                        x = linear(x)
+                        eval_accuracy += (x.argmax(1) == y).sum().item()
+                        eval_total += x.shape[0]
+                    s = "split=" + str(split) + \
+                        ", train_len=" + str(train_len) + \
+                        ", eval_len=" + str(eval_len) + \
+                        ", epoch=" + str(epoch) + \
+                        ", train_accuracy=" + str(train_accuracy / train_total) + \
+                        ", eval_accuracy=" + str(eval_accuracy / eval_total)
+                    with open(benchmarks_save, 'a+') as f:
+                        print(s, file=f)
+                    print(s)
+
+    def eval_with_naive_bayes(self, overwrite_data=False, overwrite_benchmarks=False):
         idx = len(self.machine_shape) - 1
         print("PATCH_SIZE=", self.m.in_shape)
         layer = self.m.get_layer(idx)
@@ -265,7 +340,7 @@ class FullColumnMachine:
             out_mnist.mnist = in_mnist.mnist.batch_infer(layer)
             out_mnist.save_mnist()
         if not os.path.exists(benchmarks_save) or overwrite_benchmarks:
-            with open(benchmarks_save, 'w+') as f:
+            with open(benchmarks_save, 'a+') as f:
                 for split in [0.1, 0.2, 0.5, 0.8, 0.9]:
                     train_len = int(len(MNIST) * split)
                     eval_len = len(MNIST) - train_len
@@ -324,11 +399,17 @@ def run_experiments():
             channels.append(channel)
             s = MachineShape(channels, kernels, strides)
             save_file = s.save_file(len(kernels)) + " data.pickle"
+            benchmarks2_file = s.save_file(len(kernels)) + " accuracy2.txt"
             if not os.path.exists(save_file):
                 w, h = factorizations[channel]
                 m = SingleColumnMachine(s, w, h, threshold=threshold)
                 m.train(save=True, plot=True, snapshots_per_sample=snapshots_per_sample, drift=[drift, drift])
                 m = FullColumnMachine(s)
+                m.eval_with_naive_bayes()
                 m.eval_with_classifier_head()
+            # if not os.path.exists(benchmarks2_file):
+            m = FullColumnMachine(s)
+            m.eval_with_classifier_head(overwrite_benchmarks=True)
+
 
 run_experiments()
