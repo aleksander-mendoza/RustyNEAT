@@ -192,13 +192,13 @@ class SingleColumnMachine:
         test_patches = params['test_patches']
         mnist = Mnist(self.machine_shape, idx)
         mnist.load()
-        print("PATCH_SIZE=", mnist.mnist.shape)
         compound_stride, compound_kernel = self.machine_shape.composed_conv(idx)
         compound_stride, compound_kernel = compound_stride[:2], compound_kernel[:2]
         test_patch_indices = mnist.mnist.gen_rand_conv_subregion_indices_with_ecc(layer, test_patches)
         test_input_patches = mnist.mnist.conv_subregion_indices_with_ecc(layer, test_patch_indices)
         test_img_patches = SDR_MNIST.mnist.conv_subregion_indices_with_ker(compound_kernel, compound_stride,
                                                                            test_patch_indices)
+        print("PATCH_SIZE=", test_img_patches.shape)
         all_missed = []
         all_total_sum = []
         if plot:
@@ -235,8 +235,8 @@ class SingleColumnMachine:
         with open(self.machine_shape.save_file(idx + 1) + ".log", "a+") as f:
             print("missed=", all_missed, file=f)
             print("sums=", all_total_sum, file=f)
-        if plot:
-            plt.show()
+        # if plot:
+        #     plt.show()
 
 
 class FullColumnMachine:
@@ -251,40 +251,41 @@ class FullColumnMachine:
         for idx in range(1, len(machine_shape)):
             self.m.push_repeated_column(machine_shape.load_layer(idx))
 
-    def eval_with_classifier_head(self, overwrite=False):
+    def eval_with_classifier_head(self, overwrite_data=False, overwrite_benchmarks=False):
         idx = len(self.machine_shape) - 1
         print("PATCH_SIZE=", self.m.in_shape)
         layer = self.m.get_layer(idx)
         benchmarks_save = self.machine_shape.save_file(idx + 1) + " accuracy.txt"
         out_mnist = Mnist(self.machine_shape, idx + 1)
-        if os.path.exists(out_mnist.file) and not overwrite:
+        if os.path.exists(out_mnist.file) and not overwrite_data:
             out_mnist.load()
         else:
             in_mnist = Mnist(self.machine_shape, idx)
             in_mnist.load()
             out_mnist.mnist = in_mnist.mnist.batch_infer(layer)
-
-        with open(benchmarks_save, 'w+') as f:
-            for split in [0.1, 0.2, 0.5, 0.8, 0.9]:
-                train_len = int(len(MNIST) * split)
-                eval_len = len(MNIST) - train_len
-                train_data = out_mnist.mnist.subdataset(0, train_len)
-                eval_data = out_mnist.mnist.subdataset(train_len)
-                train_lbls = LABELS[0:train_len].numpy()
-                eval_lbls = LABELS[train_len:].numpy()
-                lc = train_data.fit_linear_regression(train_lbls, 10)
-                lc.log_weights()
-                train_out_lbl = lc.batch_classify(train_data)
-                eval_out_lbl = lc.batch_classify(eval_data)
-                train_accuracy = (train_out_lbl == train_lbls).mean()
-                eval_accuracy = (eval_out_lbl == eval_lbls).mean()
-                s = "split=" + str(split) + \
-                    ", train_len=" + str(train_len) + \
-                    ", eval_len=" + str(eval_len) + \
-                    ", train_accuracy=" + str(train_accuracy) + \
-                    ", eval_accuracy=" + str(eval_accuracy)
-                print(s, file=f)
-                print(s)
+            out_mnist.save_mnist()
+        if not os.path.exists(benchmarks_save) or overwrite_benchmarks:
+            with open(benchmarks_save, 'w+') as f:
+                for split in [0.1, 0.2, 0.5, 0.8, 0.9]:
+                    train_len = int(len(MNIST) * split)
+                    eval_len = len(MNIST) - train_len
+                    train_data = out_mnist.mnist.subdataset(0, train_len)
+                    eval_data = out_mnist.mnist.subdataset(train_len)
+                    train_lbls = LABELS[0:train_len].numpy()
+                    eval_lbls = LABELS[train_len:].numpy()
+                    lc = train_data.fit_linear_regression(train_lbls, 10)
+                    lc.log_weights()
+                    train_out_lbl = lc.batch_classify(train_data)
+                    eval_out_lbl = lc.batch_classify(eval_data)
+                    train_accuracy = (train_out_lbl == train_lbls).mean()
+                    eval_accuracy = (eval_out_lbl == eval_lbls).mean()
+                    s = "split=" + str(split) + \
+                        ", train_len=" + str(train_len) + \
+                        ", eval_len=" + str(eval_len) + \
+                        ", train_accuracy=" + str(train_accuracy) + \
+                        ", eval_accuracy=" + str(eval_accuracy)
+                    print(s, file=f)
+                    print(s)
 
 
 SDR_MNIST = Mnist(MachineShape([1], [], []), 0)
@@ -294,27 +295,40 @@ else:
     SDR_MNIST.mnist = preprocess_mnist()
     SDR_MNIST.save_mnist()
 
-# s = MachineShape([1, 49, 9, 144, 9, 144, 9], [6, 1, 5, 1, 5, 1], [1, 1, 1, 1, 1, 1])
-s = MachineShape([1, 49], [6], [1])
-m = FullColumnMachine(s)
-m.eval_with_classifier_head()
-# m = SingleColumnMachine(s, 7, 7)
-# m.train(save=True, plot=True)
 
-# e.threshold = 0.0000001
-# e.plot = False
-# e.num_of_snapshots = 6
-# e.drift = np.array([8, 8])
-# e.epochs = 1
-# e.experiment(0)
-# e.eval_with_classifier_head()
+def run_experiments():
+    factorizations = {
+        144: (12, 12),
+        9: (3, 3),
+        16: (4, 4),
+        1: (1, 1),
+        20: (5, 4)
+    }
+    i49 = (49, 6, 1, 1, 1, None)
+    e144 = (144, 5, 1, 1, 1, None)
+    c9 = (9, 1, 1, 3, 6, 'in')
+    c16 = (16, 1, 1, 3, 6, 'in')
+    c20 = (20, 1, 1, 3, 6, 'in')
+    experiments = [
+        (1, [i49, c9, e144, c9, e144, c9, e144, c9, e144, c9]),
+        (1, [i49, c9, e144, c9, e144, c16, e144, c16, e144, c16, e144, c16]),
+        (1, [i49, c9, e144, c9, e144, c16, e144, c16, e144, c20, e144, c20]),
+    ]
+    for experiment in experiments:
+        first_channels, layers = experiment
+        kernels, strides, channels = [], [], [first_channels]
+        for layer in layers:
+            channel, kernel, stride, drift, snapshots_per_sample, threshold = layer
+            kernels.append(kernel)
+            strides.append(stride)
+            channels.append(channel)
+            s = MachineShape(channels, kernels, strides)
+            save_file = s.save_file(len(kernels)) + " data.pickle"
+            if not os.path.exists(save_file):
+                w, h = factorizations[channel]
+                m = SingleColumnMachine(s, w, h, threshold=threshold)
+                m.train(save=True, plot=True, snapshots_per_sample=snapshots_per_sample, drift=[drift, drift])
+                m = FullColumnMachine(s)
+                m.eval_with_classifier_head()
 
-#
-# e = Experiment(4, 4, [1, 49, 9, 144, 9, 144], [6, 1, 5, 1, 5, 1], [1, 1, 1, 1, 1, 1])
-# e.threshold = 0.0000001
-# e.plot = False
-# e.num_of_snapshots = 6
-# e.drift = np.array([8, 8])
-# e.epochs = 1
-# e.experiment()
-# e.eval_with_classifier_head()
+run_experiments()
