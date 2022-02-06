@@ -1,0 +1,5 @@
+split=0.1, train_len=6000, eval_len=54000, train_accuracy=0.5495, eval_accuracy=0.5215
+split=0.2, train_len=12000, eval_len=48000, train_accuracy=0.5434166666666667, eval_accuracy=0.5233541666666667
+split=0.5, train_len=30000, eval_len=30000, train_accuracy=0.5316666666666666, eval_accuracy=0.5300333333333334
+split=0.8, train_len=48000, eval_len=12000, train_accuracy=0.5275416666666667, eval_accuracy=0.5401666666666667
+split=0.9, train_len=54000, eval_len=6000, train_accuracy=0.5283888888888889, eval_accuracy=0.5436666666666666

@@ -366,31 +366,47 @@ class FullColumnMachine:
                     print(s)
 
 
-# SDR_MNIST = Mnist(MachineShape([1], [], [], []), 0)
-# if os.path.exists(SDR_MNIST.file):
-#     SDR_MNIST.load()
-# else:
-#     SDR_MNIST.mnist = preprocess_mnist()
-#     SDR_MNIST.save_mnist()
+SDR_MNIST = Mnist(MachineShape([1], [], [], []), 0)
+if os.path.exists(SDR_MNIST.file):
+    SDR_MNIST.load()
+else:
+    SDR_MNIST.mnist = preprocess_mnist()
+    SDR_MNIST.save_mnist()
 
 
 def run_experiments():
     factorizations = {
+        200: (10, 20),
+        256: (16, 16),
         144: (12, 12),
         9: (3, 3),
         16: (4, 4),
         1: (1, 1),
-        20: (5, 4)
+        20: (5, 4),
+        25: (5, 5),
     }
     i49 = (49, 6, 1, 1, 1, None)
     e144 = (144, 5, 1, 1, 1, None)
-    c9 = (9, 1, 1, 3, 6, 'in')
-    c16 = (16, 1, 1, 3, 6, 'in')
-    c20 = (20, 1, 1, 3, 6, 'in')
+    e200 = (200, 5, 1, 1, 1, None)
+    e256 = (256, 5, 1, 1, 1, None)
+
+    def c9(d):
+        return 9, 1, 1, d, 6, 'in'
+
+    def c16(d):
+        return 16, 1, 1, d, 6, 'in'
+
+    def c20(d):
+        return 20, 1, 1, d, 6, 'in'
+
+    def c25(d):
+        return 25, 1, 1, d, 6, 'in'
+
     experiments = [
-        (1, [i49, c9, e144, c9, e144, c9, e144, c9, e144, c9]),
-        (1, [i49, c9, e144, c9, e144, c16, e144, c16, e144, c16, e144, c16]),
-        (1, [i49, c9, e144, c9, e144, c16, e144, c16, e144, c20, e144, c20]),
+        (1, [i49, c9(3), e144, c9(5), e144, c9(7), e144, c9(10), e144, c9(7)]),
+        (1, [i49, c9(3), e144, c9(5), e144, c16(7), e144, c16(10), e144, c16(7), e144, c16(3)]),
+        (1, [i49, c9(3), e144, c9(5), e144, c16(7), e200, c16(10), e200, c20(7), e200, c20(3)]),
+        (1, [i49, c9(3), e144, c9(5), e144, c16(7), e200, c20(10), e256, c25(7), e200, c20(3)]),
     ]
     for experiment in experiments:
         first_channels, layers = experiment
@@ -406,10 +422,14 @@ def run_experiments():
             if not os.path.exists(save_file):
                 w, h = factorizations[channel]
                 m = SingleColumnMachine(s, w, h, threshold=threshold)
-                m.train(save=True, plot=True, snapshots_per_sample=snapshots_per_sample, drift=[drift, drift])
+                print(save_file)
+                m.train(save=True, plot=True, snapshots_per_sample=snapshots_per_sample)
                 m = FullColumnMachine(s)
+                print(save_file)
                 m.eval_with_naive_bayes()
+                print(save_file)
                 m.eval_with_classifier_head()
+                print(save_file)
 
 
 def print_accuracy2_results(splits=[0.9]):
@@ -435,28 +455,4 @@ def print_accuracy2_results(splits=[0.9]):
             print(split_train_values)
 
 
-# run_experiments()
-
-pref = re.compile("((k[0-9]+s[0-9]+c[0-9]+_)*)o([0-9]+)(.*)")
-files = os.listdir('predictive_coding_stacked8/')
-for file in files:
-    if file.endswith("data.pickle"):
-        continue
-    m = pref.match(file)
-    # if m is None:
-    #     print()
-    p = m.group(1)
-    oc = m.group(3)
-    suff = m.group(4)
-    p = p.split('_')
-    p.pop()
-    for i in range(len(p)):
-        if p[i].startswith("k1"):
-            p[i] = p[i] + "d3_"
-        else:
-            p[i] = p[i] + "d1_"
-    p = "".join(p)
-    dst = p + "c" + oc + suff
-    print(file," -> ",dst)
-    dst = 'predictive_coding_stacked8/' + dst
-    os.rename('predictive_coding_stacked8/'+file, dst)
+run_experiments()
