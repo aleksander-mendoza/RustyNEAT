@@ -81,7 +81,7 @@ def preprocess_mnist():
 class MachineShape:
 
     def __init__(self, channels, kernels, strides, drifts):
-        assert len(channels) == len(kernels) + 1 == len(strides) + 1
+        assert len(channels) == len(kernels) + 1 == len(strides) + 1 == len(drifts) + 1
         self.channels = channels
         self.kernels = kernels
         self.strides = strides
@@ -92,11 +92,18 @@ class MachineShape:
         kernels = [[k, k] for k in self.kernels]
         return htm.conv_compose_array(strides=strides[:idx + 1], kernels=kernels[:idx + 1])
 
-    def save_file(self, idx):
-        prefix = "predictive_coding_stacked8/"
+    def code_name(self, idx):
         path = ''.join(["k" + str(k) + "s" + str(s) + "c" + str(c) + "d" + str(d) + "_" for k, c, s, d in
                         zip(self.kernels[:idx], self.channels[:idx], self.strides[:idx], self.drifts[:idx])])
-        return prefix + path + "c" + str(self.channels[idx])
+        return path + "c" + str(self.channels[idx])
+
+    def human_readable_name(self, idx):
+        path = ' '.join(["k" + str(k) + "c" + str(c) + "d" + str(d) for k, c, d in
+                        zip(self.kernels[:idx], self.channels[1:idx+1], self.drifts[:idx])])
+        return path
+
+    def save_file(self, idx):
+        return "predictive_coding_stacked8/" + self.code_name(idx)
 
     def kernel(self, idx):
         return [self.kernels[idx], self.kernels[idx]]
@@ -404,22 +411,14 @@ def run_experiments():
     def e(c, k):
         return c, k, 1, 1, 1, None
 
-    def c9(d):
-        return 9, 1, 1, d, 6, 'in'
-
-    def c16(d):
-        return 16, 1, 1, d, 6, 'in'
-
-    def c20(d):
-        return 20, 1, 1, d, 6, 'in'
-
-    def c25(d):
-        return 25, 1, 1, d, 6, 'in'
+    def c(c, d):
+        return c, 1, 1, d, 6, 'in'
 
     experiments = [
-        (1, [e(100, 28)]),
-        (1, [e(256, 28)]),
-        (1, [e(400, 28)]),
+        (1, [e(49, 6), c(9, 3), e(100, 6), c(9, 5), e(144, 6), c(16, 7), e(256, 6), c(20, 8), e(256, 6)]),
+        # (1, [e(100, 28)]),
+        # (1, [e(256, 28)]),
+        # (1, [e(400, 28)]),
         # (1, [e(6, 6), e(6, 6), e(6, 6), e(6, 6), e(6, 6)]),
         # (1, [e(8, 6), e(2 * 8, 6), e(3 * 8, 6), e(4 * 8, 6), e(4 * 8, 6)]),
         # (1, [e(8, 6), e(2 * 8, 6), e(3 * 8, 6), e(4 * 8, 6), e(5 * 8, 6)]),
@@ -456,45 +455,94 @@ def run_experiments():
                 print(save_file)
 
 
-def print_accuracy2_results(depth, split=0.8, with_drift=None):
-    has_drift = re.compile("d[2-9][0-9]*")
-    extract_k_s = re.compile("k([0-9]+)s([0-9]+)")
-    depth_pat = "*" if type(depth) == list else "{" + str(depth) + "}"
-    if with_drift is None or with_drift is True:
-        pat = re.compile("(k[0-9]+s[0-9]+c[0-9]+d[0-9]+_)" + depth_pat + "c[0-9]+ accuracy2\\.txt")
-    elif with_drift is False:
-        pat = re.compile("(k[0-9]+s[0-9]+c[0-9]+d1_)" + depth_pat + "c[0-9]+ accuracy2\\.txt")
-    else:
-        raise Exception("Invalid drift")
-    scores = []
-    for experiment in os.listdir('predictive_coding_stacked8/'):
-        if pat.fullmatch(experiment):
-            if with_drift is True and not has_drift.search(experiment):
-                continue
-            if type(depth) == list:
-                kernels, strides = [], []
-                for m in extract_k_s.finditer(experiment):
-                    kernels.append(int(m.group(1)))
-                    strides.append(int(m.group(2)))
-                strides, kernels = htm.conv_compose_array(strides, kernels)
-                area_difference = kernels[0]*kernels[1] - depth[0]*depth[1]
-            accuracy = 0
-            with open('predictive_coding_stacked8/' + experiment, "r") as f:
-                for line in f:
-                    attributes = line.split(",")
-                    attributes = [attr.split("=") for attr in attributes]
-                    attributes = {key.strip(): value for key, value in attributes}
-                    split_val = float(attributes["split"])
-                    if split_val == split:
-                        accuracy = max(accuracy, float(attributes["eval_accuracy"]))
-            scores.append((experiment, accuracy))
-    scores.sort(key=lambda x: x[1])
-    print("Depth =", depth, ", split =", split, "with_drift =", with_drift)
-    for file, score in scores:
-        print("{:.4f}".format(score), ' '.join(file.split()[0].split('_')))
+def parse_benchmarks(file_name):
+    with open('predictive_coding_stacked8/' + file_name, "r") as f:
+        accuracy8 = 0
+        accuracy1 = 0
+        for line in f:
+            attributes = line.split(",")
+            attributes = [attr.split("=") for attr in attributes]
+            attributes = {key.strip(): value for key, value in attributes}
+            split_val = float(attributes["split"])
+            if split_val == 0.1:
+                accuracy1 = max(accuracy1, float(attributes["eval_accuracy"]))
+            elif split_val == 0.8:
+                accuracy8 = max(accuracy8, float(attributes["eval_accuracy"]))
+        return accuracy8, accuracy1
 
 
-run_experiments()
+EXTRACT_K_S = re.compile("k([0-9]+)s([0-9]+)c([0-9]+)d([0-9]+)")
+HAS_DRIFT = re.compile("d[2-9][0-9]*")
+
+
+class ExperimentData:
+    def __init__(self, experiment_name):
+        kernels, strides, channels, drifts = [], [], [], []
+        for m in EXTRACT_K_S.finditer(experiment_name):
+            k, s, c, d = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
+            kernels.append(k)
+            strides.append(s)
+            channels.append(c)
+            drifts.append(d)
+        channels.append(int(experiment_name.rsplit('c', 1)[1]))
+        self.shape = MachineShape(channels, kernels, strides, drifts)
+        self.name = experiment_name
+        self.comp_stride, self.comp_kernel = self.shape.composed_conv(len(self.shape) - 1)
+        self.out_shape = htm.conv_out_size([28, 28], self.comp_stride, self.comp_kernel)[:2]
+        self.softmax8, self.softmax1 = parse_benchmarks(experiment_name + " accuracy2.txt")
+        self.naive8, self.naive1 = parse_benchmarks(experiment_name + " accuracy.txt")
+        self.has_drift = HAS_DRIFT.search(experiment_name) is not None
+
+    def prev_name(self):
+        if len(self.shape) == 0:
+            return None
+        return self.shape.code_name(len(self.shape) - 1)
+
+    def format(self):
+        k = str(self.comp_kernel[0]) + "x" + str(self.comp_kernel[1])
+        o = str(self.out_shape[0]) + "x" + str(self.out_shape[1])
+        acc8 = "{:.2f}".format(self.softmax8) + "/" + "{:.2f}".format(self.naive8)
+        acc1 = "{:.2f}".format(self.softmax1) + "/" + "{:.2f}".format(self.naive1)
+        path = self.shape.human_readable_name(len(self.shape))
+        return ' '.join([acc8, acc1, k, o, path])
+
+
+class ExperimentDB:
+
+    def __init__(self):
+        s = " accuracy2.txt"
+        self.experiments = [e[:-len(s)] for e in os.listdir('predictive_coding_stacked8/') if e.endswith(s)]
+        self.experiment_data = {n: ExperimentData(n) for n in self.experiments}
+
+    def print_accuracy2_results(self, depth, with_drift=None):
+
+        depth_pat = "*" if type(depth) == list else "{" + str(depth) + "}"
+        if with_drift is None or with_drift is True:
+            pat = re.compile("(k[0-9]+s[0-9]+c[0-9]+d[0-9]+_)" + depth_pat + "c[0-9]+")
+        elif with_drift is False:
+            pat = re.compile("(k[0-9]+s[0-9]+c[0-9]+d1_)" + depth_pat + "c[0-9]+")
+        else:
+            raise Exception("Invalid drift")
+        scores = []
+
+        for experiment in self.experiment_data.values():
+            if pat.fullmatch(experiment.name):
+                if with_drift is True and not experiment.has_drift:
+                    continue
+
+                if type(depth) is list:
+                    if abs(experiment.comp_kernel[0] - depth[0]) > depth[1]:
+                        continue
+                scores.append(experiment)
+        scores.sort(key=lambda x: x.softmax8)
+        print("Depth =", depth, ",  with_drift =", with_drift)
+        for exp_data in scores:
+            print(exp_data.format())
+
+
+# run_experiments()
 # for d in range(16):
-#     print_accuracy2_results(d, with_drift=True)
+edb = ExperimentDB()
+edb.print_accuracy2_results([26, 2], with_drift=True)
+edb.print_accuracy2_results([26, 2], with_drift=False)
 #     print_accuracy2_results(d, with_drift=False)

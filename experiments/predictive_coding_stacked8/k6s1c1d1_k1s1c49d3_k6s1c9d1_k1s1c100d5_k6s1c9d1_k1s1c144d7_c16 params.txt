@@ -1,0 +1,1 @@
+{"w": 4, "h": 4, "snapshots_per_sample": 6, "iterations": 2000000, "interval": 100000, "test_patches": 20000}
