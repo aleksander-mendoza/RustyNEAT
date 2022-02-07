@@ -382,24 +382,26 @@ def run_experiments():
         256: (16, 16),
         144: (12, 12),
         9: (3, 3),
-        6: (3,2),
-        8: (4,2),
+        6: (3, 2),
+        8: (4, 2),
         24: (6, 4),
         32: (8, 4),
         16: (4, 4),
         48: (8, 6),
-        49: (7,7),
+        49: (7, 7),
         64: (8, 8),
         1: (1, 1),
         20: (5, 4),
         25: (5, 5),
+        40: (8, 5),
+        400: (20, 20)
     }
     i49 = (49, 6, 1, 1, 1, None)
     e144 = (144, 5, 1, 1, 1, None)
     e200 = (200, 5, 1, 1, 1, None)
     e256 = (256, 5, 1, 1, 1, None)
 
-    def e(c,k):
+    def e(c, k):
         return c, k, 1, 1, 1, None
 
     def c9(d):
@@ -415,12 +417,16 @@ def run_experiments():
         return 25, 1, 1, d, 6, 'in'
 
     experiments = [
-        (1, [e(6, 6), e(6, 6), e(6, 6), e(6, 6)]),
-        (1, [e(8, 6), e(2*8, 6), e(3*8, 6), e(4*8, 6)]),
-        (1, [e(8, 6), e(2 * 8, 3), e(3 * 8, 3), e(4 * 8, 3)]),
-        (1, [e(16, 6), e(2 * 16, 3), e(3 * 16, 3), e(4 * 16, 3)]),
-        (1, [e(16, 6), e(2 * 16, 6), e(3 * 16, 6), e(4 * 16, 6)]),
-        (1, [e(49, 6), e(100, 6), e(144, 6), e(256, 6)]),
+        (1, [e(100, 28)]),
+        (1, [e(256, 28)]),
+        (1, [e(400, 28)]),
+        # (1, [e(6, 6), e(6, 6), e(6, 6), e(6, 6), e(6, 6)]),
+        # (1, [e(8, 6), e(2 * 8, 6), e(3 * 8, 6), e(4 * 8, 6), e(4 * 8, 6)]),
+        # (1, [e(8, 6), e(2 * 8, 6), e(3 * 8, 6), e(4 * 8, 6), e(5 * 8, 6)]),
+        # (1, [e(8, 6), e(2 * 8, 3), e(3 * 8, 3), e(4 * 8, 3), e(4 * 8, 3), e(4 * 8, 3)]),
+        # (1, [e(16, 6), e(2 * 16, 3), e(3 * 16, 3), e(4 * 16, 3), e(4 * 16, 3), e(4 * 16, 3)]),
+        # (1, [e(16, 6), e(2 * 16, 6), e(3 * 16, 6), e(4 * 16, 6), e(4 * 16, 6)]),
+        # (1, [e(49, 6), e(100, 6), e(144, 6), e(256, 6), e(256, 6)]),
         # (1, [i49, c9(3), e144, c9(5), e144, c9(7), e144, c9(10), e144, c9(7)]),
         # (1, [i49, c9(3), e144, c9(5), e144, c16(7), e144, c16(10), e144, c16(7), e144, c16(3)]),
         # (1, [i49, c9(3), e144, c9(5), e144, c16(7), e200, c16(10), e200, c20(7), e200, c20(3)]),
@@ -451,11 +457,13 @@ def run_experiments():
 
 
 def print_accuracy2_results(depth, split=0.8, with_drift=None):
-    has_drift = re.compile("d[2-9][0-9]+")
+    has_drift = re.compile("d[2-9][0-9]*")
+    extract_k_s = re.compile("k([0-9]+)s([0-9]+)")
+    depth_pat = "*" if type(depth) == list else "{" + str(depth) + "}"
     if with_drift is None or with_drift is True:
-        pat = re.compile("(k[0-9]+s[0-9]+c[0-9]+d[0-9]+_){" + str(depth) + "}c[0-9]+ accuracy2\\.txt")
+        pat = re.compile("(k[0-9]+s[0-9]+c[0-9]+d[0-9]+_)" + depth_pat + "c[0-9]+ accuracy2\\.txt")
     elif with_drift is False:
-        pat = re.compile("(k[0-9]+s[0-9]+c[0-9]+d1_){" + str(depth) + "}c[0-9]+ accuracy2\\.txt")
+        pat = re.compile("(k[0-9]+s[0-9]+c[0-9]+d1_)" + depth_pat + "c[0-9]+ accuracy2\\.txt")
     else:
         raise Exception("Invalid drift")
     scores = []
@@ -463,6 +471,13 @@ def print_accuracy2_results(depth, split=0.8, with_drift=None):
         if pat.fullmatch(experiment):
             if with_drift is True and not has_drift.search(experiment):
                 continue
+            if type(depth) == list:
+                kernels, strides = [], []
+                for m in extract_k_s.finditer(experiment):
+                    kernels.append(int(m.group(1)))
+                    strides.append(int(m.group(2)))
+                strides, kernels = htm.conv_compose_array(strides, kernels)
+                area_difference = kernels[0]*kernels[1] - depth[0]*depth[1]
             accuracy = 0
             with open('predictive_coding_stacked8/' + experiment, "r") as f:
                 for line in f:
@@ -474,11 +489,12 @@ def print_accuracy2_results(depth, split=0.8, with_drift=None):
                         accuracy = max(accuracy, float(attributes["eval_accuracy"]))
             scores.append((experiment, accuracy))
     scores.sort(key=lambda x: x[1])
-    print("Depth =", depth, ", split =", split)
+    print("Depth =", depth, ", split =", split, "with_drift =", with_drift)
     for file, score in scores:
         print("{:.4f}".format(score), ' '.join(file.split()[0].split('_')))
 
 
-# run_experiments()
+run_experiments()
 # for d in range(16):
-print_accuracy2_results(5, with_drift=True)
+#     print_accuracy2_results(d, with_drift=True)
+#     print_accuracy2_results(d, with_drift=False)
