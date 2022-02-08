@@ -32,7 +32,7 @@ use pyo3::ffi::PyFloat_Type;
 
 
 ///
-/// WeightSums(shape)
+/// WeightSums(shape, initial_value)
 ///
 ///
 #[pyclass]
@@ -72,32 +72,41 @@ impl WeightSums {
     pub fn set(&mut self, i:Idx, v:f32) {
         self.ecc[i] = v
     }
-    #[text_signature = "(parallel)"]
-    pub fn clear_all(&mut self, parallel:Option<bool>) {
+    #[text_signature = "(value, parallel)"]
+    pub fn fill_all(&mut self, value:f32, parallel:Option<bool>) {
         if parallel.unwrap_or(false) {
-            self.ecc.parallel_clear_all()
+            self.ecc.parallel_fill_all(value)
         }else{
-            self.ecc.clear_all()
+            self.ecc.fill_all(value)
         }
     }
-    #[text_signature = "(sdr,parallel)"]
-    pub fn clear(&mut self,sdr:&CpuSDR, parallel:Option<bool>) {
+    #[text_signature = "(value,sdr,parallel)"]
+    pub fn fill(&mut self,value:f32, sdr:&CpuSDR, parallel:Option<bool>) {
         if parallel.unwrap_or(false) {
-            self.ecc.parallel_clear(&sdr.sdr)
+            self.ecc.parallel_fill(value,&sdr.sdr)
         }else{
-            self.ecc.clear(&sdr.sdr)
+            self.ecc.fill(value,&sdr.sdr)
         }
     }
     #[new]
-    pub fn new(shape: [Idx; 3]) -> Self{
-        Self { ecc: htm::WeightSums::new(shape) }
+    pub fn new(shape: [Idx; 3],initial_value:Option<f32>) -> Self{
+        Self { ecc: htm::WeightSums::new(shape,initial_value.unwrap_or(0.)) }
     }
 }
 
 #[pyproto]
 impl PySequenceProtocol for WeightSums {
     fn __len__(&self) -> usize {
-        as_usize(self.ecc.len())
+        self.ecc.len()
+    }
+    fn __getitem__(&self, idx: isize) -> f32 {
+        assert!(idx>=0);
+        self.ecc[idx as usize]
+    }
+
+    fn __setitem__(&mut self, idx: isize, value: f32) {
+        assert!(idx>=0);
+        self.ecc[idx as usize] = value;
     }
 }
 
@@ -154,12 +163,32 @@ impl ConvWeights {
         self.ecc.stride().to_vec()
     }
     #[text_signature = "(input_sdr,target_population,parallel)"]
-    pub fn forward(&mut self, input: &CpuSDR, pop:&mut CpuEccPopulation, parallel:Option<bool>) {
-        if parallel.unwrap_or(false) {
-            self.ecc.parallel_forward(&input.sdr, &mut pop.ecc);
-        }else{
-            self.ecc.forward(&input.sdr, &mut pop.ecc);
+    pub fn forward(&mut self, input: &CpuSDR, pop:&PyAny, parallel:Option<bool>) -> PyResult<()>{
+        if let Ok(mut pop) = pop.extract::<PyRefMut<CpuEccPopulation>>(){
+            if parallel.unwrap_or(false) {
+                self.ecc.parallel_forward(&input.sdr, &mut pop.ecc);
+            } else {
+                self.ecc.forward(&input.sdr, &mut pop.ecc);
+            }
+        } else {
+            let mut pop = pop.extract::<PyRefMut<WeightSums>>()?;
+            if parallel.unwrap_or(false) {
+                self.ecc.parallel_forward(&input.sdr, &mut pop.ecc);
+            } else {
+                self.ecc.forward(&input.sdr, &mut pop.ecc);
+            }
         }
+        Ok(())
+    }
+    #[text_signature = "(input_sdr,target_population)"]
+    pub fn inhibit(&mut self, input: &CpuSDR, pop:&PyAny) -> PyResult<()>{
+        if let Ok(mut pop) = pop.extract::<PyRefMut<CpuEccPopulation>>(){
+            self.ecc.inhibit(&input.sdr, &mut pop.ecc);
+        } else {
+            let mut pop = pop.extract::<PyRefMut<WeightSums>>()?;
+            self.ecc.inhibit(&input.sdr, &mut pop.ecc);
+        }
+        Ok(())
     }
     #[text_signature = "(input_sdr,target_population,multiplier)"]
     pub fn forward_with_multiplier(&mut self, input: &CpuSDR, pop:&mut CpuEccPopulation,multiplier:f32) {
@@ -416,12 +445,22 @@ impl CpuEccPopulation {
         self.ecc.reset_sums()
     }
     #[text_signature = "(output)"]
+    pub fn determine_winners_with_threshold_in_place(&self,threshold:f32,output:&mut CpuSDR) {
+        self.ecc.determine_winners_with_threshold(threshold,&mut output.sdr)
+    }
+    #[text_signature = "(output)"]
     pub fn determine_winners_topk_in_place(&self,output:&mut CpuSDR) {
         self.ecc.determine_winners_topk(&mut output.sdr)
     }
     #[text_signature = "(output)"]
     pub fn determine_winners_top1_per_region_in_place(&self,output:&mut CpuSDR) {
         self.ecc.determine_winners_top1_per_region(&mut output.sdr)
+    }
+    #[text_signature = "(threshold)"]
+    pub fn determine_winners_with_threshold(&self,threshold:f32) ->CpuSDR{
+        let mut output = CpuSDR{sdr:htm::CpuSDR::new()};
+        self.ecc.determine_winners_with_threshold(threshold,&mut output.sdr);
+        output
     }
     #[text_signature = "()"]
     pub fn determine_winners_topk(&self) ->CpuSDR{
@@ -468,9 +507,20 @@ impl CpuEccPopulation {
         self.ecc.reset_activity()
     }
     #[getter]
-    pub fn get_sums(&self) -> Vec<f32> {
-        self.ecc.sums.clone()
+    pub fn get_sums(&self) -> WeightSums {
+        WeightSums{ecc:self.ecc.sums.clone()}
     }
 
 }
 
+
+
+#[pyproto]
+impl PyObjectProtocol for WeightSums {
+    fn __str__(&self) -> PyResult<String> {
+        Ok(format!("{:?}", self.ecc.as_slice()))
+    }
+    fn __repr__(&self) -> PyResult<String> {
+        self.__str__()
+    }
+}

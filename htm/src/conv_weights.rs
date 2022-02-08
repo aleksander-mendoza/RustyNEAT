@@ -1,4 +1,4 @@
-use crate::{DenseWeight, ConvShape, Idx, as_idx, as_usize, w_idx, Shape, VectorFieldOne, Shape2, Shape3, from_xyz, debug_assert_approx_eq_weight, kernel_column_weight_sum, kernel_column_dropped_weights_count, VectorFieldPartialOrd, CpuSDR, from_xy, SDR, kernel_column_weight_copy, range_contains};
+use crate::{DenseWeight, ConvShape, Idx, as_idx, as_usize, w_idx, Shape, VectorFieldOne, Shape2, Shape3, from_xyz, debug_assert_approx_eq_weight, kernel_column_weight_sum, kernel_column_dropped_weights_count, VectorFieldPartialOrd, CpuSDR, from_xy, SDR, kernel_column_weight_copy, range_contains, WeightSums};
 use std::ops::{Deref, DerefMut, Index, IndexMut, Range};
 use rand::Rng;
 use rand::prelude::SliceRandom;
@@ -11,64 +11,6 @@ use rayon::prelude::*;
 use std::thread::JoinHandle;
 use crate::parallel::{parallel_map_vector, parallel_map_collect};
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-pub struct WeightSums<D: DenseWeight> {
-    sums: Vec<D>,
-    shape:[Idx;3]
-}
-impl <D:DenseWeight> WeightSums<D>{
-    pub fn shape(&self)->&[Idx;3]{
-        &self.shape
-    }
-    pub fn as_slice(&self)->&[D]{
-        &self.sums
-    }
-    pub fn new(shape:[Idx;3])->Self{
-        Self{
-            sums:vec![D::TOTAL_SUM;as_usize(shape.product())],
-            shape,
-        }
-    }
-    pub fn clear(&mut self, sdr:&CpuSDR){
-        for &i in sdr.as_slice(){
-            self[i] = D::TOTAL_SUM
-        }
-    }
-    pub fn clear_all(&mut self){
-        self.sums.iter_mut().for_each(|a|*a=D::TOTAL_SUM)
-    }
-    pub fn len(&self)->Idx{
-        as_idx(self.sums.len())
-    }
-}
-
-impl <'a, D:DenseWeight+Send+Sync> WeightSums<D>{
-    pub fn parallel_clear(&mut self, sdr:&CpuSDR){
-        let sums_len = self.sums.len();
-        let sums_ptr = self.sums.as_mut_ptr() as usize;
-        sdr.par_iter().for_each(|&output_idx|{
-            let sums_slice = unsafe{std::slice::from_raw_parts_mut(sums_ptr as *mut D,sums_len)};
-            sums_slice[as_usize(output_idx)] = D::TOTAL_SUM
-        })
-    }
-    pub fn parallel_clear_all(&mut self){
-        self.sums.par_iter_mut().for_each(|a|*a=D::TOTAL_SUM)
-    }
-}
-
-
-impl<D:DenseWeight> Index<Idx> for WeightSums<D>{
-    type Output = D;
-
-    fn index(&self, index: Idx) -> &Self::Output {
-        &self.sums[as_usize(index)]
-    }
-}
-impl<D:DenseWeight> IndexMut<Idx> for WeightSums<D>{
-    fn index_mut (&mut self, index: Idx) -> &mut Self::Output {
-        &mut self.sums[as_usize(index)]
-    }
-}
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct ConvWeights<D: DenseWeight> {
     /**The layout is w[output_idx+input_idx_relative_to_kernel_column*output_volume]
@@ -251,10 +193,10 @@ impl<D: DenseWeight> ConvWeights<D> {
         D::w_to_f32(self.incoming_weight_sum(output_neuron_idx))
     }
     pub fn reset_and_store_all_incoming_weight_sums(&self, sums:&mut WeightSums<D>) {
-        sums.sums.iter_mut().enumerate().for_each(|(i,w)|*w=self.incoming_weight_sum(as_idx(i)))
+        sums.iter_mut().enumerate().for_each(|(i,w)|*w=self.incoming_weight_sum(as_idx(i)))
     }
     pub fn store_all_incoming_weight_sums(&self, sums:&mut WeightSums<D>) {
-        sums.sums.iter_mut().enumerate().for_each(|(i,w)|*w+=self.incoming_weight_sum(as_idx(i)))
+        sums.iter_mut().enumerate().for_each(|(i,w)|*w+=self.incoming_weight_sum(as_idx(i)))
     }
 
     pub fn incoming_weight_sum(&self, output_neuron_idx: Idx) -> D {
@@ -284,11 +226,18 @@ impl<D: DenseWeight> ConvWeights<D> {
         target.reset_sums();
         self.forward(input,target)
     }
-    pub fn forward(&self, input: &CpuSDR, target: &mut CpuEccPopulation<D>) {
+    pub fn forward(&self, input: &CpuSDR, target: &mut WeightSums<D>) {
         assert_eq!(target.shape(), self.out_shape(), "Shapes don't match!");
         self.forward_with(input,|output_idx,w|{
-            target.sums[as_usize(output_idx)] += w;
-            debug_assert!(target.sums[as_usize(output_idx)].le(D::TOTAL_SUM));
+            target[as_usize(output_idx)] += w;
+            debug_assert!(target[as_usize(output_idx)].le(D::TOTAL_SUM));
+        })
+    }
+    pub fn inhibit(&self, input: &CpuSDR, target: &mut WeightSums<D>) {
+        assert_eq!(target.shape(), self.out_shape(), "Shapes don't match!");
+        self.forward_with(input,|output_idx,w|{
+            target[as_usize(output_idx)] -= w;
+            debug_assert!(target[as_usize(output_idx)].le(D::TOTAL_SUM));
         })
     }
     pub fn forward_with(&self, input: &CpuSDR, mut target:impl FnMut(Idx,D)) {
@@ -416,18 +365,18 @@ impl<D: DenseWeight> ConvWeights<D> {
 }
 impl <'a, D:DenseWeight+Send+Sync> ConvWeights<D>{
     pub fn parallel_reset_and_store_all_incoming_weight_sums(&self, sums:&mut WeightSums<D>) {
-        sums.sums.par_iter_mut().enumerate().for_each(|(i,w)|*w+=self.incoming_weight_sum(as_idx(i)))
+        sums.par_iter_mut().enumerate().for_each(|(i,w)|*w+=self.incoming_weight_sum(as_idx(i)))
     }
     pub fn parallel_store_all_incoming_weight_sums(&self, sums:&mut WeightSums<D>) {
-        sums.sums.par_iter_mut().enumerate().for_each(|(i,w)|*w+=self.incoming_weight_sum(as_idx(i)))
+        sums.par_iter_mut().enumerate().for_each(|(i,w)|*w+=self.incoming_weight_sum(as_idx(i)))
     }
-    pub fn parallel_reset_and_forward(&self, input: &CpuSDR, target: &'a mut CpuEccPopulation<D>){
+    pub fn parallel_reset_and_forward(&self, input: &CpuSDR, target: &'a mut WeightSums<D>){
         self.parallel_forward_with(input, target,|r,w|*r=w);
     }
-    pub fn parallel_forward(&self, input: &CpuSDR, target:&'a mut CpuEccPopulation<D>) {
+    pub fn parallel_forward(&self, input: &CpuSDR, target:&'a mut WeightSums<D>) {
         self.parallel_forward_with(input,target,|r,w|*r+=w)
     }
-    pub fn parallel_forward_with(&self, input: &CpuSDR, target:&'a mut CpuEccPopulation<D>, update_weight:impl Fn(&mut D, D)+Send+Sync) {
+    pub fn parallel_forward_with(&self, input: &CpuSDR, target:&'a mut WeightSums<D>, update_weight:impl Fn(&mut D, D)+Send+Sync) {
         assert_eq!(target.shape(), self.out_shape(), "Shapes don't match!");
         let kernel_column = self.kernel_column();
         let v = self.out_volume();
@@ -439,7 +388,7 @@ impl <'a, D:DenseWeight+Send+Sync> ConvWeights<D>{
         }
         let input_positions:Vec<[Idx; 3] > = input.iter().map(|&input_idx|self.in_shape().pos(input_idx)).collect();
         let ranges:Vec<Range<[Idx;2]>> = input_positions.iter().map(|input_pos|input_pos.grid().conv_out_range_clipped_both_sides(self.stride(), self.kernel(),self.out_grid())).collect();
-        target.sums.par_iter_mut().enumerate().for_each(|(output_idx,weight_sum)|{
+        target.par_iter_mut().enumerate().for_each(|(output_idx,weight_sum)|{
             let output_idx = as_idx(output_idx);
             let output_pos = self.out_shape().pos(output_idx);
             let kernel_offset = output_pos.grid().conv_in_range_begin(self.stride());
@@ -479,8 +428,8 @@ impl <'a, D:DenseWeight+Send+Sync> ConvWeights<D>{
         debug_assert!(output.clone().sorted().is_normalized());
         let w_len = self.w.len();
         let w_ptr = self.w.as_mut_ptr() as usize;
-        let sums_len = sums.sums.len();
-        let sums_ptr = sums.sums.as_mut_ptr() as usize;
+        let sums_len = sums.len();
+        let sums_ptr = sums.as_mut_ptr() as usize;
         let p = self.plasticity;
         let input_pos: Vec<[Idx; 3]> = input.iter().map(|&i| self.in_shape().pos(i)).collect();
         output.par_iter().for_each(|&output_idx|{
@@ -529,7 +478,7 @@ impl <'a, D:DenseWeight+Send+Sync> ConvWeights<D>{
         targets.push((D::ZERO,0,target));
         let o_vec = parallel_map_collect(input,&mut targets,|i,(s,missed,t)|{
             let o_sdr = self.infer(f(i), t);
-            *s+=o_sdr.iter().map(|&k|t.sums[as_usize(k)]).sum();
+            *s+=o_sdr.iter().map(|&k|t.sums[k]).sum();
             if o_sdr.is_empty(){
                 *missed+=1
             }
@@ -542,7 +491,7 @@ impl ConvWeights<f32>{
     pub fn forward_with_multiplier(&self, input: &CpuSDR, target: &mut CpuEccPopulation<f32>, multiplier:f32) {
         assert_eq!(target.shape(), self.out_shape(), "Shapes don't match!");
         self.forward_with(input,|output_idx,w|{
-            target.sums[as_usize(output_idx)] += multiplier*w;
+            target.sums[output_idx] += multiplier*w;
         })
     }
 }

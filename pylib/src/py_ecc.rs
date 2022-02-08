@@ -645,8 +645,8 @@ impl CpuEccDense {
         self.ecc.population_mut().reset_activity()
     }
     #[getter]
-    pub fn get_sums(&self) -> Vec<f32> {
-        self.ecc.population().sums.clone()
+    pub fn get_sums(&self) -> WeightSums {
+        WeightSums{ecc:self.ecc.population().sums.clone()}
     }
 
     #[text_signature = "(output_neuron_idx)"]

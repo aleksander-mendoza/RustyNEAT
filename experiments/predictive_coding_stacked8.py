@@ -97,11 +97,6 @@ class MachineShape:
                         zip(self.kernels[:idx], self.channels[:idx], self.strides[:idx], self.drifts[:idx])])
         return path + "c" + str(self.channels[idx])
 
-    def human_readable_name(self, idx):
-        path = ' '.join(["k" + str(k) + "c" + str(c) + "d" + str(d) for k, c, d in
-                        zip(self.kernels[:idx], self.channels[1:idx+1], self.drifts[:idx])])
-        return path
-
     def save_file(self, idx):
         return "predictive_coding_stacked8/" + self.code_name(idx)
 
@@ -493,18 +488,18 @@ class ExperimentData:
         self.naive8, self.naive1 = parse_benchmarks(experiment_name + " accuracy.txt")
         self.has_drift = HAS_DRIFT.search(experiment_name) is not None
 
-    def prev_name(self):
-        if len(self.shape) == 0:
-            return None
-        return self.shape.code_name(len(self.shape) - 1)
-
-    def format(self):
+    def format(self, db):
         k = str(self.comp_kernel[0]) + "x" + str(self.comp_kernel[1])
         o = str(self.out_shape[0]) + "x" + str(self.out_shape[1])
         acc8 = "{:.2f}".format(self.softmax8) + "/" + "{:.2f}".format(self.naive8)
         acc1 = "{:.2f}".format(self.softmax1) + "/" + "{:.2f}".format(self.naive1)
-        path = self.shape.human_readable_name(len(self.shape))
-        return ' '.join([acc8, acc1, k, o, path])
+        s = self.shape
+        prev_softmax8 = [db[self.shape.code_name(i)].softmax8 for i in range(1, len(self.shape))]
+        prev_softmax8.append(self.softmax8)
+        path = ' '.join(["k" + str(k) + "c" + str(c) + "d" + str(d) + "({:.2f})".format(s8)
+                         for k, c, d, s8
+                         in zip(s.kernels, s.channels[1:], s.drifts, prev_softmax8)])
+        return ', '.join([acc8, acc1, k, o, path])
 
 
 class ExperimentDB:
@@ -537,7 +532,7 @@ class ExperimentDB:
         scores.sort(key=lambda x: x.softmax8)
         print("Depth =", depth, ",  with_drift =", with_drift)
         for exp_data in scores:
-            print(exp_data.format())
+            print(exp_data.format(self.experiment_data))
 
 
 # run_experiments()

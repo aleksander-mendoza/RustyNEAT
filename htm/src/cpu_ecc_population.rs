@@ -9,7 +9,7 @@ use ndalgebra::buffer::Buffer;
 use crate::cpu_bitset::CpuBitset;
 use std::cmp::Ordering;
 use serde::{Serialize, Deserialize};
-use crate::{Shape, resolve_range, EncoderTarget, Synapse, top_large_k_indices, top_small_k_indices, Shape3, from_xyz, Shape2, from_xy, range_contains, DenseWeight, w_idx, kernel_column_weight_sum, debug_assert_approx_eq_weight, EccLayerD, kernel_column_dropped_weights_count, ConvShape};
+use crate::{Shape, resolve_range, EncoderTarget, Synapse, top_large_k_indices, top_small_k_indices, Shape3, from_xyz, Shape2, from_xy, range_contains, DenseWeight, w_idx, kernel_column_weight_sum, debug_assert_approx_eq_weight, EccLayerD, kernel_column_dropped_weights_count, ConvShape, WeightSums};
 use std::collections::{Bound, HashSet};
 use crate::vector_field::{VectorFieldOne, VectorFieldDiv, VectorFieldAdd, VectorFieldMul, ArrayCast, VectorFieldSub, VectorFieldPartialOrd};
 use crate::population::Population;
@@ -27,26 +27,27 @@ use rayon::prelude::*;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct CpuEccPopulation<D: DenseWeight> {
-    shape: [Idx; 3],
     k: Idx,
     pub threshold: D,
     pub activity: Vec<D>,
-    pub sums: Vec<D>,
+    pub sums: WeightSums<D>,
 }
 
 impl <D:DenseWeight> Deref for CpuEccPopulation<D>{
-    type Target = [Idx;3];
+    type Target = WeightSums<D>;
 
     fn deref(&self) -> &Self::Target {
-        &self.shape
+        &self.sums
+    }
+}
+impl <D:DenseWeight> DerefMut for CpuEccPopulation<D>{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.sums
     }
 }
 
 
 impl<D: DenseWeight> CpuEccPopulation<D> {
-    pub fn shape(&self)->&[Idx;3]{
-        &self.shape
-    }
     pub fn get_region_size(&self) -> Idx {
         self.channels() / self.k()
     }
@@ -67,11 +68,10 @@ impl<D: DenseWeight> CpuEccPopulation<D> {
             }
         }
         Self {
-            shape,
             k: pretrained.k,
             threshold: pretrained.threshold,
             activity,
-            sums: vec![D::ZERO;as_usize(new_v)]
+            sums: WeightSums::new(shape,D::ZERO)
         }
     }
     pub fn new(shape: [Idx; 3], k: Idx) -> Self {
@@ -79,16 +79,15 @@ impl<D: DenseWeight> CpuEccPopulation<D> {
         let region_size = shape.channels()/k;
         Self {
             k,
-            shape,
             threshold: D::default_threshold(region_size),
             activity: vec![D::INITIAL_ACTIVITY; as_usize(v)],
-            sums: vec![D::ZERO; as_usize(v)],
+            sums:  WeightSums::new(shape,D::ZERO)
         }
     }
     pub fn concat<T>(layers: &[T], f: impl Fn(&T) -> &Self) -> Self {
         assert_ne!(layers.len(), 0, "No layers provided!");
         let first_layer = f(&layers[0]);
-        let mut grid = first_layer.shape.grid();
+        let mut grid = first_layer.grid();
         assert!(layers.iter().all(|a| f(a).grid().all_eq(grid)), "All concatenated layers must have the same width and height!");
         let k = if layers.iter().any(|a| f(a).k()>1){
             assert!(layers.iter().map(|a| f(a).get_region_size()).all_equal(), "All layers are region_size but their region sizes are different");
@@ -104,9 +103,9 @@ impl<D: DenseWeight> CpuEccPopulation<D> {
         for l in 0..layers.len() {
             let l = f(&layers[l]);
             let v = l.shape().product();
-            for w in 0..l.shape().width() {
-                for h in 0..l.shape().height() {
-                    for c in 0..l.shape().channels() {
+            for w in 0..l.width() {
+                for h in 0..l.height() {
+                    for c in 0..l.channels() {
                         let original_idx = l.shape().idx(from_xyz(w, h, c));
                         let idx = shape.idx(from_xyz(w, h, channel_offset + c));
                         activity[as_usize(idx)] = l.activity[as_usize(original_idx)];
@@ -116,12 +115,11 @@ impl<D: DenseWeight> CpuEccPopulation<D> {
             channel_offset += l.channels();
         }
         Self {
-            shape,
             k,
             threshold: first_layer.threshold,
 
             activity,
-            sums: vec![D::ZERO; as_usize(new_v)],
+            sums: WeightSums::new(shape,D::ZERO),
         }
     }
     pub fn get_threshold(&self) -> D {
@@ -139,7 +137,7 @@ impl<D: DenseWeight> CpuEccPopulation<D> {
         self.k = k;
     }
     pub fn reset_sums(&mut self){
-        self.sums.fill(D::ZERO);
+        self.sums.fill_all(D::ZERO);
     }
     pub fn get_threshold_f32(&self) -> f32 {
         D::w_to_f32(self.threshold)
@@ -155,7 +153,7 @@ impl<D: DenseWeight> CpuEccPopulation<D> {
     }
     /**sum(self.sums[i] for i in output)*/
     pub fn sums_for_sdr(&self, output:&CpuSDR)-> D{
-        output.iter().map(|i|self.sums[as_usize(*i)]).sum()
+        output.iter().map(|i|self.sums[*i]).sum()
     }
     pub fn min_activity(&self) -> D {
         self.activity.iter().cloned().reduce(D::min_w).unwrap()
@@ -183,6 +181,13 @@ impl<D: DenseWeight> CpuEccPopulation<D> {
     }
     pub fn r(&self, idx: usize) -> D {
         self.sums[idx]+self.activity[idx]
+    }
+    pub fn determine_winners_with_threshold(&self, threshold:D, output: &mut CpuSDR) {
+        for (i,s) in self.sums.iter().enumerate(){
+            if s.gt(threshold){
+                output.push(as_idx(i))
+            }
+        }
     }
     pub fn determine_winners_topk(&self, output: &mut CpuSDR) {
         let t = self.threshold;

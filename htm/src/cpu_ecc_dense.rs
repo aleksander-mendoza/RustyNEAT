@@ -299,7 +299,7 @@ mod tests {
             let mut o = a.run(&input);
             a.learn(&input, &o);
             if o.len() == 0 {
-                assert!(a.population().sums.iter().all(|&x| x.lt(a.population().threshold)), "{:?}", a.population().sums);
+                assert!(a.population().iter().all(|&x| x.lt(a.population().threshold)), "{:?}", a.population().sums);
                 // println!("(a[{}]=={} < {}) + {}",argmax,a.sums[argmax],a.threshold,a.activity[argmax]);
                 // println!("{:?}",a.sums);
                 // println!("{:?}",a.activity);
