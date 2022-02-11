@@ -1,4 +1,4 @@
-use crate::{DenseWeight, ConvShape, Idx, as_idx, as_usize, w_idx, Shape, VectorFieldOne, Shape2, Shape3, from_xyz, debug_assert_approx_eq_weight, kernel_column_weight_sum, kernel_column_dropped_weights_count, VectorFieldPartialOrd, CpuSDR, from_xy, SDR, kernel_column_weight_copy, range_contains, WeightSums};
+use crate::{DenseWeight, ConvShape, Idx, as_idx, as_usize, w_idx, Shape, VectorFieldOne, Shape2, Shape3, from_xyz, debug_assert_approx_eq_weight, kernel_column_weight_sum, kernel_column_dropped_weights_count, VectorFieldPartialOrd, CpuSDR, from_xy, SDR, kernel_column_weight_copy, range_contains};
 use std::ops::{Deref, DerefMut, Index, IndexMut, Range};
 use rand::Rng;
 use rand::prelude::SliceRandom;
@@ -192,10 +192,10 @@ impl<D: DenseWeight> ConvWeights<D> {
     pub fn incoming_weight_sum_f32(&self, output_neuron_idx: Idx) -> f32 {
         D::w_to_f32(self.incoming_weight_sum(output_neuron_idx))
     }
-    pub fn reset_and_store_all_incoming_weight_sums(&self, sums:&mut WeightSums<D>) {
+    pub fn reset_and_store_all_incoming_weight_sums(&self, sums:&mut [D]) {
         sums.iter_mut().enumerate().for_each(|(i,w)|*w=self.incoming_weight_sum(as_idx(i)))
     }
-    pub fn store_all_incoming_weight_sums(&self, sums:&mut WeightSums<D>) {
+    pub fn store_all_incoming_weight_sums(&self, sums:&mut [D]) {
         sums.iter_mut().enumerate().for_each(|(i,w)|*w+=self.incoming_weight_sum(as_idx(i)))
     }
 
@@ -223,18 +223,19 @@ impl<D: DenseWeight> ConvWeights<D> {
     }
 
     pub fn reset_and_forward(&self, input: &CpuSDR, target: &mut CpuEccPopulation<D>){
+        assert_eq!(target.shape(),self.out_shape(),"Shapes don't match");
         target.reset_sums();
-        self.forward(input,target)
+        self.forward(input,&mut target.sums)
     }
-    pub fn forward(&self, input: &CpuSDR, target: &mut WeightSums<D>) {
-        assert_eq!(target.shape(), self.out_shape(), "Shapes don't match!");
+    pub fn forward(&self, input: &CpuSDR, target: &mut [D]) {
+        assert_eq!(target.len(), as_usize(self.out_volume()), "Shapes don't match!");
         self.forward_with(input,|output_idx,w|{
             target[as_usize(output_idx)] += w;
             debug_assert!(target[as_usize(output_idx)].le(D::TOTAL_SUM));
         })
     }
-    pub fn inhibit(&self, input: &CpuSDR, target: &mut WeightSums<D>) {
-        assert_eq!(target.shape(), self.out_shape(), "Shapes don't match!");
+    pub fn inhibit(&self, input: &CpuSDR, target: &mut [D]) {
+        assert_eq!(target.len(), as_usize(self.out_volume()), "Shapes don't match!");
         self.forward_with(input,|output_idx,w|{
             target[as_usize(output_idx)] -= w;
             debug_assert!(target[as_usize(output_idx)].le(D::TOTAL_SUM));
@@ -297,18 +298,18 @@ impl<D: DenseWeight> ConvWeights<D> {
         self.run_in_place(input,&mut sdr,target);
         sdr
     }
-    pub fn learn_and_store_sums(&mut self, input: &CpuSDR, output: &CpuSDR, weight_sums:&mut WeightSums<D>) {
-        assert_eq!(weight_sums.shape(),self.out_shape());
+    pub fn learn_and_store_sums(&mut self, input: &CpuSDR, output: &CpuSDR, weight_sums:&mut [D]) {
+        assert_eq!(weight_sums.len(), as_usize(self.out_volume()), "Shapes don't match!");
         self.learn_with(input,output,|w, active_inputs, output_idx, p, kv, v|
-            weight_sums[output_idx] += p.mul(active_inputs)
+            weight_sums[as_usize(output_idx)] += p.mul(active_inputs)
         );
     }
-    pub fn normalize_with_stored_sums(&mut self, output: &CpuSDR, weight_sums:&WeightSums<D>) {
-        assert_eq!(weight_sums.shape(),self.out_shape());
+    pub fn normalize_with_stored_sums(&mut self, output: &CpuSDR, weight_sums:&[D]) {
+        assert_eq!(weight_sums.len(), as_usize(self.out_volume()), "Shapes don't match!");
         let v = self.out_volume();
         let kv = self.kernel_column_volume();
         for &output_idx in output.as_slice() {
-            D::normalize(&mut self.w, weight_sums[output_idx], output_idx,  kv, v)
+            D::normalize(&mut self.w, weight_sums[as_usize(output_idx)], output_idx,  kv, v)
         }
     }
     pub fn learn(&mut self, input: &CpuSDR, output: &CpuSDR) {
@@ -364,20 +365,20 @@ impl<D: DenseWeight> ConvWeights<D> {
 
 }
 impl <'a, D:DenseWeight+Send+Sync> ConvWeights<D>{
-    pub fn parallel_reset_and_store_all_incoming_weight_sums(&self, sums:&mut WeightSums<D>) {
+    pub fn parallel_reset_and_store_all_incoming_weight_sums(&self, sums:&mut [D]) {
         sums.par_iter_mut().enumerate().for_each(|(i,w)|*w+=self.incoming_weight_sum(as_idx(i)))
     }
-    pub fn parallel_store_all_incoming_weight_sums(&self, sums:&mut WeightSums<D>) {
+    pub fn parallel_store_all_incoming_weight_sums(&self, sums:&mut [D]) {
         sums.par_iter_mut().enumerate().for_each(|(i,w)|*w+=self.incoming_weight_sum(as_idx(i)))
     }
-    pub fn parallel_reset_and_forward(&self, input: &CpuSDR, target: &'a mut WeightSums<D>){
+    pub fn parallel_reset_and_forward(&self, input: &CpuSDR, target: &'a mut [D]){
         self.parallel_forward_with(input, target,|r,w|*r=w);
     }
-    pub fn parallel_forward(&self, input: &CpuSDR, target:&'a mut WeightSums<D>) {
+    pub fn parallel_forward(&self, input: &CpuSDR, target:&'a mut [D]) {
         self.parallel_forward_with(input,target,|r,w|*r+=w)
     }
-    pub fn parallel_forward_with(&self, input: &CpuSDR, target:&'a mut WeightSums<D>, update_weight:impl Fn(&mut D, D)+Send+Sync) {
-        assert_eq!(target.shape(), self.out_shape(), "Shapes don't match!");
+    pub fn parallel_forward_with(&self, input: &CpuSDR, target:&'a mut [D], update_weight:impl Fn(&mut D, D)+Send+Sync) {
+        assert_eq!(target.len(), as_usize(self.out_volume()), "Shapes don't match!");
         let kernel_column = self.kernel_column();
         let v = self.out_volume();
         debug_assert!(input.clone().sorted().is_normalized());
@@ -406,25 +407,29 @@ impl <'a, D:DenseWeight+Send+Sync> ConvWeights<D>{
         });
     }
     pub fn parallel_infer_in_place(&self, input: &CpuSDR, output:&mut CpuSDR, target:&'a mut CpuEccPopulation<D>){
-        self.parallel_forward_with(input, target,|r,w|*r=w);
+        assert_eq!(target.shape(),self.out_shape(),"Shapes don't match");
+        self.parallel_forward_with(input, &mut target.sums,|r,w|*r=w);
         target.parallel_determine_winners_top1_per_region(output);
     }
     pub fn parallel_infer(&self, input: &CpuSDR, target:&mut CpuEccPopulation<D>)->CpuSDR{
+        assert_eq!(target.shape(),self.out_shape(),"Shapes don't match");
         let mut sdr = CpuSDR::new();
         self.parallel_infer_in_place(input,&mut sdr,target);
         sdr
     }
     pub fn parallel_run_in_place(&self, input: &CpuSDR, output:&mut CpuSDR, target:&mut CpuEccPopulation<D>){
+        assert_eq!(target.shape(),self.out_shape(),"Shapes don't match");
         self.parallel_infer_in_place(input,output,target);
         target.decrement_activities(output)
     }
     pub fn parallel_run(&self, input: &CpuSDR, target:&mut CpuEccPopulation<D>)->CpuSDR{
+        assert_eq!(target.shape(),self.out_shape(),"Shapes don't match");
         let mut sdr = CpuSDR::new();
         self.parallel_run_in_place(input,&mut sdr,target);
         sdr
     }
 
-    pub fn parallel_learn_and_store_sums(&mut self, input: &CpuSDR, output: &CpuSDR,sums:&mut WeightSums<D>) {
+    pub fn parallel_learn_and_store_sums(&mut self, input: &CpuSDR, output: &CpuSDR,sums:&mut [D]) {
         debug_assert!(output.clone().sorted().is_normalized());
         let w_len = self.w.len();
         let w_ptr = self.w.as_mut_ptr() as usize;
@@ -455,30 +460,32 @@ impl <'a, D:DenseWeight+Send+Sync> ConvWeights<D>{
         });
     }
 
-    pub fn parallel_normalize_with_stored_sums(&mut self, output: &CpuSDR, weight_sums:&WeightSums<D>) {
-        assert_eq!(weight_sums.shape(),self.out_shape());
+    pub fn parallel_normalize_with_stored_sums(&mut self, output: &CpuSDR, weight_sums:&[D]) {
+        assert_eq!(weight_sums.len(),as_usize(self.out_volume()));
         let v = self.out_volume();
         let kv = self.kernel_column_volume();
         let w_len = self.w.len();
         let w_ptr = self.w.as_mut_ptr() as usize;
         output.par_iter().for_each(|&output_idx| {
             let w_slice = unsafe{std::slice::from_raw_parts_mut(w_ptr as *mut D,w_len)};
-            D::normalize(w_slice, weight_sums[output_idx], output_idx,  kv, v)
+            D::normalize(w_slice, weight_sums[as_usize(output_idx)], output_idx,  kv, v)
         })
     }
 
     pub fn batch_infer<T,O:Send>(&self, input: &[T], f:impl Fn(&T)->&CpuSDR+Send+Sync, target: CpuEccPopulation<D>, of:impl Fn(CpuSDR)->O+Sync) -> Vec<O> {
+        assert_eq!(target.shape(),self.out_shape(),"Shapes don't match");
         let mut targets:Vec<CpuEccPopulation<D>> = (1..num_cpus::get()).map(|_|target.clone()).collect();
         targets.push(target);
         parallel_map_collect(input,&mut targets,|i,t|of(self.infer(f(i), t)))
     }
 
     pub fn batch_infer_and_measure_s_expectation<T,O:Send>(&self, input: &[T], f:impl Fn(&T)->&CpuSDR+Send+Sync, target: CpuEccPopulation<D>, of:impl Fn(CpuSDR)->O+Sync) -> (Vec<O>,D,u32) {
+        assert_eq!(target.shape(),self.out_shape(),"Shapes don't match");
         let mut targets:Vec<(D,u32,CpuEccPopulation<D>)> = (1..num_cpus::get()).map(|_|(D::ZERO,0,target.clone())).collect();
         targets.push((D::ZERO,0,target));
         let o_vec = parallel_map_collect(input,&mut targets,|i,(s,missed,t)|{
             let o_sdr = self.infer(f(i), t);
-            *s+=o_sdr.iter().map(|&k|t.sums[k]).sum();
+            *s+=o_sdr.iter().map(|&k|t.sums[as_usize(k)]).sum();
             if o_sdr.is_empty(){
                 *missed+=1
             }
@@ -491,7 +498,7 @@ impl ConvWeights<f32>{
     pub fn forward_with_multiplier(&self, input: &CpuSDR, target: &mut CpuEccPopulation<f32>, multiplier:f32) {
         assert_eq!(target.shape(), self.out_shape(), "Shapes don't match!");
         self.forward_with(input,|output_idx,w|{
-            target.sums[output_idx] += multiplier*w;
+            target.sums[as_usize(output_idx)] += multiplier*w;
         })
     }
 }

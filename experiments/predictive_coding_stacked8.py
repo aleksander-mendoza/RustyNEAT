@@ -332,11 +332,12 @@ class FullColumnMachine:
                         print(s, file=f)
                     print(s)
 
-    def eval_with_naive_bayes(self, overwrite_data=False, overwrite_benchmarks=False):
+    def eval_with_naive_bayes(self, overwrite_data=False, overwrite_benchmarks=False, min_deviation_from_mean=None):
         idx = len(self.machine_shape) - 1
         print("PATCH_SIZE=", self.m.in_shape)
         layer = self.m.get_layer(idx)
-        benchmarks_save = self.machine_shape.save_file(idx + 1) + " accuracy.txt"
+        i = "I" if min_deviation_from_mean is not None else ""
+        benchmarks_save = self.machine_shape.save_file(idx + 1) + " accuracy"+i+".txt"
         out_mnist = Mnist(self.machine_shape, idx + 1)
         if os.path.exists(out_mnist.file) and not overwrite_data:
             out_mnist.load()
@@ -354,10 +355,10 @@ class FullColumnMachine:
                     eval_data = out_mnist.mnist.subdataset(train_len)
                     train_lbls = LABELS[0:train_len].numpy()
                     eval_lbls = LABELS[train_len:].numpy()
-                    lc = train_data.fit_linear_regression(train_lbls, 10)
-                    lc.log_weights()
-                    train_out_lbl = lc.batch_classify(train_data)
-                    eval_out_lbl = lc.batch_classify(eval_data)
+                    lc = train_data.fit_naive_bayes(train_lbls, 10, invariant_to_column=min_deviation_from_mean is not None)
+                    lc.clear_class_prob()
+                    train_out_lbl = lc.batch_classify(train_data, min_deviation_from_mean)
+                    eval_out_lbl = lc.batch_classify(eval_data, min_deviation_from_mean)
                     train_accuracy = (train_out_lbl == train_lbls).mean()
                     eval_accuracy = (eval_out_lbl == eval_lbls).mean()
                     s = "split=" + str(split) + \
@@ -436,7 +437,8 @@ def run_experiments():
             channels.append(channel)
             drifts.append(drift)
             s = MachineShape(channels, kernels, strides, drifts)
-            save_file = s.save_file(len(kernels)) + " data.pickle"
+            code_name = s.save_file(len(kernels))
+            save_file = code_name + " data.pickle"
             if not os.path.exists(save_file):
                 w, h = factorizations[channel]
                 m = SingleColumnMachine(s, w, h, threshold=threshold)
@@ -501,6 +503,13 @@ class ExperimentData:
                          in zip(s.kernels, s.channels[1:], s.drifts, prev_softmax8)])
         return ', '.join([acc8, acc1, k, o, path])
 
+    def experiment(self):
+        save_file = self.name + " accuracyI.txt"
+        if not os.path.exists(save_file):
+            m = FullColumnMachine(self.shape)
+            print(save_file)
+            m.eval_with_naive_bayes(min_deviation_from_mean=0.01)
+
 
 class ExperimentDB:
 
@@ -534,10 +543,16 @@ class ExperimentDB:
         for exp_data in scores:
             print(exp_data.format(self.experiment_data))
 
+    def experiment_on_all(self):
+        for e in self.experiment_data.values():
+            e.experiment()
+
+
 
 # run_experiments()
 # for d in range(16):
 edb = ExperimentDB()
-edb.print_accuracy2_results([26, 2], with_drift=True)
-edb.print_accuracy2_results([26, 2], with_drift=False)
+edb.experiment_on_all()
+# edb.print_accuracy2_results([26, 2], with_drift=True)
+# edb.print_accuracy2_results([26, 2], with_drift=False)
 #     print_accuracy2_results(d, with_drift=False)

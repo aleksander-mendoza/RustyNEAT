@@ -16,7 +16,7 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{Encoder, EncoderTarget, EncoderRange, Shape, VectorFieldOne, Synapse, SDR, as_usize, Idx, Shape3, ConvShape};
+use htm::{Encoder, EncoderTarget, EncoderRange, Shape, VectorFieldOne, Synapse, SDR, as_usize, Idx, Shape3, ConvShape, ShapedArray};
 use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
@@ -30,8 +30,9 @@ use pyo3::ffi::PyFloat_Type;
 use rand::{thread_rng, Rng};
 use crate::py_htm::CpuSDR;
 use crate::py_ecc::CpuEccDense;
-use crate::py_ecc_population::{ConvWeights, CpuEccPopulation};
+use crate::py_ecc_population::{ConvWeights, CpuEccPopulation, WeightSums};
 use crate::util::{impl_save_load};
+
 #[pyclass]
 pub struct CpuSdrDataset {
     pub(crate) sdr: htm::CpuSdrDataset,
@@ -63,19 +64,31 @@ impl SubregionIndices {
 }
 
 #[pyclass]
-pub struct LinearClassifier {
-    pub(crate) c: htm::LinearClassifier,
+pub struct Occurrences {
+    pub(crate) c: htm::Occurrences,
 }
 
 #[pymethods]
-impl LinearClassifier {
+impl Occurrences {
     #[text_signature = "(input_idx,label)"]
-    pub fn prob(&self,input_idx:Idx,label:usize)->f32{
-        self.prob(input_idx,label)
+    pub fn prob(&self,input_idx:usize,label:usize)->f32{
+        self.c.prob(input_idx,label)
+    }
+    #[text_signature = "()"]
+    pub fn normalise_wrt_labels(&mut self) {
+        self.c.normalise_wrt_labels()
+    }
+    #[text_signature = "()"]
+    pub fn normalise_class_probs(&mut self) {
+        self.c.normalise_class_probs()
+    }
+    #[text_signature = "()"]
+    pub fn log(&mut self) {
+        self.c.log()
     }
     #[text_signature = "()"]
     pub fn occurrences(&self)->Vec<f32>{
-        self.occurrences().to_vec()
+        self.c.occurrences().to_vec()
     }
     #[text_signature = "()"]
     pub fn square_weights(&mut self){
@@ -93,9 +106,57 @@ impl LinearClassifier {
     pub fn log_weights(&mut self){
         self.c.log_weights()
     }
+    #[text_signature = "()"]
+    pub fn square_class_probs(&mut self){
+        self.c.sqrt_class_probs()
+    }
+    #[text_signature = "()"]
+    pub fn sqrt_class_probs(&mut self){
+        self.c.sqrt_class_probs()
+    }
+    #[text_signature = "()"]
+    pub fn exp_class_probs(&mut self){
+        self.c.exp_class_probs()
+    }
+    #[text_signature = "()"]
+    pub fn log_class_probs(&mut self){
+        self.c.log_class_probs()
+    }
     #[text_signature = "(label)"]
     pub fn occurrences_for_label(&self,lbl:usize)->Vec<f32>{
-        self.occurrences_for_label(lbl).to_vec()
+        self.c.occurrences_for_label(lbl).to_vec()
+    }
+    #[text_signature = "(sdr)"]
+    pub fn collect_votes_per_column_and_lbl(&self, sdr: &CpuSDR) -> WeightSums {
+        WeightSums{ecc:self.c.collect_votes_per_column_and_lbl(&sdr.sdr)}
+    }
+    #[text_signature = "()"]
+    pub fn aggregate_invariant_to_column(&mut self) {
+        self.c.aggregate_invariant_to_column()
+    }
+    #[text_signature = "(sdr,min_deviation_from_mean)"]
+    pub fn classify_and_count_votes_per_lbl(&self, sdr: &CpuSDR,min_deviation_from_mean:f32) -> Vec<u32> {
+        self.c.classify_and_count_votes_per_lbl(&sdr.sdr,min_deviation_from_mean)
+    }
+    #[text_signature = "(sdr,min_deviation_from_mean)"]
+    pub fn classify_per_column(&self, sdr: &CpuSDR,min_deviation_from_mean:f32) -> Vec<isize> {
+        self.c.classify_per_column(&sdr.sdr,min_deviation_from_mean).into_vec()
+    }
+    #[text_signature = "(sdr)"]
+    pub fn compute_class_sums(&mut self) {
+        self.c.compute_class_sums()
+    }
+    #[text_signature = "(sdr)"]
+    pub fn compute_class_probs(&mut self) {
+        self.c.compute_class_probs()
+    }
+    #[text_signature = "(class_idx)"]
+    fn class_prob_of(&self, class_idx:usize)->f32{
+        self.c.class_prob()[class_idx]
+    }
+    #[getter]
+    fn class_prob(&self)->Vec<f32>{
+        self.c.class_prob().to_vec()
     }
     #[getter]
     fn num_classes(&self)->usize{
@@ -105,13 +166,26 @@ impl LinearClassifier {
     fn get_shape(&self) -> Vec<Idx>{
         self.c.shape().to_vec()
     }
-    #[text_signature = "(sdr)"]
-    fn classify(&self, sdr: &CpuSDR) -> usize {
-        self.c.classify(&sdr.sdr)
+    #[text_signature = "()"]
+    fn clear_class_prob(&mut self) {
+        self.c.clear_class_prob()
     }
-    #[text_signature = "(sdr_dataset)"]
-    fn batch_classify<'py>(&self, py:Python<'py>, sdr: &CpuSdrDataset) -> &'py PyArray<u32, Ix1> {
-        let v = self.c.batch_classify(&sdr.sdr);
+    #[text_signature = "(sdr,min_deviation_from_mean)"]
+    fn classify(&self, sdr: &CpuSDR, min_deviation_from_mean:Option<f32>) -> usize {
+        if let Some(min_deviation_from_mean) = min_deviation_from_mean {
+            self.c.classify_with_most_votes(&sdr.sdr,min_deviation_from_mean)
+        }else{
+            self.c.classify(&sdr.sdr)
+        }
+
+    }
+    #[text_signature = "(sdr_dataset, min_deviation_from_mean)"]
+    fn batch_classify<'py>(&self, py:Python<'py>, sdr: &CpuSdrDataset, min_deviation_from_mean:Option<f32>) -> &'py PyArray<u32, Ix1> {
+        let v = if let Some(min_deviation_from_mean) = min_deviation_from_mean{
+            self.c.batch_classify_invariant_to_column(&sdr.sdr, min_deviation_from_mean)
+        }else{
+            self.c.batch_classify(&sdr.sdr)
+        };
         PyArray::from_vec(py,v)
     }
 }
@@ -250,7 +324,7 @@ impl CpuSdrDataset {
         SubregionIndices{sdr:self.sdr.gen_rand_conv_subregion_indices_with_ecc(&ecc.ecc,number_of_samples,&mut rand::thread_rng())}
     }
     #[text_signature = "(labels,number_of_classes)"]
-    fn count_per_label(&self, labels:&PyAny,number_of_classes:usize) -> PyResult<Vec<f32>>{
+    fn count_per_label(&self, labels:&PyAny,number_of_classes:usize) -> PyResult<Occurrences>{
         let array = unsafe {
             if npyffi::PyArray_Check(labels.as_ptr()) == 0 {
                 return Err(PyDowncastError::new(labels, "PyArray<T, D>").into());
@@ -261,10 +335,10 @@ impl CpuSdrDataset {
             return Err(PyValueError::new_err("Numpy array is not C contiguous"));
         }
         let dtype = array.dtype().get_datatype().ok_or_else(|| PyValueError::new_err("No numpy array has no dtype"))?;
-        fn f<T:Element>(sdr:&htm::CpuSdrDataset,labels:&PyAny,number_of_classes:usize,f:impl Fn(&T)->usize) -> PyResult<Vec<f32>>{
+        fn f<T:Element>(sdr:&htm::CpuSdrDataset,labels:&PyAny,number_of_classes:usize,f:impl Fn(&T)->usize) -> PyResult<Occurrences>{
             let labels = unsafe { &*(labels as *const PyAny as *const PyArrayDyn<T>) };
             let labels = unsafe{labels.as_slice()?};
-            Ok(sdr.count_per_label(labels,number_of_classes,f))
+            Ok(Occurrences{c:sdr.count_per_label(labels,number_of_classes,f)})
         }
         match dtype{
             u8::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&u8|*f as usize),
@@ -316,12 +390,9 @@ impl CpuSdrDataset {
         let (sdr,s_exp,missed) = self.sdr.batch_infer_conv_weights_and_measure_s_expectation(&ecc.ecc,target.ecc.clone());
         (Self{sdr},s_exp,missed)
     }
-    // #[text_signature = "(labels)"]
-    // fn fit_naive_bayes(&self, labels:&PyAny) -> PyResult<CpuSDR>{
-    //     Ok()
-    // }
-    #[text_signature = "(labels,number_of_classes)"]
-    fn fit_linear_regression(&self, labels:&PyAny, number_of_classes:usize) -> PyResult<LinearClassifier>{
+    #[text_signature = "(labels,number_of_classes,invariant_to_column)"]
+    fn fit_naive_bayes(&self, labels:&PyAny, number_of_classes:usize,invariant_to_column:Option<bool>) -> PyResult<Occurrences>{
+        let invariant_to_column = invariant_to_column.unwrap_or(false);
         let array = unsafe {
             if npyffi::PyArray_Check(labels.as_ptr()) == 0 {
                 return Err(PyDowncastError::new(labels, "PyArray<T, D>").into());
@@ -332,27 +403,27 @@ impl CpuSdrDataset {
             return Err(PyValueError::new_err("Numpy array is not C contiguous"));
         }
         let dtype = array.dtype().get_datatype().ok_or_else(|| PyValueError::new_err("No numpy array has no dtype"))?;
-        fn f<T:Element>(sdr:&htm::CpuSdrDataset,labels:&PyAny,number_of_classes:usize,f:impl Fn(&T)->usize) -> PyResult<htm::LinearClassifier>{
+        fn f<T:Element>(sdr:&htm::CpuSdrDataset,labels:&PyAny,number_of_classes:usize,invariant_to_column:bool,f:impl Fn(&T)->usize) -> PyResult<htm::Occurrences>{
             let labels = unsafe { &*(labels as *const PyAny as *const PyArrayDyn<T>) };
             let labels = unsafe{labels.as_slice()?};
-            Ok(sdr.fit_linear_regression(labels,number_of_classes,f))
+            Ok(sdr.fit_naive_bayes(labels, number_of_classes, invariant_to_column,f))
         }
         match dtype{
-            u8::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&u8|*f as usize),
-            u32::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&u32|*f as usize),
-            u64::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&u64|*f as usize),
-            i8::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&i8|*f as usize),
-            i32::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&i32|*f as usize),
-            i64::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&i64|*f as usize),
-            usize::DATA_TYPE => f(&self.sdr,labels,number_of_classes,|f:&usize|*f),
+            u8::DATA_TYPE => f(&self.sdr,labels,number_of_classes,invariant_to_column,|f:&u8|*f as usize),
+            u32::DATA_TYPE => f(&self.sdr,labels,number_of_classes,invariant_to_column,|f:&u32|*f as usize),
+            u64::DATA_TYPE => f(&self.sdr,labels,number_of_classes,invariant_to_column,|f:&u64|*f as usize),
+            i8::DATA_TYPE => f(&self.sdr,labels,number_of_classes,invariant_to_column,|f:&i8|*f as usize),
+            i32::DATA_TYPE => f(&self.sdr,labels,number_of_classes,invariant_to_column,|f:&i32|*f as usize),
+            i64::DATA_TYPE => f(&self.sdr,labels,number_of_classes,invariant_to_column,|f:&i64|*f as usize),
+            usize::DATA_TYPE => f(&self.sdr,labels,number_of_classes,invariant_to_column,|f:&usize|*f),
             d => Err(PyValueError::new_err(format!("Unexpected dtype {:?} of numpy array ", d)))
-        }.map(|c|LinearClassifier{c})
+        }.map(|c| Occurrences {c})
     }
 }
 
 impl_save_load!(CpuSdrDataset,sdr);
 impl_save_load!(SubregionIndices,sdr);
-impl_save_load!(LinearClassifier,c);
+impl_save_load!(Occurrences,c);
 
 #[pyproto]
 impl PySequenceProtocol for CpuSdrDataset {

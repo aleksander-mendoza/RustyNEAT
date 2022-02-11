@@ -26,9 +26,9 @@ mod conv_weights;
 mod cpu_ecc_machine;
 mod parallel;
 mod cpu_sdr_dataset;
-mod weight_sums;
+mod shaped_array;
 
-pub use weight_sums::*;
+pub use shaped_array::*;
 pub use cpu_sdr_dataset::*;
 pub use cpu_ecc_population::*;
 pub use cpu_ecc_machine::*;

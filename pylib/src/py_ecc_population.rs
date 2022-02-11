@@ -17,7 +17,7 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{VectorFieldOne, Idx, EccLayer, Rand, SDR, EccLayerD, w_idx, as_usize, ConvShape, Shape3, Shape2};
+use htm::{VectorFieldOne, Idx, EccLayer, Rand, SDR, EccLayerD, w_idx, as_usize, ConvShape, Shape3, Shape2, ShapedArray};
 use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
@@ -37,7 +37,7 @@ use pyo3::ffi::PyFloat_Type;
 ///
 #[pyclass]
 pub struct WeightSums {
-    pub ecc: htm::WeightSums<f32>,
+    pub ecc: htm::ShapedArray<f32>,
 }
 
 ///
@@ -61,7 +61,7 @@ pub struct ConvWeights {
 #[pymethods]
 impl WeightSums {
     #[text_signature = "(index)"]
-    pub fn get(&self, i:Idx) -> f32 {
+    pub fn get(&self, i:usize) -> f32 {
         self.ecc[i]
     }
     #[text_signature = "()"]
@@ -69,28 +69,24 @@ impl WeightSums {
         self.ecc.as_slice().to_vec()
     }
     #[text_signature = "(index, value)"]
-    pub fn set(&mut self, i:Idx, v:f32) {
+    pub fn set(&mut self, i:usize, v:f32) {
         self.ecc[i] = v
     }
-    #[text_signature = "(value, parallel)"]
-    pub fn fill_all(&mut self, value:f32, parallel:Option<bool>) {
-        if parallel.unwrap_or(false) {
-            self.ecc.parallel_fill_all(value)
-        }else{
-            self.ecc.fill_all(value)
-        }
+    #[text_signature = "(value)"]
+    pub fn fill_all(&mut self, value:f32) {
+        self.ecc.fill(value)
     }
     #[text_signature = "(value,sdr,parallel)"]
     pub fn fill(&mut self,value:f32, sdr:&CpuSDR, parallel:Option<bool>) {
         if parallel.unwrap_or(false) {
-            self.ecc.parallel_fill(value,&sdr.sdr)
+            sdr.sdr.parallel_fill_into(value,&mut self.ecc)
         }else{
-            self.ecc.fill(value,&sdr.sdr)
+            sdr.sdr.fill_into(value,&mut self.ecc)
         }
     }
     #[new]
     pub fn new(shape: [Idx; 3],initial_value:Option<f32>) -> Self{
-        Self { ecc: htm::WeightSums::new(shape,initial_value.unwrap_or(0.)) }
+        Self { ecc: htm::ShapedArray::new(shape, initial_value.unwrap_or(0.)) }
     }
 }
 
@@ -165,13 +161,15 @@ impl ConvWeights {
     #[text_signature = "(input_sdr,target_population,parallel)"]
     pub fn forward(&mut self, input: &CpuSDR, pop:&PyAny, parallel:Option<bool>) -> PyResult<()>{
         if let Ok(mut pop) = pop.extract::<PyRefMut<CpuEccPopulation>>(){
+            assert_eq!(pop.ecc.shape(),self.ecc.out_shape());
             if parallel.unwrap_or(false) {
-                self.ecc.parallel_forward(&input.sdr, &mut pop.ecc);
+                self.ecc.parallel_forward(&input.sdr, &mut pop.ecc.sums);
             } else {
-                self.ecc.forward(&input.sdr, &mut pop.ecc);
+                self.ecc.forward(&input.sdr, &mut pop.ecc.sums);
             }
         } else {
             let mut pop = pop.extract::<PyRefMut<WeightSums>>()?;
+            assert_eq!(pop.ecc.shape(),self.ecc.out_shape());
             if parallel.unwrap_or(false) {
                 self.ecc.parallel_forward(&input.sdr, &mut pop.ecc);
             } else {
@@ -183,27 +181,32 @@ impl ConvWeights {
     #[text_signature = "(input_sdr,target_population)"]
     pub fn inhibit(&mut self, input: &CpuSDR, pop:&PyAny) -> PyResult<()>{
         if let Ok(mut pop) = pop.extract::<PyRefMut<CpuEccPopulation>>(){
-            self.ecc.inhibit(&input.sdr, &mut pop.ecc);
+            assert_eq!(pop.ecc.shape(),self.ecc.out_shape());
+            self.ecc.inhibit(&input.sdr, &mut pop.ecc.sums);
         } else {
             let mut pop = pop.extract::<PyRefMut<WeightSums>>()?;
+            assert_eq!(pop.ecc.shape(),self.ecc.out_shape());
             self.ecc.inhibit(&input.sdr, &mut pop.ecc);
         }
         Ok(())
     }
     #[text_signature = "(input_sdr,target_population,multiplier)"]
     pub fn forward_with_multiplier(&mut self, input: &CpuSDR, pop:&mut CpuEccPopulation,multiplier:f32) {
+        assert_eq!(pop.ecc.shape(),self.ecc.out_shape());
         self.ecc.forward_with_multiplier(&input.sdr, &mut pop.ecc,multiplier);
     }
     #[text_signature = "(input_sdr,target_population,parallel)"]
     pub fn reset_and_forward(&mut self, input: &CpuSDR, pop:&mut CpuEccPopulation, parallel:Option<bool>) {
         if parallel.unwrap_or(false) {
-            self.ecc.parallel_reset_and_forward(&input.sdr, &mut pop.ecc);
+            assert_eq!(pop.ecc.shape(),self.ecc.out_shape());
+            self.ecc.parallel_reset_and_forward(&input.sdr, &mut pop.ecc.sums);
         }else{
             self.ecc.reset_and_forward(&input.sdr, &mut pop.ecc);
         }
     }
     #[text_signature = "(output_sdr,weight_sums,parallel)"]
     pub fn normalize_with_stored_sums(&mut self, output: &CpuSDR, sums:&mut WeightSums,parallel:Option<bool>) {
+        assert_eq!(sums.ecc.shape(),self.ecc.out_shape());
         if parallel.unwrap_or(false){
             self.ecc.parallel_normalize_with_stored_sums(&output.sdr, &mut sums.ecc);
         }else {
@@ -212,6 +215,7 @@ impl ConvWeights {
     }
     #[text_signature = "(input_sdr,output_sdr,target_population,learn, stored_sums, update_activity, parallel)"]
     pub fn run_in_place(&mut self, input: &CpuSDR, output: &mut CpuSDR, target:&mut CpuEccPopulation, learn: Option<bool>, stored_sums:Option<&mut WeightSums>, update_activity:Option<bool>,parallel:Option<bool>) {
+        assert_eq!(target.ecc.shape(),self.ecc.out_shape());
         if parallel.unwrap_or(false){
             self.ecc.parallel_infer_in_place(&input.sdr, &mut output.sdr, &mut target.ecc);
         }else {
@@ -508,7 +512,7 @@ impl CpuEccPopulation {
     }
     #[getter]
     pub fn get_sums(&self) -> WeightSums {
-        WeightSums{ecc:self.ecc.sums.clone()}
+        WeightSums{ecc:ShapedArray::from_pop(&self.ecc)}
     }
 
 }

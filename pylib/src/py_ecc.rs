@@ -646,7 +646,7 @@ impl CpuEccDense {
     }
     #[getter]
     pub fn get_sums(&self) -> WeightSums {
-        WeightSums{ecc:self.ecc.population().sums.clone()}
+        WeightSums{ecc:htm::ShapedArray::from(*self.ecc.out_shape(),self.ecc.population().sums.clone())}
     }
 
     #[text_signature = "(output_neuron_idx)"]

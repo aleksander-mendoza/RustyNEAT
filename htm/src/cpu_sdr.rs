@@ -12,6 +12,7 @@ use serde::{Serialize, Deserialize};
 use crate::vector_field::{VectorField, VectorFieldMul};
 use crate::sdr::SDR;
 use rand::Rng;
+use rayon::iter::{IntoParallelRefMutIterator, IntoParallelRefIterator, ParallelIterator};
 
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Default)]
 pub struct CpuSDR(Vec<Idx>);
@@ -382,6 +383,31 @@ impl CpuSDR {
         let mut highest_voted_neurons: Vec<u32> = n_best.iter().rev().map(|&(an, _)| an).take(n as usize).collect();
         highest_voted_neurons.sort();
         Self::from(highest_voted_neurons)
+    }
+    pub fn rand(cardinality:Idx, size: Idx) -> Self{
+        assert!(cardinality<=size);
+        let mut s= Self::with_capacity(as_usize(cardinality));
+        s.add_unique_random(cardinality,0..size);
+        s
+    }
+    pub fn par_iter_mut(&mut self) -> rayon::slice::IterMut<Idx> {
+        self.0.par_iter_mut()
+    }
+    pub fn par_iter(&self) -> rayon::slice::Iter<Idx> {
+        self.0.par_iter()
+    }
+    pub fn fill_into<D:Copy>(&self, value: D, array: &mut [D]) {
+        for &i in self.as_slice() {
+            array[as_usize(i)] = value
+        }
+    }
+    pub fn parallel_fill_into<D:Copy+Send+Sync>(&self, value: D, array: &mut[D]) {
+        let sums_len = array.len();
+        let sums_ptr = array.as_mut_ptr() as usize;
+        self.par_iter().for_each(|&output_idx| {
+            let sums_slice = unsafe { std::slice::from_raw_parts_mut(sums_ptr as *mut D, sums_len) };
+            sums_slice[as_usize(output_idx)] = value
+        })
     }
     /**Randomly picks some neurons that a present in other SDR but not in self SDR.
     Requires that both SDRs are already normalized.

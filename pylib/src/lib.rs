@@ -113,7 +113,7 @@ pub fn htm(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(vote_conv2d, m)?)?;
     m.add_function(wrap_pyfunction!(vote_conv2d_transpose, m)?)?;
     m.add_class::<CpuSdrDataset>()?;
-    m.add_class::<LinearClassifier>()?;
+    m.add_class::<Occurrences>()?;
     m.add_class::<SubregionIndices>()?;
     m.add_class::<BitsEncoder>()?;
     m.add_class::<CpuBitset>()?;
