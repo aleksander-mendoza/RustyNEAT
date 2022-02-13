@@ -6,7 +6,7 @@
 // use crate::ocl_sdr::OclSDR;
 // use crate::ecc_program::EccProgram;
 // use ndalgebra::buffer::Buffer;
-// use crate::{OclBitset, CpuEccDense, Shape2, Shape3, Shape, VectorFieldOne, CpuEccSparse, EccMachine, SparseOrDense, DenseWeight, CpuEccMachine, EccSepConMachine, EccLayerD};
+// use crate::{OclBitset, CpuEccDense, Shape2, Shape3, Shape, VectorFieldOne, CpuEccSparse, EccMachine, SparseOrDense, DenseWeight, CpuEccMachine, EccSepConMachine, EccLayerD, ConvShape};
 // use ocl::prm::{Uint3, Uint2};
 // use crate::ecc::{as_usize, EccLayer, Idx};
 // use crate::sdr::SDR;
@@ -18,18 +18,8 @@
 //     /**The layout is w[output_idx+input_idx_relative_to_kernel_column*output_volume]
 //     where kernel column has shape [kernel[0],kernel[1],in_channels]*/
 //     w: Buffer<u32>,
-//     // instead of f32 we use u32 but they are equivalent. Just imagine that you divide
-//     // the u32 value by some large constant and the obtain f32. Addition and subtraction factor out
-//     //during division (4u32/1000f32)+(8u32/1000f32) == (4u32+8u32)/1000f32
-//     input_shape: [Idx; 3],
-//     //[height, width, channels]
-//     output_shape: [Idx; 3],
-//     //[height, width, channels]
-//     kernel: [Idx; 2],
-//     //[height, width]
-//     stride: [Idx; 2],
-//     //[height, width]
-//     // pub k: Idx,
+//     shape: ConvShape,
+//     k: Idx,
 //     pub threshold: u32,
 //     pub plasticity: u32,
 //     activity: Buffer<u32>,

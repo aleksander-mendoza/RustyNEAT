@@ -17,7 +17,7 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{VectorFieldOne, Idx, EccLayer, Rand, SDR, EccLayerD, w_idx, as_usize, ConvShape};
+use htm::{VectorFieldOne, Idx, EccLayer, Rand, SDR, EccLayerD, w_idx, as_usize, ConvShape, Shape2};
 use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
@@ -579,6 +579,16 @@ impl CpuEccDense {
         let kernel = arr2(py, &kernel)?;
         let stride = arr2(py, &stride)?;
         Ok(CpuEccDense { ecc: htm::CpuEccDense::new(ConvShape::new(output, kernel, stride, in_channels, out_channels), k, &mut rand::thread_rng()) })
+    }
+    #[staticmethod]
+    #[text_signature = "(input, kernel, stride,in_channels, out_channels)"]
+    pub fn new_in(input: PyObject, kernel: PyObject, stride: PyObject, in_channels: Idx, out_channels: Idx, k: Idx) -> PyResult<Self> {
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        let input = arr2(py, &input)?;
+        let kernel = arr2(py, &kernel)?;
+        let stride = arr2(py, &stride)?;
+        Ok(CpuEccDense { ecc: htm::CpuEccDense::new(ConvShape::new_in(input.add_channels(in_channels), out_channels,kernel, stride), k, &mut rand::thread_rng()) })
     }
     #[text_signature = "(new_stride)"]
     pub fn set_stride(&mut self, new_stride: PyObject) -> PyResult<()> {

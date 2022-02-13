@@ -241,30 +241,71 @@ where $W_j$ is the $j^{th}$ column of $W$. We could think of $p(\boldsymbol{x}|y
 \[
 p(\boldsymbol{x})= \int_y p(\boldsymbol{x}|y) p(y)
 \]
-Most of those coefficients would be very small. We are hoping to approximate $p(\boldsymbol{x})$ with only a finite number of them. We could draw an analogy to data compression algorithms, where we try to ``compress'' $p(\boldsymbol{x})$ by only keeping the $m$ largest eigenvalues and truncating all the rest. The only difference here is that the ``compression'' is loss-less. The probability must sum up to one. If we truncated any of the eigendistributions,  this property would be violated. Instead we can add some of the eigendistributions together. For example a linear combination of $3$ components
+Most of those coefficients would be very small. We are hoping to approximate $p(\boldsymbol{x})$ with only a finite number of them. We could draw an analogy to data compression algorithms, where we try to ``compress'' $p(\boldsymbol{x})$ by only keeping the $m$ largest eigenvalues and truncating all the rest. The only difference here is that the ``compression'' is loss-less. The probability must sum up to one. If we truncated any of the eigendistributions,  this property would be violated. Instead we can reduce the number of used eigendistributions by adding some of them together. 
 \[
-p(\boldsymbol{x}|y_1) p(y_1)+p(\boldsymbol{x}|y_2) p(y_2)+p(\boldsymbol{x}|y_3) p(y_3)
+p(\boldsymbol{x}|y_1) p(y_1)+p(\boldsymbol{x}|y_2) p(y_2) = 
+p(\boldsymbol{x}|y_1\text{ or }y_2) (p(y_1)+p(y_2))
 \]
-could be rewritten using only $2$ components
+If we could know $p(\boldsymbol{x}|y_1\text{ or }y_2)$ exactly, then we would be able to find the exact solution to 
 \[
-p(\boldsymbol{x}|y_1) p(y_1)+p(\boldsymbol{x}|y_2\text{ or }y_3) (p(y_2)+p(y_3))
+\int_y p(\boldsymbol{x}|y) p(y) = p(\boldsymbol{x}| y_1\text{ or }y_2 \text{ or }...)\int_y p(y)= p(\boldsymbol{x}) \cdot 1
 \]
-The ECC networks are not capable of precisely capturing the distribution $p(\boldsymbol{x}|y_2\text{ or }y_3)$, because using a weight matrix $W$ requires independence of all $x$ variables
+and the problem of modelling $p(\boldsymbol{x})$ would become trivial. The task becomes more interesting when we can't represent  $p(\boldsymbol{x}|y_1\text{ or }y_2)$ directly. For example, our implementation of ECC networks represents $p(\boldsymbol{x}|y)$ using a weight matrix $W$, which implies mutual independence of all $x$ variables
 \[
 p(\boldsymbol{x}|y_j) = p(x_1|y_j)p(x_2|y_j)...p(x_n|y_j) = \boldsymbol{x} W_j
 \]
-which is not always true. We can only approximate $p(\boldsymbol{x}|y_2\text{ or }y_3)$
+We can only approximate $p(\boldsymbol{x}|y_1\text{ or }y_2)$
 using the combination
 \[
-p(\boldsymbol{x}|y_2\text{ or }y_3) p(y_2\text{ or }y_3)= p(\boldsymbol{x}|y_2) p(y_2)+p(\boldsymbol{x}|y_3) p(y_3) \approx \boldsymbol{x}W_2p(y_2) + \boldsymbol{x}W_3 p(y_3)
+p(\boldsymbol{x}|y_1\text{ or }y_2) p(y_1\text{ or }y_2)= p(\boldsymbol{x}|y_1) p(y_1)+p(\boldsymbol{x}|y_2) p(y_2) \approx \boldsymbol{x}W_1p(y_1) + \boldsymbol{x}W_2 p(y_2)
 \]
-under the assumption that $p(y_3)$ is a much smaller eigenvalue than $p(y_2)$.
-The above approximation would be an exact equality only in a special case, where the two eigendistributions are congruent (equal up to a constant):
-\[p(\boldsymbol{x},y_3)=C p(\boldsymbol{x},y_2)\]
-In practice it is unlikely that we could find such congruences, but the more similar the two summed distributions are, the more precise our approximation of $p(\boldsymbol{x})$ would be.
-Learning is the matter of clustering the eigendistributions by their similarity and then summing up all the elements within the same cluster to obtain the final approximation. If we had only a finite number of observations $\boldsymbol{x}$, then we could find an optimal solution to this problem.
-A more interesting case is when we attempt to do online learning with possibly infinite stream of new observations. Then we need an iterative algorithm and this is exactly what ECC networks are. 
+under the assumption that $p(y_2)$ is a much smaller eigenvalue than $p(y_1)$.
+The above approximation would be an exact equality only in a special case, where the two eigendistributions are linearly dependent (equal up to some constant $C$):
+\[p(\boldsymbol{x},y_2)=C p(\boldsymbol{x},y_1)\]
+In practice it is unlikely that we could find such equalities, but the more similar the two summed distributions are, the more precise our approximation of $p(\boldsymbol{x}|y_1\text{ or }y_2)$ would be. 
 
+Learning is the matter of clustering the eigendistributions by their similarity and then summing up all the elements within the same cluster to obtain the final approximation. If we have only a finite number of observations $\boldsymbol{x}$, then we can find an optimal solution to this problem by brute-force. Alternatively a more efficient approach, might be to use modified k-means algorithm, which always converges to a local optimum. 
+
+Let us treat $p(\boldsymbol{x}|y_j)=W_j$ as points in space $\mathbb{R}^n$. Let $\mathcal{X} =\{0,1\}^n$  be the set of observations. Every $\boldsymbol{x}$ has some probability $p(\boldsymbol{x})$ and all the other points in $\mathbb{R}^n$ have probability $0$. Define $C(y_j)$ as the cluster of all the $\boldsymbol{x}$ such that
+\[
+\boldsymbol{x} \in C(y_j) \iff  j = \argmax(\boldsymbol{x} W)
+\]
+In other words, $\boldsymbol{x}$ will be assigned to the cluster $C$ of this  $y_j$, which has the highest cosine similarity $\boldsymbol{x}W_j$. (Side note: while in the ``standard'' k-means algorithm, the distance metric between points is euclidean, here we use angular distance. Moreover all the observations $\boldsymbol{x}$ should have approximately the same number of $1$'s so their euclidean norms should be similar and as a result all $\boldsymbol{x}$ will approximately lie on a sphere.  Hence we are working on a $S^n$ manifold embedded in $\mathbb{R}^n$ space.)  The mean $\mu(y_j)$ of cluster is the weighted average of all $\boldsymbol{x}$ in $C(y_j)$.
+\[
+\mu(y_j) = \frac{\sum_{\boldsymbol{x} \in C(y_j)} \boldsymbol{x}p(\boldsymbol{x})}{\sum_{\boldsymbol{x} \in C(y_j)}p(\boldsymbol{x})} = \frac{\sum_{\boldsymbol{x} \in C(y_j)} \boldsymbol{x}p(\boldsymbol{x})}{p(y_j)}
+\]
+K-means clustering works by iteratively recomputing $C(y_j)^{(t)}$ at time-step $t$ for all $j$ and then assigning $\mu(y_j)^{(t)}$ to be the new value of $W_j^{(t+1)}$ at the next time-step.  Let the negation of expected value $-\mathbb{E}(s_k)$ be the loss function. It is computed as
+\[
+\mathbb{E}(s_k) = \sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C(y_j)} \boldsymbol{x}W_j p(\boldsymbol{x})
+\]
+We can prove that $\mathbb{E}(s_k)$ always increases and is bounded, hence the learning converges. The boundedness follows easily from the definition of $W$, whose columns are non-negative and sum up to $1$.   The monotonicity can be proved in two steps. First we show that
+\[
+\mathbb{E}(s_k)^{(t)} = \sum_{j} \sum_{\boldsymbol{x}\in C(y_j)^{(t)}} \boldsymbol{x}W_j^{(t)}p(\boldsymbol{x}) \le \sum_{j} \sum_{\boldsymbol{x}\in C(y_j)^{(t)}} \boldsymbol{x}W_j^{(t+1)}p(\boldsymbol{x})
+\]
+and then
+\[
+\sum_{j} \sum_{\boldsymbol{x}\in C(y_j)^{(t)}} \boldsymbol{x}W_j^{(t+1)}p(\boldsymbol{x}) \le \sum_{j} \sum_{\boldsymbol{x}\in C(y_j)^{(t+1)}} \boldsymbol{x}W_j^{(t+1)}p(\boldsymbol{x}) = \mathbb{E}(s_k)^{(t+1)}
+\]
+The first inequality follows from the definition of $W_j^{(t+1)} = \mu(y_j)^{(t)}$, which is a form of maximum likelihood estimation.
+\[
+\sum_{j} \sum_{\boldsymbol{x}\in C(y_j)^{(t)}} \boldsymbol{x}W_j^{(t)}p(\boldsymbol{x}) \le \sum_{j} \sum_{\boldsymbol{x}\in C(y_j)^{(t)}} \boldsymbol{x}\mu(y_j)^{(t)} p(\boldsymbol{x})
+\]
+The second inequality follows from the fact that $C(y_j)^{(t)}$ will differ from $C(y_j)^{(t+1)}$ only if there exists some $\boldsymbol{x} \in C(y_j)^{(t)}$ such that we could find some different $y_k$ with the property $\boldsymbol{x} W_k \ge \boldsymbol{x} W_j$. Then such $\boldsymbol{x}$ would be moved from $C(y_j)^{(t)}$ to $C(y_k)^{(t+1)}$, but this could only result in the $\mathbb{E}(s_k)^{(t+1)}$ to increase (or stay constant). This concludes the proof.
+
+So far we have shown that learning converges without accounting for $\boldsymbol{a}$ and entropy maximisation. To address this, let us focus on $p(y_j)$ which can be computed as
+\[
+p(y_j) = \sum_{\boldsymbol{x}\in C(y_j)}p(\boldsymbol{x})
+\]
+Let us we modify the definition of $C(y_j)$ to include $\boldsymbol{a}$ 
+\[
+\boldsymbol{x} \in C(y_j) \iff  j = \argmax(\boldsymbol{x} W + a_j)
+\]
+We can show that if $\sum_j a_j = 1$, where $a_j\ge 0$ and $U$ is a uniformly distributed random variable over the range $[0,1]$, then 
+\[
+p(j = \argmax(U + \boldsymbol{a} )) = a_j
+\]
+
+A more interesting case is when we attempt to do online learning with possibly infinite stream of new observations. Then we need an iterative algorithm and this is exactly what ECC networks are. 
 
 As we have established so far, our goal is to find $m$ most significant eigenvalues. It makes little sense to model latent causes $y$ that are significantly less likely than the rest. Hence we perform entropy maximisation using activity vector $\boldsymbol{a}$. The entropy
 \[
@@ -283,6 +324,15 @@ Because we are only interested in capturing the eigendistributions with highest 
 
 One very important property should be noted. Whenever a new observation $\boldsymbol{x}$ is received, we attempt to find the best matching cluster $k=\argmax_j r_j$. If the learned model is optimal, then the expected value $\mathbb{E}(s_k)$ of best-matching $s_k$ is going to be maximised. Empirically it can indeed be confirmed that $\mathbb{E}(s_k)$ always increases and eventually converges on some high value.
 
+
+In the general case, ECC networks are not required to use weight matrix $W$. The dendritic trees of biological neurons might allow for expressing more complex distributions $(\boldsymbol{x}|y)$ where the $x$ variables are not mutually independent. We can generalise and rigorously formalise ECC nets by defining the family $\mathcal{P} \subset \mathcal{X} \rightarrow [0,1]$ of primitive distributions where $\mathcal{X}$ is the set of observations $\boldsymbol{x}$. The conditional distribution $p(\boldsymbol{x},y_j)$ must be an element of $\mathcal{P}$, whereas the marginal distribution $p(\boldsymbol{x})$ could be any distribution function $\mathcal{X} \rightarrow [0,1]$.  We define  $\mathcal{P}$-decomposition of $p(\boldsymbol{x})$ as integral
+\[
+p(\boldsymbol{x})= \int_y p(\boldsymbol{x}|y) p(y)
+\]
+such that
+\[
+\forall_{y\in Y} p(\boldsymbol{x}|y)  \in \mathcal{P} 
+\]
 
 
 
