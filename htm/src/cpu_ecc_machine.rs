@@ -40,6 +40,16 @@ impl<A: SDR, L: EccLayer<A=A>> EccMachine<A, L> {
     pub fn layer_mut(&mut self, idx: usize) -> &mut L {
         &mut self.ecc[idx]
     }
+    pub fn composed_kernel_and_stride(&self) -> ([Idx;2],[Idx;2]) {
+        self.composed_kernel_and_stride_up_to(self.len())
+    }
+    pub fn composed_kernel_and_stride_up_to(&self, idx: usize) -> ([Idx;2],[Idx;2]) {
+        let (mut kernel, mut stride) = ([1;2], [1;2]);
+        for l in self.ecc[..idx].iter() {
+            (stride, kernel) = stride.conv_compose(&kernel, l.shape().stride(), l.shape().kernel());
+        }
+        (kernel,stride)
+    }
     pub fn push(&mut self, top: L) {
         if let Some(l) = self.out_shape() {
             assert_eq!(l, top.shape().in_shape());

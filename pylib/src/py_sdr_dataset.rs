@@ -16,7 +16,7 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{Encoder, EncoderTarget, EncoderRange, Shape, VectorFieldOne, Synapse, SDR, as_usize, Idx, Shape3, ConvShape, ShapedArray};
+use htm::{Encoder, EncoderTarget, EncoderRange, Shape, VectorFieldOne, Synapse, SDR, as_usize, Idx, Shape3, ConvShape, ShapedArray, Shape2};
 use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
@@ -29,7 +29,7 @@ use std::any::{Any, TypeId};
 use pyo3::ffi::PyFloat_Type;
 use rand::{thread_rng, Rng};
 use crate::py_htm::CpuSDR;
-use crate::py_ecc::CpuEccDense;
+use crate::py_ecc::{CpuEccDense, CpuEccMachine};
 use crate::py_ecc_population::{ConvWeights, CpuEccPopulation, WeightSums};
 use crate::util::{impl_save_load};
 
@@ -260,6 +260,15 @@ impl CpuSdrDataset {
     pub fn filter_by_cardinality_threshold(&mut self, min_cardinality:Idx){
         self.sdr.filter_by_cardinality_threshold(min_cardinality)
     }
+    #[text_signature = "(number_of_samples,ecc,log)"]
+    fn train_machine_with_patches(&self, number_of_samples: usize, ecc: &mut CpuEccMachine,log:Option<usize>){
+        if let Some(log) = log {
+            assert!(log>0,"Logging interval must be greater than 0");
+            self.sdr.train_machine_with_patches(number_of_samples,&mut ecc.ecc,&mut rand::thread_rng(),|i|if i % log == 0{println!("Processed samples {}", i+1)})
+        } else{
+            self.sdr.train_machine_with_patches(number_of_samples,&mut ecc.ecc,&mut rand::thread_rng(),|i|{})
+        }
+    }
     #[text_signature = "(number_of_samples,drift,patches_per_sample,ecc,log)"]
     pub fn train_with_patches(&self, number_of_samples: usize, drift:[Idx;2], patches_per_sample:usize, ecc: &mut CpuEccDense,log:Option<usize>) {
         if let Some(log) = log {
@@ -297,9 +306,17 @@ impl CpuSdrDataset {
     fn conv_subregion_indices_with_ecc(&self, ecc:&CpuEccDense, indices: &SubregionIndices) -> Self{
         Self{sdr:self.sdr.conv_subregion_indices_with_ecc(&ecc.ecc,&indices.sdr)}
     }
+    #[text_signature = "(ecc,indices)"]
+    fn conv_subregion_indices_with_machine(&self, ecc:&CpuEccMachine, indices: &SubregionIndices) -> Self{
+        Self{sdr:self.sdr.conv_subregion_indices_with_machine(&ecc.ecc,&indices.sdr)}
+    }
     #[text_signature = "(kernel,stride,indices)"]
     fn conv_subregion_indices_with_ker(&self, kernel:[Idx;2],stride:[Idx;2], indices: &SubregionIndices) -> Self{
         Self{sdr:self.sdr.conv_subregion_indices_with_ker(kernel,stride,&indices.sdr)}
+    }
+    #[text_signature = "(number_of_samples,original_dataset)"]
+    pub fn extend_from_rand_subregions(&mut self, number_of_samples:usize, original: &CpuSdrDataset){
+        self.sdr.extend_from_rand_subregions(number_of_samples,&original.sdr, &mut rand::thread_rng())
     }
     #[text_signature = "(kernel,stride,number_of_samples,original_dataset)"]
     fn extend_from_conv_rand_subregion(&mut self, kernel:[Idx;2],stride:[Idx;2],number_of_samples:usize, original:&CpuSdrDataset) {
@@ -310,6 +327,14 @@ impl CpuSdrDataset {
     fn extend_from_conv_subregion_indices(&mut self, kernel:[Idx;2],stride:[Idx;2],indices:&SubregionIndices, original:&CpuSdrDataset) {
         let conv = ConvShape::new_in(*original.sdr.shape(),1,kernel,stride);
         self.sdr.extend_from_conv_subregion_indices(&conv,&indices.sdr,&original.sdr)
+    }
+    #[text_signature = "(patch_size,number_of_samples)"]
+    fn gen_rand_2d_patches(&self, patch_size:[Idx;2],number_of_samples:usize) -> Self{
+        Self{sdr:self.sdr.gen_rand_2d_patches(patch_size,number_of_samples,&mut rand::thread_rng())}
+    }
+    #[text_signature = "(subregion_size,number_of_samples)"]
+    fn gen_rand_subregions(&self, subregion:[Idx;3],number_of_samples:usize) -> Self{
+        Self{sdr:self.sdr.gen_rand_subregions(subregion,number_of_samples,&mut rand::thread_rng())}
     }
     #[text_signature = "(out_shape,number_of_samples)"]
     fn gen_rand_conv_subregion_indices(&self, out_shape:[Idx;2],number_of_samples:usize) -> SubregionIndices{
@@ -323,6 +348,11 @@ impl CpuSdrDataset {
     fn gen_rand_conv_subregion_indices_with_ecc(&self, ecc:&CpuEccDense,number_of_samples:usize) -> SubregionIndices{
         SubregionIndices{sdr:self.sdr.gen_rand_conv_subregion_indices_with_ecc(&ecc.ecc,number_of_samples,&mut rand::thread_rng())}
     }
+    #[text_signature = "(ecc_machine,number_of_samples)"]
+    fn gen_rand_conv_subregion_indices_with_machine(&self, ecc:&CpuEccMachine,number_of_samples:usize) -> SubregionIndices{
+        SubregionIndices{sdr:self.sdr.gen_rand_conv_subregion_indices_with_machine(&ecc.ecc,number_of_samples,&mut rand::thread_rng())}
+    }
+
     #[text_signature = "(labels,number_of_classes)"]
     fn count_per_label(&self, labels:&PyAny,number_of_classes:usize) -> PyResult<Occurrences>{
         let array = unsafe {
@@ -369,6 +399,10 @@ impl CpuSdrDataset {
     #[text_signature = "(ecc_dense)"]
     fn batch_infer(&self,ecc:&CpuEccDense) -> CpuSdrDataset{
         Self{sdr:self.sdr.batch_infer(&ecc.ecc)}
+    }
+    #[text_signature = "(ecc_machine)"]
+    fn machine_infer(&self,ecc:&mut CpuEccMachine) -> CpuSdrDataset{
+        Self{sdr:self.sdr.machine_infer(&mut ecc.ecc)}
     }
     #[text_signature = "(start,end)"]
     pub fn subdataset(&self,start:usize,end:Option<usize>) -> Self{

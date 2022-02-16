@@ -7,7 +7,7 @@ use crate::vector_field::{VectorField, VectorFieldNum};
 use std::collections::{Bound, HashSet};
 use num_traits::{Num, One, Zero};
 use itertools::Itertools;
-use crate::{CpuSDR, VectorFieldPartialOrd};
+use crate::{CpuSDR, VectorFieldPartialOrd, VectorFieldSub};
 use std::cmp::Ordering;
 use std::cmp::Ordering::{Greater, Less};
 use std::iter::FromIterator;
@@ -112,7 +112,7 @@ pub trait Shape<T: Num + Copy + Debug + PartialOrd, const DIM: usize>: Eq + Part
         let input = self;
         assert!(kernel_size.all_le(input), "Kernel size {:?} is larger than the input shape {:?} ", kernel_size, input);
         let input_sub_kernel = input.sub(kernel_size);
-        assert!(input_sub_kernel.rem(stride).all_eq_scalar(T::zero()), "Convolution stride {:?} does not evenly divide the output shape {:?} ", stride, input);
+        assert!(input_sub_kernel.rem(stride).all_eq_scalar(T::zero()), "Convolution stride {:?} does not evenly divide the input shape {:?}-{:?}={:?} ", stride, input,kernel_size,input_sub_kernel);
         input_sub_kernel.div(stride).add_scalar(T::one())
         //(input-kernel)/stride+1 == output
     }
@@ -333,6 +333,16 @@ mod tests {
 
 pub fn range_contains<T: Copy + PartialOrd + Debug, const DIM: usize>(range: &Range<[T; DIM]>, element: &[T; DIM]) -> bool {
     range.start.all_le(element) && element.all_lt(&range.end)
+}
+
+pub fn range_translate<T: Copy + Num + std::cmp::PartialOrd + std::cmp::Eq + Debug, const DIM: usize>(range: &Range<[T; DIM]>, element: &[T; DIM]) -> Option<T> {
+    if range_contains(range,element){
+        let element_within_range = element.sub(&range.start);
+        let range_size = range.end.sub(&range.start);
+        Some(range_size.idx(element_within_range))
+    }else{
+        None
+    }
 }
 
 pub fn resolve_range<T: Add<Output=T> + Copy + One + Zero + PartialOrd + Debug>(input_size: T, input_range: impl RangeBounds<T>) -> Range<T> {

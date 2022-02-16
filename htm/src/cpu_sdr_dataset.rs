@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter, Debug};
 use ocl::core::{MemInfo, MemInfoResult, BufferRegion, Mem, ArgVal};
 use ndalgebra::buffer::Buffer;
 use crate::ecc_program::EccProgram;
-use crate::{CpuBitset, EncoderTarget, Shape, Idx, as_idx, as_usize, OclSDR, range_contains, VectorFieldSub, VectorFieldPartialOrd, VectorFieldRem, VectorFieldAdd, CpuSDR, ConvShape, CpuEccDense, DenseWeight, ConvWeights, CpuEccPopulation, VectorFieldRng, Shape2, Shape3, VectorFieldOne, EccLayer, from_xyz, from_xy, ShapedArray};
+use crate::{CpuBitset, EncoderTarget, Shape, Idx, as_idx, as_usize, OclSDR, range_contains, VectorFieldSub, VectorFieldPartialOrd, VectorFieldRem, VectorFieldAdd, CpuSDR, ConvShape, CpuEccDense, DenseWeight, ConvWeights, CpuEccPopulation, VectorFieldRng, Shape2, Shape3, VectorFieldOne, EccLayer, from_xyz, from_xy, ShapedArray, CpuEccMachine};
 use std::collections::{HashMap, HashSet};
 use std::borrow::Borrow;
 use serde::{Serialize, Deserialize};
@@ -100,6 +100,11 @@ impl CpuSdrDataset {
         assert_eq!(ecc.out_grid(), &[1, 1], "EccDense should have only a single output column");
         self.conv_subregion_indices_with_ker(*ecc.kernel(), *ecc.stride(), indices)
     }
+    pub fn conv_subregion_indices_with_machine<D: DenseWeight>(&self, ecc: &CpuEccMachine<D>, indices: &SubregionIndices) -> Self {
+        assert_eq!(ecc.out_grid(), Some(&[1, 1]), "EccMachine should have only a single output column");
+        let (k, s) = ecc.composed_kernel_and_stride();
+        self.conv_subregion_indices_with_ker(k, s, indices)
+    }
     pub fn conv_subregion_indices_with_ker(&self, kernel: [Idx; 2], stride: [Idx; 2], indices: &SubregionIndices) -> Self {
         let conv = ConvShape::new_in(self.shape, 1, kernel, stride);
         self.conv_subregion_indices(&conv, indices)
@@ -118,6 +123,16 @@ impl CpuSdrDataset {
         for i in &indices.indices {
             let sdr = &original[as_usize(i.channels())];
             let sdr = sdr.conv_subregion(conv, i.grid());
+            self.push(sdr);
+        }
+    }
+    pub fn extend_from_rand_subregions(&mut self, number_of_samples:usize, original: &CpuSdrDataset,rng: &mut impl Rng) {
+        assert!(!original.is_empty());
+        assert_eq!(self.shape.channels(),original.shape.channels(),"Number of channels doesn't match");
+        assert!(self.shape.grid().all_le(original.shape.grid()),"Patch size is larger than original size");
+        for i in 0..number_of_samples{
+            let sdr = original.rand(rng).unwrap();
+            let sdr = sdr.rand_subregion(original.shape(),self.shape(),rng);
             self.push(sdr);
         }
     }
@@ -157,6 +172,19 @@ impl CpuSdrDataset {
             progress_callback(i);
         }
     }
+    pub fn train_machine_with_patches<D: DenseWeight>(&self, number_of_samples: usize, ecc: &mut CpuEccMachine<D>, rng: &mut impl Rng, progress_callback: impl Fn(usize)) {
+        assert_eq!(ecc.out_grid(), Some(&[1, 1]), "The ecc network should consist of only a single column");
+        assert_eq!(Some(self.shape().channels()), ecc.in_channels(), "Channels don't match");
+        assert_ne!(self.len(), 0, "Dataset is empty");
+        for i in 0..number_of_samples {
+            let idx = rng.gen_range(0..self.len());
+            let sample = &self[idx];
+            let patch = sample.rand_subregion(self.shape(), ecc.in_shape().unwrap(), rng);
+            ecc.run(&patch);
+            ecc.learn();
+            progress_callback(i);
+        }
+    }
     pub fn count(&self) -> Vec<u32> {
         let mut counts = vec![0; as_usize(self.shape().product())];
         for i in &self.data {
@@ -177,6 +205,8 @@ impl CpuSdrDataset {
         for (o_sdr, i_sdr) in outputs.iter().zip(self.iter()) {
             for &o in o_sdr.iter() {
                 for &i in i_sdr.iter() {
+                    assert!(i<iv,"Input idx is {} but input shape {:?} has volume {}",i,self.shape(),iv);
+                    assert!(o<ov,"Output idx is {} but output shape {:?} has volume {}",o,outputs.shape(),ov);
                     let idx = receptive_fields_shape.idx([i, o]);
                     receptive_fields[as_usize(idx)] += 1;
                 }
@@ -190,6 +220,14 @@ impl CpuSdrDataset {
         Self {
             data,
             shape: ecc.output_shape(),
+        }
+    }
+    pub fn machine_infer<T: DenseWeight + Sync + Send>(&self, ecc: &mut CpuEccMachine<T>) -> Self {
+        assert_eq!(Some(self.shape()), ecc.in_shape());
+        let mut data = self.data.iter().map(|s|ecc.infer(s).clone()).collect();
+        Self {
+            data,
+            shape: *ecc.out_shape().unwrap(),
         }
     }
     pub fn batch_infer_and_measure_s_expectation<T: DenseWeight + Sync + Send>(&self, ecc: &CpuEccDense<T>) -> (Self, T, u32) {
@@ -237,6 +275,15 @@ impl CpuSdrDataset {
             in_shape: self.shape,
         }
     }
+    pub fn gen_rand_2d_patches(&self,patch_size:[Idx;2],number_of_samples:usize,rng:&mut impl Rng)->Self{
+        self.gen_rand_subregions(patch_size.add_channels(self.shape.channels()),number_of_samples,rng)
+    }
+    pub fn gen_rand_subregions(&self,subregion:[Idx;3],number_of_samples:usize,rng:&mut impl Rng)->Self{
+        assert!(subregion.all_le(self.shape()),"Patch size is larger than original");
+        let mut d = Self::with_capacity(number_of_samples, subregion);
+        d.extend_from_rand_subregions(number_of_samples,self,rng);
+        d
+    }
     pub fn gen_rand_conv_subregion_indices(&self, out_shape: [Idx; 2], number_of_samples: usize, rng: &mut impl Rng) -> SubregionIndices {
         SubregionIndices::gen_rand_conv_subregion_indices(self.len(), out_shape, number_of_samples, rng)
     }
@@ -247,6 +294,11 @@ impl CpuSdrDataset {
         assert_eq!(ecc.out_grid(), &[1, 1], "EccDense should have only single output column");
         self.gen_rand_conv_subregion_indices_with_ker(ecc.kernel(), ecc.stride(), number_of_samples, rng)
     }
+    pub fn gen_rand_conv_subregion_indices_with_machine<D: DenseWeight>(&self, ecc: &CpuEccMachine<D>, number_of_samples: usize, rng: &mut impl Rng) -> SubregionIndices {
+        assert_eq!(ecc.out_grid(), Some(&[1, 1]), "EccMachine should have only single output column");
+        let (k, s) = ecc.composed_kernel_and_stride();
+        self.gen_rand_conv_subregion_indices_with_ker(&k, &s, number_of_samples, rng)
+    }
     // pub fn fit_naive_bayes<T: Into<usize>>(&self, labels: &[T]) -> NaiveBayesClassifier {
     //
     // }
@@ -255,10 +307,10 @@ impl CpuSdrDataset {
         occurrences.compute_class_probs();
         if invariant_to_column {
             occurrences.aggregate_invariant_to_column();
-            #[cfg(debug_assertions)]{
-                let probs =occurrences.class_prob.clone();
+            #[cfg(debug_assertions)] {
+                let probs = occurrences.class_prob.clone();
                 occurrences.compute_class_probs();
-                debug_assert_eq!(probs,occurrences.class_prob);
+                debug_assert_eq!(probs, occurrences.class_prob);
             }
         }
         occurrences.normalise_wrt_labels();
@@ -326,7 +378,7 @@ impl Occurrences {
             *prob = (0..v).map(|i| occurrences[Self::prob_idx_(i, v, lbl)]).sum();
         }
     }
-    pub fn class_prob(&self) -> &[f32]{
+    pub fn class_prob(&self) -> &[f32] {
         &self.class_prob
     }
     pub fn normalise_class_probs(&mut self) {
@@ -337,7 +389,7 @@ impl Occurrences {
         self.compute_class_sums();
         self.normalise_class_probs();
     }
-    pub fn sum_over_labels(&self,input_idx:usize)->f32{
+    pub fn sum_over_labels(&self, input_idx: usize) -> f32 {
         (0..self.num_classes).map(|lbl| self.prob(input_idx, lbl)).sum()
     }
     pub fn normalise_wrt_labels(&mut self) {
@@ -345,7 +397,6 @@ impl Occurrences {
             let s: f32 = self.sum_over_labels(i);
             (0..self.num_classes).for_each(|lbl| *self.prob_mut(i, lbl) /= s)
         }
-
     }
 
     /** This can be used to make all columns vote on the class, but each column does so
@@ -382,7 +433,7 @@ impl Occurrences {
         debug_assert!(label < self.num_classes);
         Self::prob_idx_(input_idx, self.volume, label)
     }
-    pub fn clear_class_prob(&mut self){
+    pub fn clear_class_prob(&mut self) {
         self.class_prob.fill(0.)
     }
     pub fn prob(&self, input_idx: usize, label: usize) -> f32 {
@@ -446,7 +497,7 @@ impl Occurrences {
                 for y in 0..self.shape().height() {
                     for lbl in 0..as_idx(self.num_classes) {
                         let i = as_usize(votes_shape.idx(from_xyz(x, y, lbl)));
-                        debug_assert_eq!(votes[i],self.class_prob[as_usize(lbl)]);
+                        debug_assert_eq!(votes[i], self.class_prob[as_usize(lbl)]);
                     }
                 }
             }
@@ -459,24 +510,24 @@ impl Occurrences {
                 votes[as_usize(votes_shape.idx(pos))] += prob;
             }
         }
-        ShapedArray::from(votes_shape,votes)
+        ShapedArray::from(votes_shape, votes)
     }
-    pub fn classify_per_column(&self, sdr: &CpuSDR,min_deviation_from_mean:f32) -> ShapedArray<isize> {
+    pub fn classify_per_column(&self, sdr: &CpuSDR, min_deviation_from_mean: f32) -> ShapedArray<isize> {
         let area = as_usize(self.shape().grid().product());
         let votes = self.collect_votes_per_column_and_lbl(sdr);
         let votes = (0..area).map(|i| {
-            self.get_vote(i,&votes,min_deviation_from_mean).map(|a|a as isize).unwrap_or(-1)
+            self.get_vote(i, &votes, min_deviation_from_mean).map(|a| a as isize).unwrap_or(-1)
         }).collect();
-        ShapedArray::from(self.shape().grid().add_channels(1),votes)
+        ShapedArray::from(self.shape().grid().add_channels(1), votes)
     }
-    fn get_vote(&self, i:usize, votes:&ShapedArray<f32>,min_deviation_from_mean:f32)->Option<usize>{
+    fn get_vote(&self, i: usize, votes: &ShapedArray<f32>, min_deviation_from_mean: f32) -> Option<usize> {
         let offset = i * self.num_classes;
         let slice = &votes[offset..offset + self.num_classes];
-        let (max_idx,max_score) = slice.iter().cloned().enumerate().max_by(|(_,a),(_,b)|f32_cmp_naive(a,b)).unwrap();
-        if min_deviation_from_mean>0. {
+        let (max_idx, max_score) = slice.iter().cloned().enumerate().max_by(|(_, a), (_, b)| f32_cmp_naive(a, b)).unwrap();
+        if min_deviation_from_mean > 0. {
             let mean = slice.iter().sum::<f32>() / self.num_classes as f32;
-            let deviation = (mean-max_score).abs();
-            if deviation<min_deviation_from_mean{
+            let deviation = (mean - max_score).abs();
+            if deviation < min_deviation_from_mean {
                 return None;
             }
         }
@@ -486,18 +537,18 @@ impl Occurrences {
     Then we might want to ignore the vote of such column (if all scores are 0 then the max is 0 and the vote is always cast on the first class by default).
     Use min_deviation_from_mean to set a minimum threshold by which scores must deviate from the mean in order to count as a vote.
     (so if all scores are 0 then mean is 0 and 0-0=0, so any min_deviation_from_mean>0 will filter out such scenario)*/
-    pub fn classify_and_count_votes_per_lbl(&self, sdr: &CpuSDR, min_deviation_from_mean:f32) -> Vec<u32> {
+    pub fn classify_and_count_votes_per_lbl(&self, sdr: &CpuSDR, min_deviation_from_mean: f32) -> Vec<u32> {
         let area = as_usize(self.shape().grid().product());
         let votes = self.collect_votes_per_column_and_lbl(sdr);
         let mut votes_per_lbl = vec![0; self.num_classes];
         for i in 0..area {
-            if let Some(max_idx) = self.get_vote(i,&votes,min_deviation_from_mean) {
+            if let Some(max_idx) = self.get_vote(i, &votes, min_deviation_from_mean) {
                 votes_per_lbl[max_idx] += 1;
             }
         }
         votes_per_lbl
     }
-    pub fn classify_with_most_votes(&self, sdr: &CpuSDR, min_deviation_from_mean:f32) -> usize {
+    pub fn classify_with_most_votes(&self, sdr: &CpuSDR, min_deviation_from_mean: f32) -> usize {
         self.classify_and_count_votes_per_lbl(sdr, min_deviation_from_mean).iter().position_max().unwrap()
     }
     pub fn classify(&self, sdr: &CpuSDR) -> usize {
@@ -507,7 +558,7 @@ impl Occurrences {
         assert_eq!(sdr.shape(), self.shape());
         sdr.data.par_iter().map(|sdr| self.classify(sdr) as u32).collect()
     }
-    pub fn batch_classify_invariant_to_column(&self, sdr: &CpuSdrDataset, min_deviation_from_mean:f32) -> Vec<u32> {
+    pub fn batch_classify_invariant_to_column(&self, sdr: &CpuSdrDataset, min_deviation_from_mean: f32) -> Vec<u32> {
         assert_eq!(sdr.shape(), self.shape());
         sdr.data.par_iter().map(|sdr| as_idx(self.classify_with_most_votes(sdr, min_deviation_from_mean))).collect()
     }
@@ -542,11 +593,11 @@ mod tests {
             let i = random::<usize>() % d.len();
             let sdr = &d[i];
             let m = 0.01;
-            let lbl = n.classify_with_most_votes(sdr,m);
+            let lbl = n.classify_with_most_votes(sdr, m);
             println!("{}:{:?}, {} == {} -> {:?} \n {:?} \n {:?}", i, sdr, lbl, lbls[i],
-                     n.classify_and_count_votes_per_lbl(sdr,m),
+                     n.classify_and_count_votes_per_lbl(sdr, m),
                      n.collect_votes_per_column_and_lbl(sdr),
-                     n.classify_per_column(sdr,m));
+                     n.classify_per_column(sdr, m));
             if lbl != as_usize(lbls[i]) {
                 incorrent += 1
             }

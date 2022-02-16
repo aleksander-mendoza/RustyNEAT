@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter, Debug};
 use ocl::core::{MemInfo, MemInfoResult, BufferRegion, Mem, ArgVal};
 use ndalgebra::buffer::Buffer;
 use crate::ecc_program::EccProgram;
-use crate::{CpuBitset, EncoderTarget, Shape, Idx, as_idx, as_usize, OclSDR, range_contains, VectorFieldSub, VectorFieldPartialOrd, VectorFieldRem, VectorFieldAdd, ConvShape, Shape3, Shape2, VectorFieldRng};
+use crate::{CpuBitset, EncoderTarget, Shape, Idx, as_idx, as_usize, OclSDR, range_contains, VectorFieldSub, VectorFieldPartialOrd, VectorFieldRem, VectorFieldAdd, ConvShape, Shape3, Shape2, VectorFieldRng, range_translate};
 use std::collections::{HashMap, HashSet};
 use std::borrow::Borrow;
 use serde::{Serialize, Deserialize};
@@ -426,10 +426,10 @@ impl CpuSDR {
     }
 
     pub fn subregion(&self, total_shape:&[Idx;3], subregion_range:&Range<[Idx;3]>)->CpuSDR{
-        CpuSDR(self.iter().cloned().filter(|&i|range_contains(subregion_range,&total_shape.pos(i))).collect())
+        CpuSDR(self.iter().cloned().filter_map(|i|range_translate(subregion_range,&total_shape.pos(i))).collect())
     }
     pub fn subregion2d(&self, total_shape:&[Idx;3], subregion_range:&Range<[Idx;2]>)->CpuSDR{
-        CpuSDR(self.iter().cloned().filter(|&i|range_contains(subregion_range,total_shape.pos(i).grid())).collect())
+        CpuSDR(self.iter().cloned().filter_map(|i|range_translate(subregion_range,total_shape.pos(i).grid())).collect())
     }
     pub fn conv_rand_subregion(&self, shape:&ConvShape, rng:&mut impl Rng)->CpuSDR{
         self.conv_subregion(shape,&shape.out_grid().rand_vec(rng))

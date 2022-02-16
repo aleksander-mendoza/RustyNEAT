@@ -41,7 +41,7 @@ pub struct CpuEccDense {
 }
 
 ///
-/// CpuEccMachine(output: list[int], kernels: list[list[int]], strides: list[list[int]], channels: list[int], k: list[int], connections_per_output: list[int])
+/// CpuEccMachine(output: list[int], kernels: list[list[int]], strides: list[list[int]], channels: list[int], k: list[int])
 ///
 ///
 #[pyclass]
@@ -68,6 +68,11 @@ impl PySequenceProtocol for CpuEccDense {
 
 #[pymethods]
 impl CpuEccMachine {
+    #[text_signature = "(up_to_layer)"]
+    pub fn composed_kernel_and_stride(&self, idx: Option<usize>) -> ([Idx; 2], [Idx; 2]) {
+        let idx = idx.unwrap_or(self.ecc.len());
+        self.ecc.composed_kernel_and_stride_up_to(idx)
+    }
     #[getter]
     pub fn len(&self) -> usize {
         self.ecc.len()
