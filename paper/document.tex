@@ -34,17 +34,18 @@
 
 
 \begin{abstract}
-We present a new model of neural networks that was inspired by an attempt to combine predictive coding and variational inference with sparse population coding and neural assembly calculus. This new approach can be used to learn extremely sparse and robust multi-layer networks without backpropagation or any error feedback whatsoever. It fits well with all biological constraints and leads to an emergence of receptive fields similar to those observed in neuroscience. It can be used to design biologically plausible convolutional networks without weight sharing. They are capable of extracting interdependent hierarchies of features, broadly similar to capsule networks proposed by Geoffrey Hinton.
+We present a new model of neural networks that was inspired by an attempt to combine predictive coding and variational inference with sparse population coding and neural assembly calculus. This new approach can be used to learn extremely sparse and robust multi-layer networks without backpropagation or any error feedback whatsoever. It fits well with all biological constraints and leads to an emergence of receptive fields similar to those observed in neuroscience. It can be used to design biologically plausible convolutional networks without weight sharing. They are capable of extracting interdependent hierarchies of features, broadly similar to capsule networks proposed by Geoffrey Hinton. The networks learn from very little data and do not overfit. Due to high sparsity, their training and evaluation are extremely efficient (model with a few million weights can be trained efficiently even on a single thread). 
+Just like human brain, our networks take advantage of motor feedback during learning in order to build semantic models of the data. This could potentially allow for building efficient reinforcement learning agents in the future. Thanks to immense sparsity, these networks have the potential of solving catastrophic forgetting problem with help of pattern separation (although empirical experiments are yet to be done). Our model does not fit functions like deep nets, but instead builds semantic graphs similar to hippocampus, which in theory could be used to infer group actions on data and allow for few-shot reinforcement learning (although empirical experiments are yet to be done).
 \end{abstract} 
 
 
+\tableofcontents 
+
 \section{Introduction}
 
+Deep learning had its origins in an attempt to model biological neurons. Belief networks, Boltzmann and Helmholtz machines tried to capture the essence of neural computations using graphical models. A biological neuron could be interpreted as a node $f$ in some graph. Such nodes have binary values. When a neuron fires, the node holds value of $f=1$, otherwise it's $f=0$. Perceptron, predictive coding and variational inference work on a higher level of abstraction and instead of modelling individual spikes, they focus on estimating their frequency, also known as firing rate. ECC networks operate on sparse populations and individual spikes.
 
-Deep learning had its origins in an attempt to model biological neurons. Belief networks, Boltzmann and Helmholtz machines tried to capture the essence of neural computations using graphical models. A biological neuron could be interpreted as a node $f$ in some graph. Such nodes have binary values. When a neuron fires, the node holds value of $f=1$, otherwise it's $f=0$. Predictive coding and variational inference work on a higher level of abstraction and instead of modelling individual spikes, they focus on estimating the expectation $
-\mathbb{E}(f)$, also known as firing rate. ECC networks operate on sparse populations and individual spikes.
 
-\section{Exclusive coincidence classes}
 
 Consider a binary vector $\boldsymbol{x}$. Every single bit $x_i$ represents certain observation, such as for example a pixel ($0=$white, $1=$black). Every possible configuration of bits in $\boldsymbol{x}$ has certain probability $p(\boldsymbol{x})$. Individual bits are often not independent of each other. Learning the joint probability $p(\boldsymbol{x})$ is challenging and often inefficient. That's why restricted Boltzmann machines are more practical than their unrestricted counterparts. Throughout the history of deep learning, the common trick was to assume that the bits independent anyway. Then consecutive deeper layers could reconstruct the interactions between inputs. Nonetheless, within the same layer of the neural network, the value of every neuron is computed independently of the others. 
 
@@ -66,6 +67,9 @@ presents a comparison of all the existing types of graphical models. Boltzmann m
 	\caption{Illustration presenting various families of graphical models. }
 	\label{fig:graphical_models}
 \end{figure} \\
+
+\section{Exclusive coincidence classes}
+
 Figure \ref{fig:ecc_graphical_models} presents an example of  ECC. 
 \begin{figure}[!htbp]
 	\centering
@@ -134,7 +138,7 @@ The hebbian rule above can only increment the weights. In order to prevent them 
 \[
 w_{ik} := \frac{w_{ik}}{ \sum_{ï} w_{ïk}} 
 \]
-As a result, the connections $w_{ik}$ that rarely drive activity of $y_k$ will gradually vanish. In the real brain, neurons cannot grow their dendrites indefinitely. Physical limits prevent them from making too many connections. Building a synapse to new input may come at the cost of losing other, less useful ones. Similarly, there is a limit to the neuron's activity. An individual neuron cannot fire all the time. We implement this limitation using the vector $\boldsymbol{a}$. Each neuron $y_j$ has a corresponding activity value $a_j$.
+The weights within a column must sum up to $1$. As a result, the connections $w_{ik}$ that rarely drive activity of $y_k$ will gradually vanish. In the real brain, neurons cannot grow their dendrites indefinitely. Physical limits prevent them from making too many connections. Building a synapse to new input may come at the cost of losing other, less useful ones. Similarly, there is a limit to the neuron's activity. An individual neuron cannot fire all the time. We implement this limitation using the vector $\boldsymbol{a}$. Each neuron $y_j$ has a corresponding activity value $a_j$.
 When $y_j$ fires, we decrement $a_j$ by a constant factor.
 \[
 a_j := a_j - \alpha \text{ if } y_j \text{ fired}
@@ -217,31 +221,117 @@ Suppose that observations $\boldsymbol{x}$ are vectors of $n$ bits. In order to 
 The weights $W$ are sparse and initialised randomly. They do not need to be trained, because we do not intend to detect any coincidences (the plasticity $\epsilon$ is $0$). 
 \fi
 
-\section{Comparison of ECC and Bayesian/variational models}
+\section{Fundamental theory}
 
 Learning the joint probability $p(\boldsymbol{x})$ is a daunting task. Bayesian models, belief nets and deep neural networks build some graphical model and then factor out this distribution as
 \[
 p(\boldsymbol{x})=\prod_{y} p(\boldsymbol{y}|\pi(y))
 \]
-where $\pi(y)$ denotes parent/neighbours of $y$ in the graph. The convergent layers in ECC networks take a different approach and they model 
+where $\pi(y)$ denotes parent/neighbours of $y$ in the graph. ECC networks take a different approach: 
 \[
 p(\boldsymbol{x})=\sum_{j} p(\boldsymbol{x},y_j)
 \]
-We could say that the two approaches are ``orthogonal'' to each other.  While Bayesian and variational inference rely on independence of certain nodes $p(\boldsymbol{x})=p(x_1|\boldsymbol{y})p(x_2|\boldsymbol{y})...p(x_n|\boldsymbol{y})$, ECC try to partition $p(\boldsymbol{x})$ into mutually exclusive ``coincidence classes''
+We could say that the two are ``orthogonal'' to each other in the sense that one is a multiplicative and the other is an additive factorization of $p(\boldsymbol{x})$.  While Bayesian and variational inference rely on independence of certain nodes $p(\boldsymbol{x})=p(x_1|\boldsymbol{y})p(x_2|\boldsymbol{y})...p(x_n|\boldsymbol{y})$, ECC try to partition $p(\boldsymbol{x})$ into mutually exclusive ``coincidence classes''
 $p(\boldsymbol{x})=p(\boldsymbol{x},y_1)+p(\boldsymbol{x},y_2)+...+p(\boldsymbol{x},y_m)$. It could be seen as a linear combination of joint probability distributions
 \[
 p(\boldsymbol{x})=\sum_{j} p(\boldsymbol{x}|y_j) p(y_j)
 \]
-with the constraint that all coefficients $p(y_j)$ sum up to one $\sum_{j} p(y_j)=1$.
-The ECC networks attempt to approximate this using the matrix $W$
+where $p(\boldsymbol{x}|y_j)$ are vectors and $p(y_j)$ are scalars with the constraint that all  $p(y_j)$ sum up to one $\sum_{j} p(y_j)=1$. The conditional probability $p(\boldsymbol{x}|y_j)$  is not modelled directly. Instead, it is possible to turn an ECC network ``upside-down'' and use it as a generative model. 
+\begin{lstlisting}
+def generate(c, W, j):
+    x = [0, 0, ... , 0] // n zeroes
+    repeat c times:
+        i = random(W[:, j])
+        x[i] = 1
+    return x
+\end{lstlisting}
+The \texttt{random} function chooses a number between $1$ and $n$ according to distribution provided by $W_j$ ($j^{th}$ column of $W$). The \texttt{generate} function can be used to produce observation $\boldsymbol{x}$ with cardinality $\lVert\boldsymbol{x} \rVert^2=\boldsymbol{x}\boldsymbol{x}^{T}$ (number of ones) less than or equal to $c$.  The probability of generating $\boldsymbol{x}$ in exactly $c=\lVert\boldsymbol{x} \rVert^2$ steps is given by 
+ \[
+ p(\boldsymbol{x}|y_j, \lVert\boldsymbol{x} \rVert^2 = c) = \frac{c!}{n^c}\prod_{x_i\in\boldsymbol{x}} w_{ij}
+ \]
+The weights represent probability $w_{ij} = p(x_i \in \boldsymbol{x}| y_j)$, which is not to be confused with $p(x_i|y_j)=\mathbb{E}(x_i|y_j)$. Instead $p(x_i \in \boldsymbol{x}| y_j)$ is defined as
+\begin{gather*}
+\sum_{i=1}^{n} p(x_i \in \boldsymbol{x}| y_j) = 1 \\
+p(x_i \in \boldsymbol{x}| y_j) =
+\frac{\sum_{\boldsymbol{x}\in\{0,1\}^n}x_i  p(\boldsymbol{x}|y_j) }{\sum_{ï=1}^{n} \sum_{\boldsymbol{x}\in\{0,1\}^n}    x_{ï}  p(\boldsymbol{x}|y_j) } = \frac{\mathbb{E}(x_i|y_j)}{\sum_{ï=1}^{n} \mathbb{E}(x_{ï}|y_j)} =  \frac{p(x_i|y_j)}{\sum_{ï=1}^{n} p(x_{ï}|y_j)} 
+\end{gather*}
+Therefore
 \[
-p(\boldsymbol{x})\approx \sum_{j} W_j p(y_j)
+W_j = \frac{1}{d}\mathbb{E}(\boldsymbol{x}|y_j), \text{ where }d=\mathbb{E}(\boldsymbol{x}|y_j)\boldsymbol{1}^{T} 
 \]
-where $W_j$ is the $j^{th}$ column of $W$. We could think of $p(\boldsymbol{x}|y_j)$ as ``eigendistributions''. Then ECC networks learn by performing ``eigendecomposition'' of $p(\boldsymbol{x})$. The challenge here lies in the fact that such eigendecomposition of joint distributions is an ill-defined problem. There might exist infinitely many coefficients (summed under Lebesgue integral)
+ the column $W_j$ is a normalised expectation. It should not be confused with the probability $p(\boldsymbol{x}|y_j)$
+ \begin{gather*} 
+p(\boldsymbol{x}|y_j) = p(\boldsymbol{x}|y_j,c<\infty) = \sum_{c=0}^{\infty} p(c) p(\boldsymbol{x}|y_j,c)
+ \end{gather*}
+where $p(\boldsymbol{x}|y_j,c)$ term has the following form
+\[
+p(\boldsymbol{x}|y_j,c) = N(\lVert\boldsymbol{x} \rVert^2 ,y_j,c)\big(\sum_{x_i\in\boldsymbol{x}} w_{ij}\big)^{ c - \lVert\boldsymbol{x} \rVert^2  }\prod_{x_i\in\boldsymbol{x}} w_{ij}
+\]
+where $N(\lVert\boldsymbol{x} \rVert^2 ,y_j,c)$ is some combinatorial coefficient that depends only on cardinality of $\boldsymbol{x}$ but not its contents. The inner product  $\boldsymbol{x}W_j$ gives us the probability of choosing any bit from $\boldsymbol{x}$
+\[
+\boldsymbol{x}W_j = \sum_{x_i\in\boldsymbol{x}} w_{ij}
+\]
+Let $\boldsymbol{x}_1, \boldsymbol{x}_2$ be two binary vectors, then $\boldsymbol{x}_1 \subset \boldsymbol{x}_2$ holds if $x_i\in\boldsymbol{x}_1$ implies $x_i\in\boldsymbol{x}_2$. The probability of generating a subset of $\boldsymbol{x}_2$ is given by
+\[
+p(\boldsymbol{x}_1 \subset \boldsymbol{x}_2|y_j,c) = (\boldsymbol{x}_2W_j)^c
+\]
+Let $\alpha$ be the probability of halting the generation process. Then 
+\begin{gather*}
+p(\boldsymbol{x}_1 \subset \boldsymbol{x}_2|y_j,c<\infty) = \alpha + (1-\alpha)\boldsymbol{x}_2W_j p(\boldsymbol{x}_1 \subset \boldsymbol{x}_2|y_j,c<\infty) \\
+p(\boldsymbol{x}_1 \subset \boldsymbol{x}_2|y_j,c<\infty)(1-(1-\alpha)\boldsymbol{x}_2W_j ) = \alpha \\
+p(\boldsymbol{x}_1 \subset \boldsymbol{x}_2|y_j,c<\infty) = \frac{\alpha}{1-(1-\alpha)\boldsymbol{x}_2W_j } \\
+\end{gather*}
+
+\section{Universal approximation}
+
+ECC networks can approximate any $p(\boldsymbol{x})$ with only two layers. The first layer contains $2^n$ hidden neurons $\boldsymbol{y}$, one for every possible binary vector $\{0,1\}^n$. For every $\boldsymbol{x} \in \{0,1\}^n$, there exists $y_j$ such that the weights $W_j$ are uniformly distributed for all $x_i \in \boldsymbol{x}$ and zero everywhere else. The second layer $\boldsymbol{z}$ takes input from $\boldsymbol{y}$ and produces a single output $\boldsymbol{z}=[z_1]$. For every $y_j$ there exists a single weight to $z_1$ whose value determines the probability $p(y_j)$. 
+ 
+The probability $p(\boldsymbol{x})$ will be correctly approximated if we can show that the ECC network generates samples using the same distribution. The \texttt{generate} function expects $j$ as one of its parameters. We can choose it using the second layer and then run \texttt{generate(c,W,j)} for some sufficiently large number $c=\infty$. This will almost surely result in producing  $\boldsymbol{x}$ such that $x_i\in \boldsymbol{x}$ for all $W_{ij}>0$. End of proof. 
+
+There are several important remarks to be made. Modelling $p(\boldsymbol{x})$ using $2^n$ hidden neurons is not efficient. By introducing another layer $\boldsymbol{z}$ we could approximate one $z_h$ using a combination of  simpler ones from an intermediate layer $\boldsymbol{y}$.
+\[
+p(\boldsymbol{x}|z_h) = \sum_{j} p(y_j|z_h) p(\boldsymbol{x}|y_j)
+\] 
+The probability $p(y_j|z_h)$ is not represented directly. The weights of connections between $\boldsymbol{y}$ and $\boldsymbol{z}$ only encode the probability $p(y_j\in \boldsymbol{y}|z_h)$, which is defined analogically as before. 
+
+The \texttt{generate} function can be generalised to much deeper multi-layer architectures as follows
+\begin{lstlisting}
+// W_array contains W matrices of consecutive layers.
+// The order is reverse (deepest layer comes first)
+def generate_deep(c, W_array, j):
+    x = [0, 0, ... , 0] // n zeroes
+    repeat c times:
+        i = j
+        for W in W_array
+            i = random(W[:, i])
+        x[i] = 1
+    return x
+\end{lstlisting}
+This procedure will iteratively propagate the activation from top to bottom. It models the following expectation
+\[
+p(x_i\in \boldsymbol{x}|z_h) = \sum_{j} p(y_j|z_h) p(x_i \in \boldsymbol{x}|y_j)
+\]
+\[
+\mathbb{E}(\boldsymbol{x}|z_h) = \sum_{j} p(y_j\in \boldsymbol{y}|z_h) \mathbb{E}(\boldsymbol{x}|y_j)
+\] 
+
+The key observation here is that the $j$ argument is still necessary. This means that the user still needs to somehow decide which hidden neuron to sample.
+
+ 
+
+
+
+
+\section{Linear probability spaces and eigendistributions}
+
+ECC networks learn by decomposing the probability $p(\boldsymbol{x})$ into its ``principal components''.   In the general case consider  $\mathcal{P} \subset \mathcal{X} \rightarrow [0,1]$ to be some set of distributions where $\mathcal{X}$ is the set of observations $\boldsymbol{x}$. The conditional distribution $p(\boldsymbol{x},y_j)$ must be an element of $\mathcal{P}$. The marginal distribution $p(\boldsymbol{x})$ is a member of probability space generated by $\mathcal{P}$ if it can be represented as a linear combination of its elements.
+
+
+The ECC networks attempt to approximate $p(\boldsymbol{x}|y_j)$  using the matrix $W$. The challenge here lies in the fact that such eigendecomposition of joint distributions is an ill-defined problem. There might exist infinitely many coefficients (summed under Lebesgue integral)
 \[
 p(\boldsymbol{x})= \int_y p(\boldsymbol{x}|y) p(y)
 \]
-Most of those coefficients would be very small. We are hoping to approximate $p(\boldsymbol{x})$ with only a finite number of them. We could draw an analogy to data compression algorithms, where we try to ``compress'' $p(\boldsymbol{x})$ by only keeping the $m$ largest eigenvalues and truncating all the rest. The only difference here is that the ``compression'' is loss-less. The probability must sum up to one. If we truncated any of the eigendistributions,  this property would be violated. Instead we can reduce the number of used eigendistributions by adding some of them together. 
+Most of those coefficients would be very small. We are hoping to approximate $p(\boldsymbol{x})$ with only a finite number of them. We could draw an analogy to data compression algorithms, where we try to ``compress'' $p(\boldsymbol{x})$ by only keeping the $m$ largest eigenvalues and truncating all the rest. The only difference here is that the probabilities must sum up to one and if we truncated any of the eigendistributions,  this would be violated. Instead we can reduce the number of used eigendistributions by adding some of them together. 
 \[
 p(\boldsymbol{x}|y_1) p(y_1)+p(\boldsymbol{x}|y_2) p(y_2) = 
 p(\boldsymbol{x}|y_1\text{ or }y_2) (p(y_1)+p(y_2))
@@ -260,336 +350,214 @@ using the combination
 p(\boldsymbol{x}|y_1\text{ or }y_2) p(y_1\text{ or }y_2)= p(\boldsymbol{x}|y_1) p(y_1)+p(\boldsymbol{x}|y_2) p(y_2) \approx \boldsymbol{x}W_1p(y_1) + \boldsymbol{x}W_2 p(y_2)
 \]
 under the assumption that $p(y_2)$ is a much smaller eigenvalue than $p(y_1)$.
-The above approximation would be an exact equality only in a special case, where the two eigendistributions are linearly dependent (equal up to some constant $C$):
-\[p(\boldsymbol{x},y_2)=C p(\boldsymbol{x},y_1)\]
+The above approximation would be an exact equality only in a special case, where the two eigendistributions are linearly dependent (equal up to some constant $c$):
+\[p(\boldsymbol{x},y_2)=c p(\boldsymbol{x},y_1)\]
 In practice it is unlikely that we could find such equalities, but the more similar the two summed distributions are, the more precise our approximation of $p(\boldsymbol{x}|y_1\text{ or }y_2)$ would be. 
 
 Learning is the matter of clustering the eigendistributions by their similarity and then summing up all the elements within the same cluster to obtain the final approximation. If we have only a finite number of observations $\boldsymbol{x}$, then we can find an optimal solution to this problem by brute-force. Alternatively a more efficient approach, might be to use modified k-means algorithm, which always converges to a local optimum. 
 
-Let us treat $p(\boldsymbol{x}|y_j)=W_j$ as points in space $\mathbb{R}^n$. Let $\mathcal{X} =\{0,1\}^n$  be the set of observations. Every $\boldsymbol{x}$ has some probability $p(\boldsymbol{x})$ and all the other points in $\mathbb{R}^n$ have probability $0$. Define $C(y_j)$ as the cluster of all the $\boldsymbol{x}$ such that
+\section{Convergence proof}
+
+Let us treat $W_j$ as points in space $\mathbb{R}^n$. Let $\{0,1\}^n$  be the set of observations. Every $\boldsymbol{x}\in \{0,1\}^n$ has some probability $p(\boldsymbol{x})$ and all the other points in $\mathbb{R}^n$ have probability $0$. We may not know the exact $p(\boldsymbol{x})$ but we can approximate it using empirical distribution. Define $C(y_j)$ as the cluster of all the $\boldsymbol{x}$ such that
 \[
-\boldsymbol{x} \in C(y_j) \iff  j = \argmax(\boldsymbol{x} W)
+ C(y_j) = \{\boldsymbol{x} :  j = \argmax(\boldsymbol{x} W) \} 
 \]
-In other words, $\boldsymbol{x}$ will be assigned to the cluster $C$ of this  $y_j$, which has the highest cosine similarity $\boldsymbol{x}W_j$. (Side note: while in the ``standard'' k-means algorithm, the distance metric between points is euclidean, here we use angular distance. Moreover all the observations $\boldsymbol{x}$ should have approximately the same number of $1$'s so their euclidean norms should be similar and as a result all $\boldsymbol{x}$ will approximately lie on a sphere.  Hence we are working on a $S^n$ manifold embedded in $\mathbb{R}^n$ space.)  The mean $\mu(y_j)$ of cluster is the weighted average of all $\boldsymbol{x}$ in $C(y_j)$.
+In other words, $\boldsymbol{x}$ will be assigned to the cluster $C$ of this  $y_j$, which has the highest cosine similarity $\boldsymbol{x}W_j$. (Side note: while in the ``standard'' k-means algorithm, the distance metric between points is euclidean, here we use angular distance. Moreover all the observations $\boldsymbol{x}$ should have approximately the same number of $1$'s so their euclidean norms should be similar and as a result all $\boldsymbol{x}$ will approximately lie on a sphere.  Hence we are working on a $S^n$ manifold embedded in $\mathbb{R}^n$ space.)  The mean $\mu(y_j)$ of cluster is given by 
+\begin{gather*}
+	\mathbb{E}(\boldsymbol{x}|y_j) = \frac{\sum_{\boldsymbol{x}\in C(y_j)} \boldsymbol{x}p(\boldsymbol{x})}{\sum_{\boldsymbol{x}\in C(y_j)} p(\boldsymbol{x})} = \frac{\sum_{\boldsymbol{x}\in C(y_j)} \boldsymbol{x}p(\boldsymbol{x})}{p(y_j)} \\
+	\mu(y_j)  = \frac{\mathbb{E}(\boldsymbol{x}|y_j)}{\sum_{ï=1}^{n}\mathbb{E}(x_{ï}|y_j)}
+\end{gather*}
+K-means clustering works by iteratively recomputing $C(y_j)^{(t)}$ at time-step $t$ for all $j$ and then assigning $\mu(y_j)^{(t)}$ to be the new value of $W_j^{(t+1)}$ at the next time-step. Let the loss function be
+
 \[
-\mu(y_j) = \frac{\sum_{\boldsymbol{x} \in C(y_j)} \boldsymbol{x}p(\boldsymbol{x})}{\sum_{\boldsymbol{x} \in C(y_j)}p(\boldsymbol{x})} = \frac{\sum_{\boldsymbol{x} \in C(y_j)} \boldsymbol{x}p(\boldsymbol{x})}{p(y_j)}
+\mathcal{L} = \sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C(y_j)} \lVert  W_j - \boldsymbol{x}\rVert^1p(\boldsymbol{x})
 \]
-K-means clustering works by iteratively recomputing $C(y_j)^{(t)}$ at time-step $t$ for all $j$ and then assigning $\mu(y_j)^{(t)}$ to be the new value of $W_j^{(t+1)}$ at the next time-step.  Let the negation of expected value $-\mathbb{E}(s_k)$ be the loss function. It is computed as
+where $\lVert \cdot \rVert^1$ stands for $l_1$ metric (Manhattan distance). We can prove that $\mathcal{L}$ always decreases and is bounded (can't be negative), hence the learning converges. First we show that
 \[
-\mathbb{E}(s_k) = \sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C(y_j)} \boldsymbol{x}W_j p(\boldsymbol{x})
-\]
-We can prove that $\mathbb{E}(s_k)$ always increases and is bounded, hence the learning converges. The boundedness follows easily from the definition of $W$, whose columns are non-negative and sum up to $1$.   The monotonicity can be proved in two steps. First we show that
-\[
-\mathbb{E}(s_k)^{(t)} = \sum_{j} \sum_{\boldsymbol{x}\in C(y_j)^{(t)}} \boldsymbol{x}W_j^{(t)}p(\boldsymbol{x}) \le \sum_{j} \sum_{\boldsymbol{x}\in C(y_j)^{(t)}} \boldsymbol{x}W_j^{(t+1)}p(\boldsymbol{x})
+\mathcal{L}(s_k)^{(t)} =\sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C(y_j)^{(t)}} \lVert  W_j^{(t)} - \boldsymbol{x}\rVert^1p(\boldsymbol{x})
+\ge \sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \lVert  W_j^{(t+1)} - \boldsymbol{x}\rVert^1p(\boldsymbol{x})
 \]
 and then
 \[
-\sum_{j} \sum_{\boldsymbol{x}\in C(y_j)^{(t)}} \boldsymbol{x}W_j^{(t+1)}p(\boldsymbol{x}) \le \sum_{j} \sum_{\boldsymbol{x}\in C(y_j)^{(t+1)}} \boldsymbol{x}W_j^{(t+1)}p(\boldsymbol{x}) = \mathbb{E}(s_k)^{(t+1)}
+\sum_{j} \sum_{\boldsymbol{x}\in C(y_j)^{(t)}} \lVert W_j^{(t+1)} - \boldsymbol{x}\rVert^1 p(\boldsymbol{x}) \ge \sum_{j} \sum_{\boldsymbol{x}\in C(y_j)^{(t+1)}} \lVert W_j^{(t+1)}-\boldsymbol{x}\rVert^1 p(\boldsymbol{x}) = \mathcal{L}^{(t+1)}
 \]
 The first inequality follows from the definition of $W_j^{(t+1)} = \mu(y_j)^{(t)}$, which is a form of maximum likelihood estimation.
 \[
-\sum_{j} \sum_{\boldsymbol{x}\in C(y_j)^{(t)}} \boldsymbol{x}W_j^{(t)}p(\boldsymbol{x}) \le \sum_{j} \sum_{\boldsymbol{x}\in C(y_j)^{(t)}} \boldsymbol{x}\mu(y_j)^{(t)} p(\boldsymbol{x})
+\sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C(y_j)^{(t)}} \lVert  W_j^{(t)} - \boldsymbol{x}\rVert^1p(\boldsymbol{x})
+\ge \sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \lVert  \mu(y_j)^{(t)} - \boldsymbol{x}\rVert^1p(\boldsymbol{x})
 \]
-The second inequality follows from the fact that $C(y_j)^{(t)}$ will differ from $C(y_j)^{(t+1)}$ only if there exists some $\boldsymbol{x} \in C(y_j)^{(t)}$ such that we could find some different $y_k$ with the property $\boldsymbol{x} W_k \ge \boldsymbol{x} W_j$. Then such $\boldsymbol{x}$ would be moved from $C(y_j)^{(t)}$ to $C(y_k)^{(t+1)}$, but this could only result in the $\mathbb{E}(s_k)^{(t+1)}$ to increase (or stay constant). This concludes the proof.
-
-So far we have shown that learning converges without accounting for $\boldsymbol{a}$ and entropy maximisation. To address this, let us focus on $p(y_j)$ which can be computed as
+The second inequality follows from the fact that $C(y_j)^{(t)}$ will differ from $C(y_j)^{(t+1)}$ only if there exists some $\boldsymbol{x} \in C(y_j)^{(t)}$ such that we could find some different $y_h$ with the property $\boldsymbol{x} W_k \ge \boldsymbol{x} W_j$. Then such $\boldsymbol{x}$ would be moved from $C(y_j)^{(t)}$ to $C(y_h)^{(t+1)}$, but this could only result in the $\mathcal{L}^{(t+1)}$ to increase (or stay constant), because 
+\begin{gather*}
+	\boldsymbol{x} W_h \ge \boldsymbol{x} W_j \\
+	\sum_{x_i\in\boldsymbol{x} }w_{ih} \ge \sum_{x_i\in\boldsymbol{x} }w_{ij} \\
+	\sum_{x_i\in\boldsymbol{x} }1-w_{ih} \le \sum_{x_i\in\boldsymbol{x} }1-w_{ij} \\
+	\sum_{x_i\in\boldsymbol{x} }\vert 1-w_{ih}\vert^1 \le \sum_{x_i\in\boldsymbol{x} }\vert 1-w_{ij}\vert^1
+\end{gather*}
+Let $1-\boldsymbol{x}$ be the complement of binary vector (ones and zeroes flipped). Because weights sum up to $1$, this implies that
+\begin{gather*}
+(1-\boldsymbol{x}) W_h \le (1-\boldsymbol{x}) W_j \\
+\sum_{x_i\notin\boldsymbol{x} }w_{ih} \le \sum_{x_i\notin\boldsymbol{x} }w_{ij} \\
+\sum_{x_i\notin\boldsymbol{x} }\vert 0-w_{ih}\vert^1 \le \sum_{x_i\notin\boldsymbol{x} }\vert 0-w_{ij}\vert^1
+\end{gather*}
+Adding the two inequalities together by sides we obtain
 \[
-p(y_j) = \sum_{\boldsymbol{x}\in C(y_j)}p(\boldsymbol{x})
+	\lVert \boldsymbol{x} - W_h \rVert^1 \le \lVert  \boldsymbol{x} - W_j \rVert^1
 \]
-Let us we modify the definition of $C(y_j)$ to include $\boldsymbol{a}$ 
+This concludes the proof.
+
+So far we have shown that learning converges without accounting for $\boldsymbol{a}$ and entropy maximisation. To address this, let us we modify the definition of $C(y_j)$ to include $\boldsymbol{a}$ 
 \[
-\boldsymbol{x} \in C(y_j) \iff  j = \argmax(\boldsymbol{x} W + a_j)
+\boldsymbol{x} \in C(y_j) \iff  j = \argmax(\boldsymbol{x} W + \boldsymbol{a})
 \]
-We can show that if $\sum_j a_j = 1$, where $a_j\ge 0$ and $U$ is a uniformly distributed random variable over the range $[0,1]$, then 
+The absolute value of $\boldsymbol{a}$ does not matter, because adding a constant scalar does not change result of $argmax$ function  
 \[
-p(j = \argmax(U + \boldsymbol{a} )) = a_j
+\argmax(\boldsymbol{x} W + \boldsymbol{a} + c)  = \argmax(\boldsymbol{x} W + \boldsymbol{a} )
 \]
+We also know that $0 \le \boldsymbol{x} W_j \le 1$, which implies that $max(\boldsymbol{a})-min(\boldsymbol{a})\le 1$ because otherwise the maximum element of $\boldsymbol{a}$ would entirely dominate all others and increasing $max(\boldsymbol{a})$ beyond $min(\boldsymbol{a})+1$ would not make any difference. Therefore without loss of generality we can assume that $max(\boldsymbol{a})=0$ and $min(\boldsymbol{a})\ge -1$.
 
-A more interesting case is when we attempt to do online learning with possibly infinite stream of new observations. Then we need an iterative algorithm and this is exactly what ECC networks are. 
-
-As we have established so far, our goal is to find $m$ most significant eigenvalues. It makes little sense to model latent causes $y$ that are significantly less likely than the rest. Hence we perform entropy maximisation using activity vector $\boldsymbol{a}$. The entropy
+Under such assumption, we can now change the loss function. Instead of $-\mathbb{E}(s_k)$, we will use 
+$-\mathbb{E}(s_k+a_k)$, defined as
 \[
-H(\boldsymbol{y}) = - \sum_{j=1}^{m}p(y_j)\log p(y_j)
+\mathbb{E}(s_k+a_k) = \sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C(y_j)} (\boldsymbol{x}W_j +a_j)p(\boldsymbol{x})
 \]
-has its highest value, when all $p(y)$ are approximately equal
-\[
-p(y_1)\approx p(y_2)\approx...\approx p(y_m)
-\]
-When this holds, then we can simplify the learned model to
-\[
-p(\boldsymbol{x}) \approx \sum_{j=1}^{m}\boldsymbol{x}W_jp(y_j) \approx \frac{\sum_{j=1}^{m}\boldsymbol{x}W_j}{m}
-\]
-
-Because we are only interested in capturing the eigendistributions with highest probabilities, the networks will learn to recognise only the most general and frequent patterns. They can't overfit to training data and the concept of adversarial examples does not exist here. They could also generalise to new environments with ease, because many novel distribution could be expressed as linear combinations of the same fundamental eigendistributions but with different coefficients. The ECC networks have all the characteristics necessary to implement general human-like AI that learns any task with a few shots, as long as the novel observation can be encoded using some conjunction of simpler features.
-
-One very important property should be noted. Whenever a new observation $\boldsymbol{x}$ is received, we attempt to find the best matching cluster $k=\argmax_j r_j$. If the learned model is optimal, then the expected value $\mathbb{E}(s_k)$ of best-matching $s_k$ is going to be maximised. Empirically it can indeed be confirmed that $\mathbb{E}(s_k)$ always increases and eventually converges on some high value.
-
-
-In the general case, ECC networks are not required to use weight matrix $W$. The dendritic trees of biological neurons might allow for expressing more complex distributions $(\boldsymbol{x}|y)$ where the $x$ variables are not mutually independent. We can generalise and rigorously formalise ECC nets by defining the family $\mathcal{P} \subset \mathcal{X} \rightarrow [0,1]$ of primitive distributions where $\mathcal{X}$ is the set of observations $\boldsymbol{x}$. The conditional distribution $p(\boldsymbol{x},y_j)$ must be an element of $\mathcal{P}$, whereas the marginal distribution $p(\boldsymbol{x})$ could be any distribution function $\mathcal{X} \rightarrow [0,1]$.  We define  $\mathcal{P}$-decomposition of $p(\boldsymbol{x})$ as integral
-\[
-p(\boldsymbol{x})= \int_y p(\boldsymbol{x}|y) p(y)
-\]
-such that
-\[
-\forall_{y\in Y} p(\boldsymbol{x}|y)  \in \mathcal{P} 
-\]
+The vector $\boldsymbol{a}$ functions as a regularization term. Most of the previous convergence proof will still hold, with only minor changes. In many cases, the $a_j$ term can be factored out of the summation and then cancelled out on both sides of inequality. 
 
 
 
-\section{Exclusive coincidence machine}
+\section{Convolutional networks}
 
-In this section we introduce the final working model of a network that can build meaningful receptive fields. A receptive field is defined as probability distribution over the set of all possible vectors $\boldsymbol{x}$. It tells us how likely a given observation vector is to activate a specific $y_j$. Each $y_j$ has its own receptive field. Such probability distribution $p(\boldsymbol{x}|y_j)$ is also referred to as ``coincidence class'' or ``eigendistribution''. 
+In this section we introduce the final working model of a network that can build meaningful receptive fields $p(\boldsymbol{x}|y_j)$. In general case the topology of an ECC network might be chaotic and highly recurrent. We distinguish a special subset of topologies that are arranged in a form of multi-layer convolutional networks. Figure \ref{fig:ecc_conv_machine} shows an example of a single convolutional layer. Several of them could be stacked to form a multi-layer network. 
 
-In general case the topology of an ECC network might be chaotic and highly recurrent. We distinguish a special subset of networks, known as ECC machines. Their topologies are restricted to always be arranged in a strictly layered form (multipartite graph). Figure \ref{fig:ecc_machine} shows a general schematic of a multilayer ECC machine. 
-\begin{figure}[!htbp]
-	\centering
-
-\begin{tikzpicture}[scale=0.23]
-	\tikzstyle{every node}+=[inner sep=0pt]
-	\draw [black] (10,-11.9) circle (3);
-	\draw (10,-11.9) node {$x_1$};
-	\draw [black] (10,-21) circle (3);
-	\draw (10,-21) node {$x_2$};
-	\draw [black] (10,-29.8) circle (3);
-	\draw (10,-29.8) node {$x_3$};
-	\draw [black] (21.7,-8.8) circle (3);
-	\draw (21.7,-8.8) node {$y_1$};
-	\draw [black] (21.7,-16.7) circle (3);
-	\draw (21.7,-16.7) node {$y_2$};
-	\draw [black] (21.7,-24.3) circle (3);
-	\draw (21.7,-24.3) node {$y_3$};
-	\draw [black] (21.7,-32.2) circle (3);
-	\draw (21.7,-32.2) node {$y_4$};
-	\draw [black] (35.4,-16.7) circle (3);
-	\draw (35.4,-16.7) node {$z_1$};
-	\draw [black] (35.4,-24.3) circle (3);
-	\draw (35.4,-24.3) node {$z_2$};
-	\draw [black] (46.3,-11.2) circle (3);
-	\draw (46.3,-11.2) node {$w_1$};
-	\draw [black] (46.3,-20.3) circle (3);
-	\draw (46.3,-20.3) node {$w_2$};
-	\draw [black] (46.3,-29.8) circle (3);
-	\draw (46.3,-29.8) node {$w_3$};
-	\draw [black] (35.4,-5.2) circle (3);
-	\draw (35.4,-5.2) node {$e_1$};
-	\draw [black] (35.4,-5.2) circle (2.4);
-	\draw [black] (46.3,-3.1) circle (3);
-	\draw (46.3,-3.1) node {$e_2$};
-	\draw [black] (46.3,-3.1) circle (2.4);
-	\draw [black] (56.7,-8.1) circle (3);
-	\draw (56.7,-8.1) node {$e_3$};
-	\draw [black] (56.7,-8.1) circle (2.4);
-	\draw [black] (12.9,-11.13) -- (18.8,-9.57);
-	\fill [black] (18.8,-9.57) -- (17.9,-9.29) -- (18.15,-10.26);
-	\draw [black] (12.78,-13.04) -- (18.92,-15.56);
-	\fill [black] (18.92,-15.56) -- (18.37,-14.8) -- (17.99,-15.72);
-	\draw [black] (12.82,-19.97) -- (18.88,-17.73);
-	\fill [black] (18.88,-17.73) -- (17.96,-17.54) -- (18.31,-18.48);
-	\draw [black] (12.06,-14.08) -- (19.64,-22.12);
-	\fill [black] (19.64,-22.12) -- (19.46,-21.19) -- (18.73,-21.88);
-	\draw [black] (11.5,-14.5) -- (20.2,-29.6);
-	\fill [black] (20.2,-29.6) -- (20.24,-28.66) -- (19.37,-29.16);
-	\draw [black] (12,-27.56) -- (19.7,-18.94);
-	\fill [black] (19.7,-18.94) -- (18.8,-19.2) -- (19.54,-19.87);
-	\draw [black] (12.71,-28.52) -- (18.99,-25.58);
-	\fill [black] (18.99,-25.58) -- (18.05,-25.46) -- (18.47,-26.37);
-	\draw [black] (12.94,-30.4) -- (18.76,-31.6);
-	\fill [black] (18.76,-31.6) -- (18.08,-30.95) -- (17.88,-31.93);
-	\draw [black] (12.08,-18.83) -- (19.62,-10.97);
-	\fill [black] (19.62,-10.97) -- (18.71,-11.2) -- (19.43,-11.89);
-	\draw [black] (12.89,-21.81) -- (18.81,-23.49);
-	\fill [black] (18.81,-23.49) -- (18.18,-22.79) -- (17.91,-23.75);
-	\draw [black] (12.17,-23.07) -- (19.53,-30.13);
-	\fill [black] (19.53,-30.13) -- (19.3,-29.21) -- (18.61,-29.93);
-	\draw [black] (11.46,-27.18) -- (20.24,-11.42);
-	\fill [black] (20.24,-11.42) -- (19.41,-11.88) -- (20.29,-12.36);
-	\draw [black] (24.3,-10.3) -- (32.8,-15.2);
-	\fill [black] (32.8,-15.2) -- (32.36,-14.37) -- (31.86,-15.23);
-	\draw [black] (24.7,-16.7) -- (32.4,-16.7);
-	\fill [black] (32.4,-16.7) -- (31.6,-16.2) -- (31.6,-17.2);
-	\draw [black] (24.32,-22.84) -- (32.78,-18.16);
-	\fill [black] (32.78,-18.16) -- (31.83,-18.11) -- (32.32,-18.98);
-	\draw [black] (24.3,-30.7) -- (32.8,-25.8);
-	\fill [black] (32.8,-25.8) -- (31.86,-25.77) -- (32.36,-26.63);
-	\draw [black] (23.69,-11.05) -- (33.41,-22.05);
-	\fill [black] (33.41,-22.05) -- (33.26,-21.12) -- (32.51,-21.78);
-	\draw [black] (24.32,-18.16) -- (32.78,-22.84);
-	\fill [black] (32.78,-22.84) -- (32.32,-22.02) -- (31.83,-22.89);
-	\draw [black] (23.69,-29.95) -- (33.41,-18.95);
-	\fill [black] (33.41,-18.95) -- (32.51,-19.22) -- (33.26,-19.88);
-	\draw [black] (24.7,-24.3) -- (32.4,-24.3);
-	\fill [black] (32.4,-24.3) -- (31.6,-23.8) -- (31.6,-24.8);
-	\draw [black] (38.08,-15.35) -- (43.62,-12.55);
-	\fill [black] (43.62,-12.55) -- (42.68,-12.47) -- (43.13,-13.36);
-	\draw [black] (38.25,-17.64) -- (43.45,-19.36);
-	\fill [black] (43.45,-19.36) -- (42.85,-18.63) -- (42.53,-19.58);
-	\draw [black] (38.22,-23.27) -- (43.48,-21.33);
-	\fill [black] (43.48,-21.33) -- (42.56,-21.14) -- (42.9,-22.08);
-	\draw [black] (38.08,-25.65) -- (43.62,-28.45);
-	\fill [black] (43.62,-28.45) -- (43.13,-27.64) -- (42.68,-28.53);
-	\draw [black] (37.32,-21.99) -- (44.38,-13.51);
-	\fill [black] (44.38,-13.51) -- (43.49,-13.8) -- (44.25,-14.44);
-	\draw [black] (37.32,-19.01) -- (44.38,-27.49);
-	\fill [black] (44.38,-27.49) -- (44.25,-26.56) -- (43.49,-27.2);
-	\draw [black] (32.5,-5.96) -- (24.6,-8.04);
-	\fill [black] (24.6,-8.04) -- (25.5,-8.32) -- (25.25,-7.35);
-	\draw [black] (24.6,-8.04) -- (32.5,-5.96);
-	\fill [black] (32.5,-5.96) -- (31.6,-5.68) -- (31.85,-6.65);
-	\draw [black] (33.1,-7.13) -- (24,-14.77);
-	\fill [black] (24,-14.77) -- (24.93,-14.64) -- (24.29,-13.87);
-	\draw [black] (24,-14.77) -- (33.1,-7.13);
-	\fill [black] (33.1,-7.13) -- (32.17,-7.26) -- (32.81,-8.03);
-	\draw [black] (33.65,-7.64) -- (23.45,-21.86);
-	\fill [black] (23.45,-21.86) -- (24.32,-21.5) -- (23.51,-20.92);
-	\draw [black] (23.45,-21.86) -- (33.65,-7.64);
-	\fill [black] (33.65,-7.64) -- (32.78,-8) -- (33.59,-8.58);
-	\draw [black] (23.06,-29.52) -- (34.04,-7.88);
-	\fill [black] (34.04,-7.88) -- (33.23,-8.36) -- (34.13,-8.81);
-	\draw [black] (34.04,-7.88) -- (23.06,-29.52);
-	\fill [black] (23.06,-29.52) -- (23.87,-29.04) -- (22.97,-28.59);
-	\draw [black] (37.28,-14.36) -- (44.42,-5.44);
-	\fill [black] (44.42,-5.44) -- (43.53,-5.75) -- (44.31,-6.38);
-	\draw [black] (36.77,-21.63) -- (44.93,-5.77);
-	\fill [black] (44.93,-5.77) -- (44.12,-6.25) -- (45.01,-6.71);
-	\draw [black] (44.42,-5.44) -- (37.28,-14.36);
-	\fill [black] (37.28,-14.36) -- (38.17,-14.05) -- (37.39,-13.42);
-	\draw [black] (44.93,-5.77) -- (36.77,-21.63);
-	\fill [black] (36.77,-21.63) -- (37.58,-21.15) -- (36.69,-20.69);
-	\draw [black] (53.83,-8.96) -- (49.17,-10.34);
-	\fill [black] (49.17,-10.34) -- (50.08,-10.59) -- (49.8,-9.64);
-	\draw [black] (49.17,-10.34) -- (53.83,-8.96);
-	\fill [black] (53.83,-8.96) -- (52.92,-8.71) -- (53.2,-9.66);
-	\draw [black] (48.25,-18.02) -- (54.75,-10.38);
-	\fill [black] (54.75,-10.38) -- (53.85,-10.67) -- (54.62,-11.32);
-	\draw [black] (54.75,-10.38) -- (48.25,-18.02);
-	\fill [black] (48.25,-18.02) -- (49.15,-17.73) -- (48.38,-17.08);
-	\draw [black] (47.6,-27.09) -- (55.4,-10.81);
-	\fill [black] (55.4,-10.81) -- (54.61,-11.31) -- (55.51,-11.74);
-	\draw [black] (55.4,-10.81) -- (47.6,-27.09);
-	\fill [black] (47.6,-27.09) -- (48.39,-26.59) -- (47.49,-26.16);
-\end{tikzpicture}
-	\caption{Exclusive coincidence machine}
-	\label{fig:ecc_machine}
-\end{figure} 
-Such networks can be easily formalised and efficiently implemented. The fundamental building blocks are populations and weight matrices. A population is defined as tuple $(\boldsymbol{a},\boldsymbol{s})$
-It is possible to arrange the topology to resemble convolutional neural networks.
-Imagine taking several copies of the network from figure \ref{fig:ecc_machine} and stacking them next to each other in such a way that each one sees only a small patch of the input image. Figure \ref{fig:ecc_conv_machine} presents an example of one-dimensional convolution. 
 \begin{figure}[!htbp]
 	\centering
 
 \begin{tikzpicture}[scale=0.2]
 	\tikzstyle{every node}+=[inner sep=0pt]
-	\draw [black] (21.9,-22.4) circle (3);
-	\draw (21.9,-22.4) node {$Y_1$};
-	\draw [black] (21.9,-29) circle (3);
-	\draw (21.9,-29) node {$Y_2$};
-	\draw [black] (21.9,-35.6) circle (3);
-	\draw (21.9,-35.6) node {$Y_3$};
-	\draw [black] (10,-25.6) circle (3);
-	\draw (10,-25.6) node {$x_1$};
-	\draw [black] (10,-32.3) circle (3);
-	\draw (10,-32.3) node {$x_2$};
-	\draw [black] (10,-46.1) circle (3);
-	\draw (10,-46.1) node {$x_3$};
-	\draw [black] (21.9,-43.5) circle (3);
-	\draw (21.9,-43.5) node {$Y_4$};
-	\draw [black] (32.6,-25.6) circle (3);
-	\draw (32.6,-25.6) node {$Z_1$};
-	\draw [black] (32.6,-32.3) circle (3);
-	\draw (32.6,-32.3) node {$Z_2$};
-	\draw [black] (42.5,-36.2) circle (3);
-	\draw (42.5,-36.2) node {$W_1$};
-	\draw [black] (42.5,-43.5) circle (3);
-	\draw (42.5,-43.5) node {$W_2$};
-	\draw [black] (10,-54.1) circle (3);
-	\draw (10,-54.1) node {$x_4$};
-	\draw [black] (21.9,-50) circle (3);
-	\draw (21.9,-50) node {$Y_5$};
-	\draw [black] (32.6,-46.1) circle (3);
-	\draw (32.6,-46.1) node {$Z_3$};
-	\draw [black] (32.6,-52.8) circle (3);
-	\draw (32.6,-52.8) node {$Z_4$};
-	\draw [black] (21.9,-56.6) circle (3);
-	\draw (21.9,-56.6) node {$Y_6$};
-	\draw [black] (12.9,-24.82) -- (19,-23.18);
-	\fill [black] (19,-23.18) -- (18.1,-22.9) -- (18.36,-23.87);
-	\draw [black] (12.88,-26.42) -- (19.02,-28.18);
-	\fill [black] (19.02,-28.18) -- (18.38,-27.48) -- (18.11,-28.44);
-	\draw [black] (24.77,-23.26) -- (29.73,-24.74);
-	\fill [black] (29.73,-24.74) -- (29.1,-24.03) -- (28.82,-24.99);
-	\draw [black] (24.1,-24.44) -- (30.4,-30.26);
-	\fill [black] (30.4,-30.26) -- (30.15,-29.35) -- (29.47,-30.09);
-	\draw [black] (24.76,-28.09) -- (29.74,-26.51);
-	\fill [black] (29.74,-26.51) -- (28.83,-26.27) -- (29.13,-27.23);
-	\draw [black] (24.09,-33.55) -- (30.41,-27.65);
-	\fill [black] (30.41,-27.65) -- (29.48,-27.83) -- (30.17,-28.56);
-	\draw [black] (24.77,-34.72) -- (29.73,-33.18);
-	\fill [black] (29.73,-33.18) -- (28.82,-32.94) -- (29.12,-33.9);
-	\draw [black] (34.65,-27.79) -- (40.45,-34.01);
-	\fill [black] (40.45,-34.01) -- (40.27,-33.08) -- (39.54,-33.76);
-	\draw [black] (34.05,-28.23) -- (41.05,-40.87);
-	\fill [black] (41.05,-40.87) -- (41.1,-39.93) -- (40.22,-40.42);
-	\draw [black] (35.39,-33.4) -- (39.71,-35.1);
-	\fill [black] (39.71,-35.1) -- (39.15,-34.34) -- (38.78,-35.27);
-	\draw [black] (34.59,-34.55) -- (40.51,-41.25);
-	\fill [black] (40.51,-41.25) -- (40.36,-40.32) -- (39.61,-40.98);
-	\draw [black] (12.89,-33.1) -- (19.01,-34.8);
-	\fill [black] (19.01,-34.8) -- (18.37,-34.1) -- (18.1,-35.07);
-	\draw [black] (12.85,-47.03) -- (19.05,-49.07);
-	\fill [black] (19.05,-49.07) -- (18.44,-48.34) -- (18.13,-49.29);
-	\draw [black] (12.24,-52.1) -- (19.66,-45.5);
-	\fill [black] (19.66,-45.5) -- (18.73,-45.65) -- (19.4,-46.4);
-	\draw [black] (12.84,-53.12) -- (19.06,-50.98);
-	\fill [black] (19.06,-50.98) -- (18.14,-50.77) -- (18.47,-51.71);
-	\draw [black] (24.82,-44.21) -- (29.68,-45.39);
-	\fill [black] (29.68,-45.39) -- (29.03,-44.72) -- (28.79,-45.69);
-	\draw [black] (24.16,-45.47) -- (30.34,-50.83);
-	\fill [black] (30.34,-50.83) -- (30.06,-49.93) -- (29.4,-50.68);
-	\draw [black] (24.8,-50.76) -- (29.7,-52.04);
-	\fill [black] (29.7,-52.04) -- (29.05,-51.35) -- (28.8,-52.32);
-	\draw [black] (12.94,-54.72) -- (18.96,-55.98);
-	\fill [black] (18.96,-55.98) -- (18.28,-55.33) -- (18.08,-56.31);
-	\draw [black] (24.73,-55.6) -- (29.77,-53.8);
-	\fill [black] (29.77,-53.8) -- (28.85,-53.6) -- (29.19,-54.54);
-	\draw [black] (24.72,-48.97) -- (29.78,-47.13);
-	\fill [black] (29.78,-47.13) -- (28.86,-46.93) -- (29.2,-47.87);
-	\draw [black] (24.04,-54.5) -- (30.46,-48.2);
-	\fill [black] (30.46,-48.2) -- (29.54,-48.4) -- (30.24,-49.12);
-	\draw [black] (35.5,-45.34) -- (39.6,-44.26);
-	\fill [black] (39.6,-44.26) -- (38.7,-43.98) -- (38.95,-44.95);
-	\draw [black] (34.79,-50.75) -- (40.31,-45.55);
-	\fill [black] (40.31,-45.55) -- (39.39,-45.74) -- (40.07,-46.47);
-	\draw [black] (34.72,-43.98) -- (40.38,-38.32);
-	\fill [black] (40.38,-38.32) -- (39.46,-38.53) -- (40.17,-39.24);
-	\draw [black] (34.14,-50.22) -- (40.96,-38.78);
-	\fill [black] (40.96,-38.78) -- (40.12,-39.21) -- (40.98,-39.72);
-	\draw [black] (12.18,-34.36) -- (19.72,-41.44);
-	\fill [black] (19.72,-41.44) -- (19.48,-40.53) -- (18.79,-41.26);
-	\draw [black] (12.25,-44.12) -- (19.65,-37.58);
-	\fill [black] (19.65,-37.58) -- (18.72,-37.74) -- (19.38,-38.49);
-	\draw [black] (12.89,-31.5) -- (19.01,-29.8);
-	\fill [black] (19.01,-29.8) -- (18.1,-29.53) -- (18.37,-30.5);
-	\draw [black] (12.93,-45.46) -- (18.97,-44.14);
-	\fill [black] (18.97,-44.14) -- (18.08,-43.82) -- (18.29,-44.8);
-	\draw [black] (12.3,-27.53) -- (19.6,-33.67);
-	\fill [black] (19.6,-33.67) -- (19.31,-32.77) -- (18.67,-33.54);
-	\draw [black] (24.77,-29.88) -- (29.73,-31.42);
-	\fill [black] (29.73,-31.42) -- (29.12,-30.7) -- (28.82,-31.66);
+	\draw [black] (8,-12.4) circle (3);
+	\draw (8,-12.4) node {$x_1$};
+	\draw [black] (8,-18.8) circle (3);
+	\draw (8,-18.8) node {$x_2$};
+	\draw [black] (8,-25.2) circle (3);
+	\draw (8,-25.2) node {$x_3$};
+	\draw [black] (8,-31.5) circle (3);
+	\draw (8,-31.5) node {$x_4$};
+	\draw [black] (18.8,-15.4) circle (3);
+	\draw (18.8,-15.4) node {$y_1$};
+	\draw [black] (33.5,-15.4) circle (3);
+	\draw (33.5,-15.4) node {$y_3$};
+	\draw [black] (26.2,-15.4) circle (3);
+	\draw (26.2,-15.4) node {$y_2$};
+	\draw [black] (18.8,-21.7) circle (3);
+	\draw (18.8,-21.7) node {$y_4$};
+	\draw [black] (26.2,-21.7) circle (3);
+	\draw (26.2,-21.7) node {$y_5$};
+	\draw [black] (33.5,-21.7) circle (3);
+	\draw (33.5,-21.7) node {$y_6$};
+	\draw [black] (18.8,-28.2) circle (3);
+	\draw (18.8,-28.2) node {$y_7$};
+	\draw [black] (26.2,-28.2) circle (3);
+	\draw (26.2,-28.2) node {$y_8$};
+	\draw [black] (33.5,-28.2) circle (3);
+	\draw (33.5,-28.2) node {$y_9$};
+	\draw [black] (40.1,-7.3) circle (3);
+	\draw (40.1,-7.3) node {$e_1$};
+	\draw [black] (40.1,-7.3) circle (2.4);
+	\draw [black] (40.1,-14.1) circle (3);
+	\draw (40.1,-14.1) node {$e_2$};
+	\draw [black] (40.1,-14.1) circle (2.4);
+	\draw [black] (40.1,-21.1) circle (3);
+	\draw (40.1,-21.1) node {$e_3$};
+	\draw [black] (40.1,-21.1) circle (2.4);
+	\draw [black] (10.89,-13.2) -- (15.91,-14.6);
+	\fill [black] (15.91,-14.6) -- (15.27,-13.9) -- (15,-14.86);
+	\draw [black] (10.86,-17.9) -- (15.94,-16.3);
+	\fill [black] (15.94,-16.3) -- (15.03,-16.06) -- (15.33,-17.02);
+	\draw [black] (10.89,-13.2) -- (15.91,-14.6);
+	\fill [black] (15.91,-14.6) -- (15.27,-13.9) -- (15,-14.86);
+	\draw [black] (10.96,-12.89) -- (23.24,-14.91);
+	\fill [black] (23.24,-14.91) -- (22.53,-14.29) -- (22.37,-15.28);
+	\draw [black] (10.95,-18.25) -- (23.25,-15.95);
+	\fill [black] (23.25,-15.95) -- (22.37,-15.61) -- (22.56,-16.59);
+	\draw [black] (10.98,-12.75) -- (30.52,-15.05);
+	\fill [black] (30.52,-15.05) -- (29.78,-14.46) -- (29.67,-15.45);
+	\draw [black] (10.97,-18.4) -- (30.53,-15.8);
+	\fill [black] (30.53,-15.8) -- (29.67,-15.41) -- (29.8,-16.4);
+	\draw [black] (37.3,-8.37) -- (21.6,-14.33);
+	\fill [black] (21.6,-14.33) -- (22.53,-14.52) -- (22.17,-13.58);
+	\draw [black] (37.51,-8.81) -- (28.79,-13.89);
+	\fill [black] (28.79,-13.89) -- (29.73,-13.92) -- (29.23,-13.05);
+	\draw [black] (38.2,-9.63) -- (35.4,-13.07);
+	\fill [black] (35.4,-13.07) -- (36.29,-12.77) -- (35.51,-12.14);
+	\draw [black] (37.47,-15.54) -- (28.83,-20.26);
+	\fill [black] (28.83,-20.26) -- (29.77,-20.32) -- (29.29,-19.44);
+	\draw [black] (38.13,-16.37) -- (35.47,-19.43);
+	\fill [black] (35.47,-19.43) -- (36.37,-19.16) -- (35.61,-18.5);
+	\draw [black] (37.27,-15.11) -- (21.63,-20.69);
+	\fill [black] (21.63,-20.69) -- (22.55,-20.89) -- (22.21,-19.95);
+	\draw [black] (38.06,-23.3) -- (35.54,-26);
+	\fill [black] (35.54,-26) -- (36.45,-25.76) -- (35.72,-25.08);
+	\draw [black] (37.43,-22.46) -- (28.87,-26.84);
+	\fill [black] (28.87,-26.84) -- (29.81,-26.92) -- (29.36,-26.03);
+	\draw [black] (37.25,-22.05) -- (21.65,-27.25);
+	\fill [black] (21.65,-27.25) -- (22.56,-27.47) -- (22.25,-26.52);
+	\draw [black] (10.9,-19.58) -- (15.9,-20.92);
+	\fill [black] (15.9,-20.92) -- (15.26,-20.23) -- (15,-21.2);
+	\draw [black] (10.85,-24.28) -- (15.95,-22.62);
+	\fill [black] (15.95,-22.62) -- (15.03,-22.4) -- (15.34,-23.35);
+	\draw [black] (10.96,-19.27) -- (23.24,-21.23);
+	\fill [black] (23.24,-21.23) -- (22.53,-20.61) -- (22.37,-21.6);
+	\draw [black] (10.95,-24.63) -- (23.25,-22.27);
+	\fill [black] (23.25,-22.27) -- (22.37,-21.93) -- (22.56,-22.91);
+	\draw [black] (10.98,-19.14) -- (30.52,-21.36);
+	\fill [black] (30.52,-21.36) -- (29.78,-20.77) -- (29.67,-21.77);
+	\draw [black] (10.97,-24.79) -- (30.53,-22.11);
+	\fill [black] (30.53,-22.11) -- (29.67,-21.72) -- (29.8,-22.71);
+	\draw [black] (10.89,-26) -- (15.91,-27.4);
+	\fill [black] (15.91,-27.4) -- (15.27,-26.7) -- (15,-27.66);
+	\draw [black] (10.87,-30.62) -- (15.93,-29.08);
+	\fill [black] (15.93,-29.08) -- (15.02,-28.83) -- (15.31,-29.79);
+	\draw [black] (10.96,-25.69) -- (23.24,-27.71);
+	\fill [black] (23.24,-27.71) -- (22.53,-27.09) -- (22.37,-28.08);
+	\draw [black] (10.95,-30.96) -- (23.25,-28.74);
+	\fill [black] (23.25,-28.74) -- (22.37,-28.39) -- (22.55,-29.37);
+	\draw [black] (10.98,-25.55) -- (30.52,-27.85);
+	\fill [black] (30.52,-27.85) -- (29.78,-27.26) -- (29.67,-28.25);
+	\draw [black] (10.98,-31.11) -- (30.52,-28.59);
+	\fill [black] (30.52,-28.59) -- (29.67,-28.19) -- (29.8,-29.18);
 \end{tikzpicture}
-	\caption{Convolutional exclusive coincidence machine}
+	\caption{A single layer of exclusive coincidence machine with one-dimensional convolution. The input size is $4$ columns, each with one channel. The hidden layer has $3$ columns, each with $3$ channels. The neurons within the same column are all mutually exclusive. Every hidden column draws input from two input columns around it, meaning that in this case the kernel size is $2$. The stride is $0$. }
 	\label{fig:ecc_conv_machine}
 \end{figure} 
-The neuron $y_1$ can ``see'' input coming from $x_1,x_2$ and $x_3$. We say that the topological receptive field $\tau$ of $y_1$ is $\tau(y_1)=\{1,2, 3\}$. Both $y_1$ and $y_2$ have the same or almost the same $\tau$ to each other but significantly differ from $y_3$ and $y_4$. We could say that $y_1,y_2$ form one column, whereas $y_3,y_4$ form another. The $\boldsymbol{z}$ combines  information from both columns and builds coarser, more general, coincidence classes. The receptive topology is the driving force behind receptive fields.
-If the probability distribution $p(x_1,x_2,x_3)$ is the same as that of $p(x_3,x_4,x_5)$, then $y_1,y_2$ will develop similar receptive fields to those of $y_3,y_4$. There is not need for weight sharing. The network will always self-organise optimally. 
 
-This model achieves exactly what Geoffrey Hinton's capsule networks were originally meant to do. Even though $p(x_1,x_2,x_3)=p(x_3,x_4,x_5)$, the neurons 
- $y_1,y_2$  are not equivalent to $y_3,y_4$. They recognise the same signal but at different locations. The $\boldsymbol{z}$ then has access to such location-carrying information and builds hierarchies of features that account for their spacial relationships. 
+The neuron $y_1$ can ``see'' input coming from $x_1$ and $x_2$. We say that the topological receptive field $\tau$ of $y_1$ is $\tau(y_1)=\{x_1,x_2\}$. All the neurons
+within the same column share common $\tau$ and compete with each other due to inhibition. Neurons across different columns have access to distinct fragments of input. As a result every column will only learn to recognise input as a specific location. 
+
+Deep nets learn by approximating functions and the architecture of the network provides inductive priors by constraining the functions to follow certain equivariant properties. Deep convolutional networks a-priori come with the assumption of translation invariance which is enforced by sharing kernel weights. The ECC are capable of learning such equivariances on their own.
+
+In the example from figure \ref{fig:ecc_conv_machine}, the neurons $[y_1,y_2,y_3]$ and $[y_4,y_5,y_6]$ receive inputs $[x_1,x_2]$ and $[x_2,x_3]$ respectively. If the input is indeed translation invariant then $p([x_1,x_2])=p([x_2,x_3])$ should hold by definition. In such case, hebbian learning will drive both $[y_1,y_2,y_3]$ and $[y_4,y_5,y_6]$ to develop similar factorizations
+\begin{gather*}
+p(\boldsymbol{x}) = p(\boldsymbol{x}|y_1)p(y_1)+  p(\boldsymbol{x}|y_2)p(y_2)+  p(\boldsymbol{x}|y_3)p(y_3)\text{ where }\boldsymbol{x}=[x_1,x_2] \\
+p(\boldsymbol{x}) = p(\boldsymbol{x}|y_4)p(y_4)+  p(\boldsymbol{x}|y_5)p(y_5)+  p(\boldsymbol{x}|y_6)p(y_6)\text{ where }\boldsymbol{x}=[x_2,x_3]
+\end{gather*}
+such that $p(\boldsymbol{x}|y_2) \approx p(\boldsymbol{x}|y_{\sigma(4)}), p(\boldsymbol{x}|y_{3}) \approx p(\boldsymbol{x}|y_{\sigma(5)}),p(\boldsymbol{x}|y_3) \approx p(\boldsymbol{x}|y_{\sigma(6)}) $ for some permutation $\sigma$. Both columns are approximately isomorphic. We can stack multiple layers on top of each other and the equivariance will be preserved. For example let $W_1,W_2$ be the weights of connections from $[y_1,y_2,y_3]$ and   $[y_4,y_5,y_6]$ respectively, outgoing to some neuron $z_1$ in next layer. If the two columns are isomorphic then $W_1\approx\sigma W_2$. Hence it can be seen that the networks can self-organise and equivariance will emerge. The only inductive bias is the topology $\tau$. (Convolutional pattern of $\tau$ can easily emerge on its own if we assume that the neurons are embedded in a physical space and the axons are sparsely projected to some small local neighbourhood in subsequent regions of neocortex.)
+
+This model achieves exactly what Geoffrey Hinton's capsule networks were originally meant to do. Even though $[y_1,y_2,y_3]$ and   $[y_4,y_5,y_6]$ are isomorphic, they not equivalent from information perspective. They recognise the same signal but at different locations. Deeper layers $\boldsymbol{z}$ could then access such location-carrying information and builds hierarchies of features that account for their spacial relationships. Such ECC networks can build``semantic'' models of the environment when combined with motor feedback, which will be shown in a later section.
+
 
 \section{Experiments}
 
-We built a 4 layer ECC network and trained it without any labels and using nothing more than Hebbian learning rules. Figure \ref{fig:experiment4} presents receptive fields of neurons from layer 4 in randomly initialised network before training and the exclusive coincidence classes that emerge after enough iterations. Figure \ref{fig:experiment3} represents neurons from one column in layer 3 after training.
-At the beginning the receptive fields tend to fluctuate. Their shapes appear blurry and random. After enough iterations, the receptive fields stabilise and converge to much sharper and more detailed shapes. The training was performed by taking random 11x11 patches of MNIST images. Before and after training, the receptive fields were evaluated on a different set of  unseen patches. Hence it can be seen that the network does not merely cluster
-the observed data, but instead it forms robust classes of features that generalise well.
+Convolutional ECC networks can be trained either layer-by-layer (from bottom to top) or all at once (hebbian learning works everywhere simultaneously). The only difference between the two approaches is that training layer-by-layer can be much faster and more efficient on a static dataset, whereas online learning of all layers at once allows for extracting temporal dependencies in an interactive environment. 
+
+Network topology is determined by its sequence of convolutions. Here we present effects of all-at-once training for architecture $5\times 2 \times 20,  2\times 1 \times 54$. Figure  \ref{fig:experiment3} shows averaged receptive field $\mathbb{E}(\boldsymbol{x}|y_j)$ formed by one arbitrarily chosen column in the first hidden layer
+
+
+\begin{figure}[!htbp]
+	\centering
+	\includegraphics[width=12cm]{predictive_coding_stacked2_experiment3 before}
+	\includegraphics[width=12cm]{predictive_coding_stacked2_experiment3 after}
+	\caption{Receptive fields of 20 neurons from a first hidden layer before and after training.}
+	\label{fig:experiment3}
+\end{figure} 
 
 \begin{figure}[!htbp]
 	\centering
@@ -599,14 +567,11 @@ the observed data, but instead it forms robust classes of features that generali
 	\label{fig:experiment4}
 \end{figure} 
 
-\begin{figure}[!htbp]
-	\centering
-	\includegraphics[width=12cm]{predictive_coding_stacked2_experiment3 before}
-	\includegraphics[width=12cm]{predictive_coding_stacked2_experiment3 after}
-	\caption{Receptive fields of 20 neurons from a single column in layer 3 before and after training.}
-	\label{fig:experiment3}
-\end{figure} 
- 
+First set of experiments Figures and \ref{fig:experiment4} represents neurons from one column in layer 3 after training.
+Figure presents receptive fields of neurons from layer 4 in randomly initialised network before training and the exclusive coincidence classes that emerge after enough iterations.
+At the beginning the receptive fields tend to fluctuate. Their shapes appear blurry and random. After enough iterations, the receptive fields stabilise and converge to much sharper and more detailed shapes. The training was performed by taking random 11x11 patches of MNIST images.
+
+
 
 
 \section{Reinforcement learning and control}
@@ -653,125 +618,29 @@ If the agent builds an internal model of the world, that works like a map, it co
 Once the agent has an internal map, it could then exactly know which aspects of the environment are unexplored. Unlike in the current deep reinforcement learning approaches, an agent with episodic memory would only need to visit a novel place once in order to learn about it. If the world is dynamically changing, then an attention mechanism will be necessary. If an animal sees or hears something unexpected it will focus all its attention on the novel experience. This mechanism can be explained using ECC networks as well. Suppose that the current internal model $\boldsymbol{y}$ explains all the previously experienced observations $p(\boldsymbol{x})=\sum_j p(\boldsymbol{x},y_j)$. If the agent experiences something novel that does not fit into any specific $y$, then it will be surprised. The agent will become curious and focus on the novel experience for a while. After the model  $\boldsymbol{y}$ restructures itself and learns about the new $\boldsymbol{x}$, then the agent become ``bored''. 
 
 
+\section{Optimisations and efficiency benchmarks}
 
-\section{Time and feedback (bonus)}
-
-The ECC can be extended to work with time series, model sequential data, detect movement and distance of object. Let $\boldsymbol{x}^{(t)}$ and $\boldsymbol{y}^{(t)}$ be the input signal and states of neurons at time step $t$ respectively. We can concatenate several such vectors $\boldsymbol{x}^{(t-b)}\cdot \boldsymbol{x}^{(t-b+1) }\cdot ...\cdot\boldsymbol{x}^{(t)}=\boldsymbol{\hat{x}}^{(t)}$ up to $b$ steps from the past. Analogically for $\boldsymbol{\hat{y}}^{(t)}$. Now the weight matrices $W$ can span not only neurons but also their past states. The connections are now made not only across space but also time. This mechanism works identically in both discrete and continuous time. The dendrites of real neurons in the brain carry their information at different speeds. The faster dendrites connect to recent past, whereas slower ones detect signal from to more distant past. Aside from increased complexity, all the fundamental mechanism of ECC networks remain the same.
-
-Every neuron represents certain aspect of the external world. Inhibitory neurons can be used to model logical negations, whereas excitatory neurons detect conjunctions. Sometimes it might be beneficial to model logical implications or equivalences. Figure \ref{fig:implication} 
-\begin{figure}[!htbp]
-	\centering
-	\includegraphics[width=10cm]{implication}
-	\caption{Two distant columns connected by long range apical feedback}
-	\label{fig:implication}
-\end{figure} 
-presents an example of two very distinct columns of neurons. Their topological receptive fields might be unrelated (for example one getting input from vision and the other from audition). The double arrow connecting $y_2$ to $y_{101}$ is used to denote that $y_{101}$ is only allowed to fire if  $y_2$ has previously fired. This way we can encode logical implication $y_{101} \implies y_{2}$. Connections like this are commonly observed in the real brain. The pyramidal neurons have two integration zones and will fire only when both are active at the same time. Such feedback allows for building network topologies that restrict the patterns of activities in certain specific ways and detect coincidences across different modalities.
-
-\section{Optimisation (bonus)}
-
-Sparsity enables major optimisations. We can define ECC layers with thousands of neurons, leading to $W$ matrices with millions of weights. Computing them is cheap and can be done on a single CPU because the input vector is sparse and binary. We do not need to multiply $\boldsymbol{x}W$ entirely. If we represent $\boldsymbol{x}$ as a list of indices of active neurons, then we can only iterate such list and visit only a handful of columns in $W$. The $argmax$ operation is linear. We can also implement $top-k$ algorithm with linear complexity, because the upper bound on $s$ is known in advance and we can use an approach similar to radix sort. During learning we have to renormalise the winning column of $W$. This requires computing sum, which is of linear complexity. We can achieve constant complexity if we implement a stochastic algorithm, that is, we add $\epsilon$ to $w_{ik}$ for $x_i=1$ (this operation is constant because $\boldsymbol{x}$ is sparse) and then we randomly choose a few other $w_{ik}$ for $x_i=0$ and subtract $\epsilon$ from them. We might need to check if $w_{ik}>0$ in order to avoid introducing negative values. This ensures that weights always sum up to $1$.
+Sparsity enables major optimisations. We can define ECC layers with thousands of neurons, leading to $W$ matrices with millions of weights. Computing them is cheap and can be done on a single CPU because the input vector is sparse and binary. We do not need to multiply $\boldsymbol{x}W$ entirely. If we represent $\boldsymbol{x}$ as a list of indices of active neurons, then we can only iterate such list and visit only a handful of columns in $W$. The $argmax$ operation is linear. During learning we have to renormalise the winning column of $W$. This requires computing sum, which is of linear complexity. We can achieve constant complexity if we implement a stochastic algorithm, that is, we add $\epsilon$ to $w_{ik}$ for $x_i=1$ (this operation is constant because $\boldsymbol{x}$ is sparse) and then we randomly choose a few other $w_{ik}$ for $x_i=0$ and subtract $\epsilon$ from them. We might need to check if $w_{ik}>0$ in order to avoid introducing negative values. This ensures that weights always sum up to $1$.
 
 The real brain can function on a few potatoes a day. With neuromorphic hardware, ECC networks should be able to do the same. In theory we could have human-level intelligence running on cheap small chips. It's hard to imagine what a supercomputer could achieve.
 
 We ran benchmarks on random patches of MNIST images. Each patch was 25x25 pixels. The network had 734400 learnable parameters (and several non-learnable sparse matrices). Our implementation written in Rust was able to process 2000 images per second on a single thread on 2.7 GHz Intel i5 core. When learning was enabled, it could train on 1700 images per second.
 
-\section{Place cells (bonus)}
 
-The experimental results above only present formation of receptive fields. If we wanted to solve MNIST, we would need to find a way of extracting outputs from ECC networks. This can be done using a binding mechanism. 
-Suppose that there is an ECC network with several layer and the top one produces a collection of features describing certain observation. We would like to cluster those bags of features into categories. Suppose we generate a set of layers, one per category. We choose one of them and put it on top of our existing architecture. Then we present several example belonging to that specific category and let the network learn. Then we swap the top layer for a different one and draw examples from its corresponding category. After all learning is done, we concatenate all of the new layers into one and put it on top of the architecture. Now whenever a new examples comes our way, we will classify it into the category that receives the most votes.
+\section{ECC are spiking networks}
 
-Figure \ref{fig:v3 experiment2} presents results of training on full MNIST images. It can be seen that each neuron attends to a specific sub-feature of a digit. Several unrelated digits may share common features. For example a straight tilted line in the middle might code part of number $7$ or $4$. We finding $top-k$ neurons and combining their features we can narrow-down a specific digit. The distribution of observation vectors $p(\boldsymbol{x})$ might be very complex and we could approximate it well using millions of exclusive classes 
-\[
-p(\boldsymbol{x})=\sum_{j=1}^{10^6}p(\boldsymbol{x},z_j)
-\]
-This approach is wasteful, because very often several of the classes might share common features. For example we could approximate one $z$ using combination of  simpler ones from an intermediate layer $\boldsymbol{y}$ 
-\[
-p(\boldsymbol{x},z_3) = p(\boldsymbol{x},y_{54}) + p(\boldsymbol{x},y_{13}) + p(\boldsymbol{x},y_{183})
-\] 
-Learning using conjunctions of features is much cheaper and more robust than trying to overfit every single observation. We only need a device that could very quickly reuse and recombine features. In the real brain this is done by the hippocampus. It is the mechanism that effectively allows for one-shot learning.
-Our implementation of the hippocampal-like ``place cells'' achieves 97\%+ accuracy on MNIST after seeing only a handful of examples (Figure \ref{mnist_results}). Certain pretraining is necessary in order to develop the smaller features, but it could be done even on unrelated data.
+The ECC can be extended to work with time series, model sequential data, detect movement and distance of objects. Let $\boldsymbol{x}^{(t)}$ and $\boldsymbol{y}^{(t)}$ be the input signal and states of neurons at time step $t$ respectively. We can concatenate several such vectors $\boldsymbol{x}^{(t-b)}\cdot \boldsymbol{x}^{(t-b+1) }\cdot ...\cdot\boldsymbol{x}^{(t)}=\boldsymbol{\hat{x}}^{(t)}$ up to $b$ steps from the past. Analogically for $\boldsymbol{\hat{y}}^{(t)}$. Now the weight matrices $W$ can span not only neurons but also their past states. The connections are now made not only across space but also time. The size of $W$ is given by $bnm$ where $n$ and $m$ is the number of input $\boldsymbol{x}$ and hidden $\boldsymbol{y}$ neurons respectively. The memory complexity is therefore cubic. There is a certain heuristic that can be exploited in order to obtain a quadratic complexity. The natural environment is time-consistent, meaning that usually $\boldsymbol{x}$ only changes a little between time steps. When the agent is idle, it may look in a specific direction for prolonged period of time and always observe the same $\boldsymbol{x}$. Therefore we could agree to only make one connection to a specific point in time per input-output pair. Hence the matrix $W$ is not a Cartesian product $[t-b,t] \times \boldsymbol{x} \times \boldsymbol{y} \rightarrow [0,1]$  but rather a function $\boldsymbol{x} \times \boldsymbol{y} \rightarrow [t-b,t] \times [t-b,t] \rightarrow [0,1]$ where $[t-b,t] \times [t-b,t]$ are the beginning and end of the time-window (relative to current time $t$).
 
-\begin{figure}[!htbp]
-	\centering
-	\includegraphics[width=10cm]{predictive_coding_stacked3_experiment2 before}
-	\includegraphics[width=10cm]{predictive_coding_stacked3_experiment2 after}
-	\caption{Sub-features emerging in layer 5}
-	\label{fig:v3 experiment2}
-\end{figure} 
+In the case of continuous time, primitive distributions must be represented using a different data structure than a matrix. The dendrites of biological neurons carry their information at different speeds. The faster dendrites connect to recent past, whereas slower ones detect signal from to more distant past. The action potential doesn't vanish instantly. A plateau potential may linger for a certain period of time, which means that the neuronal connections can be tuned to a time-interval of some specific length. The neurons tend to fire in spike trains of specific frequency. Two subsequent spikes coming from the same input are likely correlated and do not carry additional information, hence it's pointless to have multiple connections to the same input tuned to distinct times. This again allows for reducing the complexity from cubic to quadratic. Hence the optimal data structure for representing continuous primitive distributions is a function $\boldsymbol{x} \times \boldsymbol{y} \rightarrow \mathbb{R} \times \mathbb{R} \rightarrow [0,1]$ where $\mathbb{R} \times \mathbb{R}$ represents beginning and end of time interval.
 
-\section{Grid cells (bonus)}
+The standard ECC learning algorithm can be used to train $W$ matrices of cubic complexity. When we used the heuristic quadratic $W$, then the spike-time-dependent plasticity emerges as the optimal learning method. If the input spike comes too early, we move the time window a little to the past. If it comes too late, we move it a notch to the future. If the variance of relative spike time is high, then we stretch the time window to be longer. If the input arrives at a very predictable time, then we can narrow down the window size. 
 
-The brain receives two types of experiences. Sensory input encode the state of the outside world. Motor feedback encodes the actions and state of the agent itself. What would happen if a neuron's receptive field included both types of information?
-It leads to emergence of neurons that encode the state of the agent. Head-direction cells tell us which way we are facing. Grid cells encode our current location. 
-Signals from such neurons can later be used to drive evolution of place cells.
-Below we present an ECC architecture that leads to emergence of sensorimotor control. It enables the agent to anticipate outcomes of its actions. We show that it 
-robustly and precisely predicts evolution of an interactive system over time.
+The dendrites of biological neurons are arranged in a tree-like structure. Tuning the time-window selectivity of the dendrite will affect all of the synapses. Under such circumstances, the only way to fine-tune individual synapses is to disconnect them if the time-window of the current dendrite is unsuitable and hope that some other dendrite happens to be better tuned and could form the right synapses.	
 
 
-\section{Invariance (bonus)}
-
-The ECC do not need to share weights in the same way as deep neural nets do.
-We could impose invariance by choosing the right connection topologies instead.
-A grid-like lamellar pattern could be used for such a purpose. Suppose we are working in 3D space. Imagine a band of parallel axons running along $xz$ plane (perpendicular to $y$ axis). All axons are directed from positive $x$ to negative $x$ and run parallel to $x$ axis. If you now run a dendrite along the $z$ axis right on top of the band of axons, you will achieve topology, which connects that dendrite to every axon on that specific height. You can repeat this construction at different heights $y$. It doesn't matter which axon fires along the $z$ axis, but the height $y$ makes a difference. Hence the network topology is invariant to the dimension $z$ but sensitive to $y$. Different output neurons reside at distinct $x$ positions.
-
-Structures like this have been observed in dentate gyrus of the hippocampal formation. We do not present any evidence that this is the purpose of lamellar structure of dentate gyrus, but we merely point out that it's a possibility and it could be imitated by ECC networks.
-
-\section{Planning (bonus)}
-
-By mimicking the mechanisms of hippocampal formation, we can design ECC networks capable of imagination and forward thinking. Perhaps by building on top of it, we could reproduce higher cognitive functions of prefrontal cortex but this is beyond the scope of this paper. Figure \ref{fig:hippocampus} presents three layers arranged in a loop.
-\begin{figure}[!htbp]
-	\centering
-\begin{tikzpicture}[scale=0.2]
-	\tikzstyle{every node}+=[inner sep=0pt]
-	\draw [black] (22.6,-31.5) circle (3);
-	\draw (22.6,-31.5) node {$y_1$};
-	\draw [black] (28.2,-37.2) circle (3);
-	\draw (28.2,-37.2) node {$y_2$};
-	\draw [black] (34.3,-42.5) circle (3);
-	\draw (34.3,-42.5) node {$y_3$};
-	\draw [black] (43.4,-27) circle (3);
-	\draw (43.4,-27) node {$h_1$};
-	\draw [black] (53.9,-42.5) circle (3);
-	\draw (53.9,-42.5) node {$z_3$};
-	\draw [black] (58,-36.3) circle (3);
-	\draw (58,-36.3) node {$z_2$};
-	\draw [black] (62.5,-29.7) circle (3);
-	\draw (62.5,-29.7) node {$z_1$};
-	\draw [black] (24.906,-29.585) arc (125.45796:78.9572:20.22);
-	\fill [black] (40.51,-26.21) -- (39.82,-25.57) -- (39.63,-26.55);
-	\draw [black] (46.127,-28.24) arc (60.02539:8.20355:15.573);
-	\fill [black] (53.76,-39.51) -- (54.14,-38.64) -- (53.15,-38.79);
-	\draw [black] (17.1,-45.5) -- (21.5,-34.29);
-	\fill [black] (21.5,-34.29) -- (20.75,-34.85) -- (21.68,-35.22);
-	\draw [black] (25.599,-31.446) arc (89.06231:52.2109:43.588);
-	\fill [black] (25.6,-31.45) -- (26.39,-31.96) -- (26.41,-30.96);
-\end{tikzpicture}
-	\caption{Simplified schematic of hippocampal formation}
-	\label{fig:hippocampus}
-\end{figure} 
-The neurons $\boldsymbol{y}$ receive input from lower levels of ECC network.
-The layer $\boldsymbol{h}$ contains place cells (their activity is modulated by grid cells, which are not shown here). Suppose that the agent finds itself at a particular location and it sees some object. The representation of that experience will be encoded by $\boldsymbol{y}$ and this population activity will be associated to a particular populations of $\boldsymbol{h}$ cells. The $\boldsymbol{y}$  activity has only miniscule effect on activation of $h_1$ (it is mostly the grid cells that activate it, which function as a ``label'' for the inputs). The currently active $h_1$ drives activity in $\boldsymbol{z}$ layer (the subiculum in biological brains). The $z$ neurons have only a miniscule effect on activation of $\boldsymbol{y}$ layer. The plasticity of connections from $\boldsymbol{z}$ to $\boldsymbol{y}$ will learn to associate specific place cells with their most recent experiences (over time this will change and short-term memory will fade away). If the agent ``closes its eyes'' and there is no signal flowing to $\boldsymbol{y}$ from below, then $\boldsymbol{z}$ will be the sole force driving $\boldsymbol{y}$ activity. This allows for ``imagination''. Agent can use place cells $\boldsymbol{h}$ to imagine future experiences and relieve recent events. Sequences of such place cell activities have been observed in the real brain during planning. The mechanism above does not have enough storage capacity to keep long-term memories. There needs to exist a mechanism that transfers this information to other parts of the network (quite possibly during sleep they will be moved to prefrontal cortex and other areas).
-
-
-\section{Evolving ECC networks (bonus)}
+\section{Evolving ECC networks}
 
 The receptive fields $p(\boldsymbol{x},y_j)$ of neurons are primarily driven by their respective topologies $\tau$. We can embed the set of all neurons $\boldsymbol{y}$ in a n-dimensional euclidean space. This way we obtain a norm on all nodes in the graph. Neurons that are in close proximity, should have higher probability of developing similar topologies. Then the task of evolving ECC network becomes reduced to evolution of manifolds in a euclidean space. Kenneth Stanley's ES-HyperNEAT algorithm can be repurposed for such a task. 
-
-What should be the fitness function?  If we tried to evaluate ECC on CIFAR10, we would achieve seemingly poor results. That is because static data lacks any semantics and it's impossible to build meaningful models of the world when you all can see are shadows in Plato's cave. Hence it only makes real sense to evaluate ECC as reinforcement  learning agents. 
-
-Should the accumulated reward be a fitness function? ECC networks lack any optimisation  mechanism and we are not sure whether there will even be any straight-forward way of precisely controlling agent's behaviour. If we couldn't explain to the agents exactly what they are supposed to do, then any measure of their ``success'' becomes vague and misleading. We believe that open-ended novelty search is the only reasonable approach. Hence there is no fitness function.
-
-Developing AGI is going to be a creative process. We should experiment with various network topologies and investigate the receptive fields that they form. 
-It would then be possible to build a zoo of interesting topologies and develop it like Picbreeder in a community-driven way. If we focus on finding interesting patterns, then it might be possible to build machines capable of feeling emotions, appreciating art and music, chasing mice like cats or dancing like peacock spiders.
-
-% Even if humanity found a way of controlling the behaviour of ECC networks, we feel the need to make a grim warning against that. The last thing we need is to build AGI that is very good and collecting stamps but lacking any will to live or appreciation of the world.
-
-% (My notes on the side: Interestingly, we don't know whether there exist other technologies capable of producing AGI, but if deep learning is one of them, then it seems like the right tool for building deadly emotionless killing machines. Hopefully deep learning never becomes truly intelligent. Paradoxically OpenAI's  and DeepMind's efforts towards achieving ``safe AGI'' have been only leading in the opposite direction.)
-
-
-%\section{Evolving ECC networks (bonus)}
- 
- %We can define an algebra of network topologies. Let $\mathbb{X}$ be the set of all neurons.
 
 
 

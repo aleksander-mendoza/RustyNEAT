@@ -1,3 +1,12 @@
-\contentsline {section}{\numberline {1}Introduction}{1}{}%
-\contentsline {section}{\numberline {2}Experiments}{4}{}%
-\contentsline {section}{\numberline {3}Discussion}{4}{}%
+\contentsline {section}{\numberline {1}Introduction}{2}{}%
+\contentsline {section}{\numberline {2}Exclusive coincidence classes}{4}{}%
+\contentsline {section}{\numberline {3}Fundamental theory}{7}{}%
+\contentsline {section}{\numberline {4}Universal approximation}{9}{}%
+\contentsline {section}{\numberline {5}Linear probability spaces and eigendistributions}{10}{}%
+\contentsline {section}{\numberline {6}Convergence proof}{11}{}%
+\contentsline {section}{\numberline {7}Convolutional networks}{14}{}%
+\contentsline {section}{\numberline {8}Experiments}{16}{}%
+\contentsline {section}{\numberline {9}Reinforcement learning and control}{16}{}%
+\contentsline {section}{\numberline {10}Optimisations and efficiency benchmarks}{21}{}%
+\contentsline {section}{\numberline {11}ECC are spiking networks}{22}{}%
+\contentsline {section}{\numberline {12}Evolving ECC networks}{23}{}%

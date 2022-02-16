@@ -27,11 +27,6 @@ from habitat_sim.utils import viz_utils as vut
 
 # @markdown (double click to see the code)
 
-fig, axs = plt.subplots(2)
-for ax in axs:
-    ax.axis("off")
-axs[0].set_title("rgb")
-axs[1].set_title("input")
 laplacian = np.array([[0, 1, 0],
                       [1, -4, 1],
                       [0, 1, 0]])
@@ -39,17 +34,7 @@ laplacian = np.array([[0, 1, 0],
 w, h = 256, 256
 l1 = ecc.CpuEccDense.new_in([w, h], [8, 8], [2, 2], 1, 16, 1)
 enc = htm.EncoderBuilder()
-img_enc = enc.add_image(w, h, 1, )
-
-
-# Change to do something like this maybe: https://stackoverflow.com/a/41432704
-def display_sample(rgb_obs):
-    # rgb_img = Image.fromarray(rgb_obs, mode="RGBA")
-    axs[0].imshow(rgb_obs)
-    gray = cv2.cvtColor(rgb_obs, cv2.COLOR_BGRA2GRAY)
-    result = cv2.filter2D(gray, -1, laplacian)
-    axs[1].imshow(result > 12)
-    plt.show()
+img_enc = enc.add_image(w, h, 1, 12)
 
 
 # This tells imageio to use the system FFMPEG that has hardware acceleration.
@@ -113,24 +98,23 @@ action_names = list(cfg.agents[sim_settings["default_agent"]].action_space.keys(
 print("Discrete action space: ", action_names)
 
 
-def navigateAndSee(action=""):
-    if action in action_names:
-        observations = sim.step(action)
-        print("action: ", action)
-        display_sample(observations["color_sensor"])
-
-
-action = "turn_right"
-navigateAndSee(action)
-
-action = "turn_right"
-navigateAndSee(action)
-
-action = "move_forward"
-navigateAndSee(action)
-
-action = "turn_left"
-navigateAndSee(action)
-
-# action = "move_backward"   // #illegal, no such action in the default action space
-# navigateAndSee(action)
+total_frames = 0
+action_names = list(cfg.agents[sim_settings["default_agent"]].action_space.keys())
+fig, axs = plt.subplots(2)
+for ax in axs:
+    ax.axis("off")
+axs[0].set_title("rgb")
+axs[1].set_title("input")
+for _ in range(5):
+    action = random.choice(action_names)
+    print("action", action)
+    observations = sim.step(action)
+    rgb = observations["color_sensor"]
+    axs[0].imshow(rgb)
+    gray = cv2.cvtColor(rgb, cv2.COLOR_BGRA2GRAY)
+    result = cv2.filter2D(gray, -1, laplacian)
+    sdr = htm.CpuSDR()
+    img_enc.encode(sdr,np.expand_dims(result,2))
+    axs[1].imshow(result > 12)
+    plt.pause(1)
+    total_frames += 1
