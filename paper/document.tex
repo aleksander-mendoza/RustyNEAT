@@ -168,58 +168,6 @@ def infer(x,W,a,learning_enabled):
     return k
 \end{lstlisting}
 
-\iffalse
-If we tried to use it on any data we would see that it struggles with building  any meaningful representations of data. Adding more layers would only lead to even worse performance. The problem is that ECC use two types of layers. What we have so far is only the ``convergent'' layer, but training will not work without adding ``separation'' layer. Consider the problem of modelling $\boldsymbol{x}\in\{[1,1,0],[0,1,1]\}$. We would like to assign these two vectors to different $y_1$ and $y_2$. A convergent layer will always try to generalise common information and it will notice that the two vectors share $\frac{1}{3}$ of their bits in common. As a result the layer will produce two almost identical weight vectors for both $y_1$ and $y_2$. Entropy maximisation will then cause the network to oscillate between the two explanations at random. To address this issue we need some mechanism to represent logical negations of features like $x_1\wedge \neg x_3$ and $\neg x_1\wedge x_3$. Such mechanism is called the pattern separation. 
-
-
-
-In figure \ref{fig:ecc_graphical_models} every node $y$ sends input to the same $e$ and then $e$ inhibits all $y$. As a result all $y$ regulate themselves and each other. It is possible to build a graph like in figure \ref{fig:ecc_sep_graphical_models}, where these connections are not symmetric.
-\begin{figure}[!htbp]
-	\centering
-	
-	\begin{tikzpicture}[scale=0.2]
-		
-		\tikzstyle{every node}+=[inner sep=0pt]
-		\draw [black] (7.2,-40.4) circle (3);
-		\draw (7.2,-40.4) node {$e_1$};
-		\draw [black] (7.2,-40.4) circle (2.4);
-		\draw [black] (7.2,-50.2) circle (3);
-		\draw (7.2,-50.2) node {$s_1$};
-		\draw [black] (23.5,-50.2) circle (3);
-		\draw (23.5,-50.2) node {$s_2$};
-		\draw [black] (39.7,-50.2) circle (3);
-		\draw (39.7,-50.2) node {$s_3$};
-		\draw [black] (23.5,-40.4) circle (3);
-		\draw (23.5,-40.4) node {$e_2$};
-		\draw [black] (23.5,-40.4) circle (2.4);
-		\draw [black] (39.7,-40.4) circle (3);
-		\draw (39.7,-40.4) node {$e_3$};
-		\draw [black] (39.7,-40.4) circle (2.4);
-		\draw [black] (9.77,-41.95) -- (20.93,-48.65);
-		\fill [black] (20.93,-48.65) -- (20.5,-47.81) -- (19.99,-48.67);
-		\draw [black] (10.07,-41.27) -- (36.83,-49.33);
-		\fill [black] (36.83,-49.33) -- (36.21,-48.62) -- (35.92,-49.58);
-		\draw [black] (7.2,-47.2) -- (7.2,-43.4);
-		\fill [black] (7.2,-43.4) -- (6.7,-44.2) -- (7.7,-44.2);
-		\draw [black] (23.5,-47.2) -- (23.5,-43.4);
-		\fill [black] (23.5,-43.4) -- (23,-44.2) -- (24,-44.2);
-		\draw [black] (20.93,-41.95) -- (9.77,-48.65);
-		\fill [black] (9.77,-48.65) -- (10.71,-48.67) -- (10.2,-47.81);
-		\draw [black] (39.7,-47.2) -- (39.7,-43.4);
-		\fill [black] (39.7,-43.4) -- (39.2,-44.2) -- (40.2,-44.2);
-		\draw [black] (37.13,-48.65) -- (26.07,-41.95);
-		\fill [black] (26.07,-41.95) -- (26.49,-42.79) -- (27.01,-41.94);
-		\draw [black] (37.13,-41.95) -- (26.07,-48.65);
-		\fill [black] (26.07,-48.65) -- (27.01,-48.66) -- (26.49,-47.81);
-	\end{tikzpicture}
-	\caption{Exclusive coincidence classes with asymmetric inhibition.}
-	\label{fig:ecc_sep_graphical_models}
-\end{figure}
- One excitatory neuron could drive inhibition of other excitatory neurons but not itself. Such a configuration allows the network to represent more sophisticated interactions between features, like $s_1\wedge\neg s_2 \wedge \neg s_3$,  $\neg s_1 \wedge s_2$ or $s_3\wedge\neg s_1 \wedge s_2$.  
- 
-Suppose that observations $\boldsymbol{x}$ are vectors of $n$ bits. In order to represent all possible conjunctions of negated and non-negated bits we would need to map $\boldsymbol{s}$ onto $2^n$ neurons in $\boldsymbol{y}$ layer. As we use sparse population coding,  we know that only a small fraction of bits in $\boldsymbol{x}$ will be active at any given time. Hence in practice it suffices to only use $\boldsymbol{y}$ of length $2n$ or a little less. We also do not need to keep individual inhibitory neurons in the memory. As the number of neurons increases, the effects of inhibition become approximately equivalent to choosing top $k$ highest activations. This $k$ is analogical to the top 1 best explanation in convergent layer. We will use bold $\boldsymbol{k}$ to denote a vector top $k$ elements $\boldsymbol{k}=[k_1,k2,...k_k]$ used in separation layer. 
-The weights $W$ are sparse and initialised randomly. They do not need to be trained, because we do not intend to detect any coincidences (the plasticity $\epsilon$ is $0$). 
-\fi
 
 \section{Fundamental theory}
 
@@ -236,7 +184,11 @@ $p(\boldsymbol{x})=p(\boldsymbol{x},y_1)+p(\boldsymbol{x},y_2)+...+p(\boldsymbol
 \[
 p(\boldsymbol{x})=\sum_{j} p(\boldsymbol{x}|y_j) p(y_j)
 \]
-where $p(\boldsymbol{x}|y_j)$ are vectors and $p(y_j)$ are scalars with the constraint that all  $p(y_j)$ sum up to one $\sum_{j} p(y_j)=1$. The conditional probability $p(\boldsymbol{x}|y_j)$  is not modelled directly. Instead, it is possible to turn an ECC network ``upside-down'' and use it as a generative model. 
+where $p(\boldsymbol{x}|y_j)$ are vectors and $p(y_j)$ are scalars with the constraint that all  $p(y_j)$ sum up to one $\sum_{j} p(y_j)=1$. The conditional probability $p(\boldsymbol{x}|y_j)$  may be difficult  to model directly. ECC network will build an approximate distribution $q(\boldsymbol{x}|y_j)$, which is easier to model. 
+\[
+p(\boldsymbol{x})\approx\sum_{j} q(\boldsymbol{x}|y_j) p(y_j)
+\]
+Such density function is parameterised using weight matrix $W$. It is possible to turn an ECC network ``upside-down'' and use it as a generative model.
 \begin{lstlisting}
 def generate(c, W, j):
     x = [0, 0, ... , 0] // n zeroes
@@ -245,42 +197,128 @@ def generate(c, W, j):
         x[i] = 1
     return x
 \end{lstlisting}
-The \texttt{random} function chooses a number between $1$ and $n$ according to distribution provided by $W_j$ ($j^{th}$ column of $W$). The \texttt{generate} function can be used to produce observation $\boldsymbol{x}$ with cardinality $\lVert\boldsymbol{x} \rVert^2=\boldsymbol{x}\boldsymbol{x}^{T}$ (number of ones) less than or equal to $c$.  The probability of generating $\boldsymbol{x}$ in exactly $c=\lVert\boldsymbol{x} \rVert^2$ steps is given by 
+The \texttt{random} function chooses a number between $1$ and $n$ according to distribution provided by $W_j$ ($j^{th}$ column of $W$). The \texttt{generate} function can be used to produce observation $\boldsymbol{x}$ with cardinality $\lVert\boldsymbol{x} \rVert_1$ (number of ones) less than or equal to $c$.  The probability of generating $\boldsymbol{x}$ in exactly $c=\lVert\boldsymbol{x} \rVert_1$ steps is given by 
  \[
- p(\boldsymbol{x}|y_j, \lVert\boldsymbol{x} \rVert^2 = c) = \frac{c!}{n^c}\prod_{x_i\in\boldsymbol{x}} w_{ij}
+ q(\boldsymbol{x}|y_j, \lVert\boldsymbol{x} \rVert_1 = c) = \frac{c!}{n^c}\prod_{x_i\in\boldsymbol{x}} w_{ij}
  \]
-The weights represent probability $w_{ij} = p(x_i \in \boldsymbol{x}| y_j)$, which is not to be confused with $p(x_i|y_j)=\mathbb{E}(x_i|y_j)$. Instead $p(x_i \in \boldsymbol{x}| y_j)$ is defined as
+The weights represent probability $w_{ij} = q(i| y_j)$, defined as
 \begin{gather*}
-\sum_{i=1}^{n} p(x_i \in \boldsymbol{x}| y_j) = 1 \\
-p(x_i \in \boldsymbol{x}| y_j) =
-\frac{\sum_{\boldsymbol{x}\in\{0,1\}^n}x_i  p(\boldsymbol{x}|y_j) }{\sum_{ï=1}^{n} \sum_{\boldsymbol{x}\in\{0,1\}^n}    x_{ï}  p(\boldsymbol{x}|y_j) } = \frac{\mathbb{E}(x_i|y_j)}{\sum_{ï=1}^{n} \mathbb{E}(x_{ï}|y_j)} =  \frac{p(x_i|y_j)}{\sum_{ï=1}^{n} p(x_{ï}|y_j)} 
+\sum_{i=1}^{n} q(i | y_j) = 1 \\
+q(i | y_j) =
+\frac{\sum_{\boldsymbol{x}\in\{0,1\}^n}x_i  q(\boldsymbol{x}|y_j) }{\sum_{ï=1}^{n} \sum_{\boldsymbol{x}\in\{0,1\}^n}    x_{ï}  q(\boldsymbol{x}|y_j) } = \frac{\mathbb{E}_q(x_i|y_j)}{\sum_{ï=1}^{n} \mathbb{E}_q(x_{ï}|y_j)} =  \frac{q(x_i|y_j)}{\sum_{ï=1}^{n} q(x_{ï}|y_j)} 
 \end{gather*}
-Therefore
+The equality holds $q(x_i|y_j)=\mathbb{E}_q(x_i|y_j)$ because $x_i$ is a binary random variable. In vector notation we obtain
 \[
-W_j = \frac{1}{d}\mathbb{E}(\boldsymbol{x}|y_j), \text{ where }d=\mathbb{E}(\boldsymbol{x}|y_j)\boldsymbol{1}^{T} 
+W_j = \frac{\mathbb{E}_q(\boldsymbol{x}|y_j)}{\lVert \mathbb{E}_q(\boldsymbol{x}|y_j) \rVert _1}\text{ where }\lVert \cdot \rVert _1\text{ is }\ell^1\text{ norm}
 \]
- the column $W_j$ is a normalised expectation. It should not be confused with the probability $p(\boldsymbol{x}|y_j)$
+Each column $W_j$ is a an expected value of binary vector, whose sum is normalised to $1$. The probability $q(\boldsymbol{x}|y_j)$ can be modelled as
  \begin{gather*} 
-p(\boldsymbol{x}|y_j) = p(\boldsymbol{x}|y_j,c<\infty) = \sum_{c=0}^{\infty} p(c) p(\boldsymbol{x}|y_j,c)
+q(\boldsymbol{x}|y_j) = q(\boldsymbol{x}|y_j,c<\infty) = \sum_{c=0}^{\infty} p(c) q(\boldsymbol{x}|y_j,c)
  \end{gather*}
-where $p(\boldsymbol{x}|y_j,c)$ term has the following form
+The term $q(\boldsymbol{x}|y_j,c)$ always has the following form
 \[
-p(\boldsymbol{x}|y_j,c) = N(\lVert\boldsymbol{x} \rVert^2 ,y_j,c)\big(\sum_{x_i\in\boldsymbol{x}} w_{ij}\big)^{ c - \lVert\boldsymbol{x} \rVert^2  }\prod_{x_i\in\boldsymbol{x}} w_{ij}
+q(\boldsymbol{x}|y_j,c) = N(\lVert\boldsymbol{x} \rVert_1 ,y_j,c)\big(\sum_{x_i\in\boldsymbol{x}} w_{ij}\big)^{ c - \lVert\boldsymbol{x} \rVert_1  }\prod_{x_i\in\boldsymbol{x}} w_{ij}
 \]
-where $N(\lVert\boldsymbol{x} \rVert^2 ,y_j,c)$ is some combinatorial coefficient that depends only on cardinality of $\boldsymbol{x}$ but not its contents. The inner product  $\boldsymbol{x}W_j$ gives us the probability of choosing any bit from $\boldsymbol{x}$
+where $N(\lVert\boldsymbol{x} \rVert_1 ,y_j,c)$ is some combinatorial coefficient that depends only on cardinality of $\boldsymbol{x}$ but not its contents. The inner product  $\boldsymbol{x}W_j$ gives us the probability of choosing any bit from $\boldsymbol{x}$
 \[
 \boldsymbol{x}W_j = \sum_{x_i\in\boldsymbol{x}} w_{ij}
 \]
-Let $\boldsymbol{x}_1, \boldsymbol{x}_2$ be two binary vectors, then $\boldsymbol{x}_1 \subset \boldsymbol{x}_2$ holds if $x_i\in\boldsymbol{x}_1$ implies $x_i\in\boldsymbol{x}_2$. The probability of generating a subset of $\boldsymbol{x}_2$ is given by
+Let $\boldsymbol{x}', \boldsymbol{x}$ be two binary vectors, then $\boldsymbol{x}' \subset \boldsymbol{x}$ holds if $x_i'$ implies $x_i$. The probability of generating a subset of $\boldsymbol{x}$ is given by
 \[
-p(\boldsymbol{x}_1 \subset \boldsymbol{x}_2|y_j,c) = (\boldsymbol{x}_2W_j)^c
+q(\boldsymbol{x}' \subset \boldsymbol{x}|y_j,c) = (\boldsymbol{x}W_j)^c
 \]
 Let $\alpha$ be the probability of halting the generation process. Then 
 \begin{gather*}
-p(\boldsymbol{x}_1 \subset \boldsymbol{x}_2|y_j,c<\infty) = \alpha + (1-\alpha)\boldsymbol{x}_2W_j p(\boldsymbol{x}_1 \subset \boldsymbol{x}_2|y_j,c<\infty) \\
-p(\boldsymbol{x}_1 \subset \boldsymbol{x}_2|y_j,c<\infty)(1-(1-\alpha)\boldsymbol{x}_2W_j ) = \alpha \\
-p(\boldsymbol{x}_1 \subset \boldsymbol{x}_2|y_j,c<\infty) = \frac{\alpha}{1-(1-\alpha)\boldsymbol{x}_2W_j } \\
+q(\boldsymbol{x}' \subset \boldsymbol{x}|y_j,c<\infty) = q(\boldsymbol{x}' \subset \boldsymbol{x}|y_j) \\
+q(\boldsymbol{x}' \subset \boldsymbol{x}|y_j) = \alpha + (1-\alpha)\boldsymbol{x}W_j q(\boldsymbol{x}' \subset \boldsymbol{x}|y_j) \\
+q(\boldsymbol{x}' \subset \boldsymbol{x}|y_j)(1-(1-\alpha)\boldsymbol{x}W_j ) = \alpha \\
+q(\boldsymbol{x}' \subset \boldsymbol{x}|y_j) = \frac{\alpha}{1-(1-\alpha)\boldsymbol{x}W_j } \\
 \end{gather*}
+Let $W_h,W_j \in \mathbb{R}^n$ be two weight vectors corresponding to $y_h$ and $y_j$. If $\boldsymbol{x}W_h \ge \boldsymbol{x}W_j$ then the following $3$ inequalities hold
+\begin{gather*}
+q(\boldsymbol{x}' \subset \boldsymbol{x} |y_h) \ge q(\boldsymbol{x}' \subset \boldsymbol{x} |y_j) \\
+q(\boldsymbol{x} |y_h) \ge q(\boldsymbol{x} |y_j)   \\
+\lVert \boldsymbol{x} - W_h \rVert_1 \le \lVert  \boldsymbol{x} - W_j \rVert_1
+\end{gather*}
+The first two inequalities follow directly from their definitions. The third one is proved below.
+\begin{proof}
+	\begin{gather*}
+		\boldsymbol{x} W_h \ge \boldsymbol{x} W_j \\
+		\sum_{x_i\in\boldsymbol{x} }w_{ih} \ge \sum_{x_i\in\boldsymbol{x} }w_{ij} \\
+		\sum_{x_i\in\boldsymbol{x} }1-w_{ih} \le \sum_{x_i\in\boldsymbol{x} }1-w_{ij} \\
+		\sum_{x_i\in\boldsymbol{x} }\vert 1-w_{ih}\vert \le \sum_{x_i\in\boldsymbol{x} }\vert 1-w_{ij}\vert
+	\end{gather*}
+	Let $1-\boldsymbol{x}$ be the complement of binary vector (ones and zeroes flipped). Because weights sum up to $1$, this implies that
+	\begin{gather*}
+		(1-\boldsymbol{x}) W_h \le (1-\boldsymbol{x}) W_j \\
+		\sum_{x_i\notin\boldsymbol{x} }w_{ih} \le \sum_{x_i\notin\boldsymbol{x} }w_{ij} \\
+		\sum_{x_i\notin\boldsymbol{x} }\vert 0-w_{ih}\vert \le \sum_{x_i\notin\boldsymbol{x} }\vert 0-w_{ij}\vert
+	\end{gather*}
+	Adding the two inequalities together by sides we obtain
+	\[
+	\lVert \boldsymbol{x} - W_h \rVert_1 \le \lVert  \boldsymbol{x} - W_j \rVert_1
+	\]
+\end{proof}
+From those three inequalities above, it can be deduced that $k=\argmax(\boldsymbol{x}W)$ implements maximum-likelihood estimation of $y_k$.  This explains how \texttt{infer} works.
+
+The \texttt{generate} function makes a certain implicit assumption. In each iteration, the next bit $x_i$ is randomly selected independently of the previous bits. As a result, all the bits are assumed to be mutually independent. 
+\[
+q(\boldsymbol{x}|y_j) = \big(\prod_{x_i\in\boldsymbol{x}} q(x_i|y_j)\big)\big(\prod_{x_i\notin\boldsymbol{x}} 1-q(x_i|y_j)\big) = \big(\prod_{x_i\in\boldsymbol{x}} \mathbb{E}_q(x_i|y_j) \big) \big(\prod_{x_i\notin\boldsymbol{x}} 1-\mathbb{E}_q(x_i|y_j) \big)
+\]
+The expectation $\mathbb{E}_q(x_i|y_j) $ can be obtained from $W_j$ 
+\begin{gather*}
+\lVert \mathbb{E}_q(\boldsymbol{x}|y_j) \rVert _1 W_j = \mathbb{E}_q(\boldsymbol{x}|y_j) \\
+\mathbb{E}_q(\lVert  \boldsymbol{x} \rVert _1|y_j)  W_j = \mathbb{E}_q(\boldsymbol{x}|y_j) 
+\end{gather*}
+If we know the expected cardinality of $\boldsymbol{x}$ in advance, then we can use the following function
+\begin{lstlisting}
+def generate2(c, W, j):
+    x = [0, 0, ... , 0] // n zeroes
+    for i in 1 to n:
+        p = c * W[i, j]
+        x[i] = random([1-p, p]) - 1
+    return x
+\end{lstlisting}
+The parameter $c$ is no longer used as a number of iterations, but as the expected cardinality $\mathbb{E}_q(\lVert  \boldsymbol{x} \rVert _1|y_j)$ instead. If we know the exact $\lVert  \boldsymbol{x} \rVert _1$ in advance, then it could be treated as a constant and the expected value becomes 
+\begin{gather*}
+\mathbb{E}_q(\lVert  \boldsymbol{x} \rVert _1|y_j)= \lVert  \boldsymbol{x} \rVert _1 = c \\
+c w_{ij} = \mathbb{E}_q(x_i|y_j) = q(x_i|y_j)
+\end{gather*}
+
+
+\section{Linear probability spaces and eigendistributions}
+
+ECC networks learn by decomposing the probability $p(\boldsymbol{x})$ into its ``principal components''.   In the general case consider  $\mathcal{P} \subset \mathcal{X} \rightarrow [0,1]$ to be some set of distributions where $\mathcal{X}$ is the set of observations $\boldsymbol{x}$. The conditional distribution $p(\boldsymbol{x},y_j)$ must be an element of $\mathcal{P}$. The marginal distribution $p(\boldsymbol{x})$ is a member of probability space generated by $\mathcal{P}$ if it can be represented as a linear combination of its elements.
+
+
+The ECC networks attempt to approximate $p(\boldsymbol{x}|y_j)$  using the matrix $W$. The challenge here lies in the fact that such eigendecomposition of joint distributions is an ill-defined problem. There might exist infinitely many coefficients (summed under Lebesgue integral)
+\[
+p(\boldsymbol{x})= \int_y p(\boldsymbol{x}|y) p(y)
+\]
+Most of those coefficients would be very small. We are hoping to approximate $p(\boldsymbol{x})$ with only a finite number of them. We could draw an analogy to data compression algorithms, where we try to ``compress'' $p(\boldsymbol{x})$ by only keeping the $m$ largest eigenvalues and truncating all the rest. The only difference here is that the probabilities must sum up to one and if we truncated any of the eigendistributions,  this would be violated. Instead we can reduce the number of used eigendistributions by adding some of them together. 
+\[
+p(\boldsymbol{x}|y_1) p(y_1)+p(\boldsymbol{x}|y_2) p(y_2) = 
+p(\boldsymbol{x}|y_1\text{ or }y_2) (p(y_1)+p(y_2))
+\]
+If we could know $p(\boldsymbol{x}|y_1\text{ or }y_2)$ exactly, then we would be able to find the exact solution to 
+\[
+\int_y p(\boldsymbol{x}|y) p(y) = p(\boldsymbol{x}| y_1\text{ or }y_2 \text{ or }...)\int_y p(y)= p(\boldsymbol{x}) \cdot 1
+\]
+and the problem of modelling $p(\boldsymbol{x})$ would become trivial. The task becomes more interesting when we can't represent  $p(\boldsymbol{x}|y_1\text{ or }y_2)$ directly. For example, our implementation of ECC networks represents $p(\boldsymbol{x}|y)$ using a weight matrix $W$, which implies mutual independence of all $x$ variables
+\[
+p(\boldsymbol{x}|y_j) = p(x_1|y_j)p(x_2|y_j)...p(x_n|y_j) = \boldsymbol{x} W_j
+\]
+We can only approximate $p(\boldsymbol{x}|y_1\text{ or }y_2)$
+using the combination
+\[
+p(\boldsymbol{x}|y_1\text{ or }y_2) p(y_1\text{ or }y_2)= p(\boldsymbol{x}|y_1) p(y_1)+p(\boldsymbol{x}|y_2) p(y_2) \approx \boldsymbol{x}W_1p(y_1) + \boldsymbol{x}W_2 p(y_2)
+\]
+under the assumption that $p(y_2)$ is a much smaller eigenvalue than $p(y_1)$.
+The above approximation would be an exact equality only in a special case, where the two eigendistributions are linearly dependent (equal up to some constant $c$):
+\[p(\boldsymbol{x},y_2)=c p(\boldsymbol{x},y_1)\]
+In practice it is unlikely that we could find such equalities, but the more similar the two summed distributions are, the more precise our approximation of $p(\boldsymbol{x}|y_1\text{ or }y_2)$ would be. 
+
+Learning is the matter of clustering the eigendistributions by their similarity and then summing up all the elements within the same cluster to obtain the final approximation. If we have only a finite number of observations $\boldsymbol{x}$, then we can find an optimal solution to this problem by brute-force. Alternatively a more efficient approach, might be to use modified k-means algorithm, which always converges to a local optimum. 
 
 \section{Universal approximation}
 
@@ -317,45 +355,7 @@ p(x_i\in \boldsymbol{x}|z_h) = \sum_{j} p(y_j|z_h) p(x_i \in \boldsymbol{x}|y_j)
 
 The key observation here is that the $j$ argument is still necessary. This means that the user still needs to somehow decide which hidden neuron to sample.
 
- 
 
-
-
-\iffalse
-\section{Linear probability spaces and eigendistributions}
-
-ECC networks learn by decomposing the probability $p(\boldsymbol{x})$ into its ``principal components''.   In the general case consider  $\mathcal{P} \subset \mathcal{X} \rightarrow [0,1]$ to be some set of distributions where $\mathcal{X}$ is the set of observations $\boldsymbol{x}$. The conditional distribution $p(\boldsymbol{x},y_j)$ must be an element of $\mathcal{P}$. The marginal distribution $p(\boldsymbol{x})$ is a member of probability space generated by $\mathcal{P}$ if it can be represented as a linear combination of its elements.
-
-
-The ECC networks attempt to approximate $p(\boldsymbol{x}|y_j)$  using the matrix $W$. The challenge here lies in the fact that such eigendecomposition of joint distributions is an ill-defined problem. There might exist infinitely many coefficients (summed under Lebesgue integral)
-\[
-p(\boldsymbol{x})= \int_y p(\boldsymbol{x}|y) p(y)
-\]
-Most of those coefficients would be very small. We are hoping to approximate $p(\boldsymbol{x})$ with only a finite number of them. We could draw an analogy to data compression algorithms, where we try to ``compress'' $p(\boldsymbol{x})$ by only keeping the $m$ largest eigenvalues and truncating all the rest. The only difference here is that the probabilities must sum up to one and if we truncated any of the eigendistributions,  this would be violated. Instead we can reduce the number of used eigendistributions by adding some of them together. 
-\[
-p(\boldsymbol{x}|y_1) p(y_1)+p(\boldsymbol{x}|y_2) p(y_2) = 
-p(\boldsymbol{x}|y_1\text{ or }y_2) (p(y_1)+p(y_2))
-\]
-If we could know $p(\boldsymbol{x}|y_1\text{ or }y_2)$ exactly, then we would be able to find the exact solution to 
-\[
-\int_y p(\boldsymbol{x}|y) p(y) = p(\boldsymbol{x}| y_1\text{ or }y_2 \text{ or }...)\int_y p(y)= p(\boldsymbol{x}) \cdot 1
-\]
-and the problem of modelling $p(\boldsymbol{x})$ would become trivial. The task becomes more interesting when we can't represent  $p(\boldsymbol{x}|y_1\text{ or }y_2)$ directly. For example, our implementation of ECC networks represents $p(\boldsymbol{x}|y)$ using a weight matrix $W$, which implies mutual independence of all $x$ variables
-\[
-p(\boldsymbol{x}|y_j) = p(x_1|y_j)p(x_2|y_j)...p(x_n|y_j) = \boldsymbol{x} W_j
-\]
-We can only approximate $p(\boldsymbol{x}|y_1\text{ or }y_2)$
-using the combination
-\[
-p(\boldsymbol{x}|y_1\text{ or }y_2) p(y_1\text{ or }y_2)= p(\boldsymbol{x}|y_1) p(y_1)+p(\boldsymbol{x}|y_2) p(y_2) \approx \boldsymbol{x}W_1p(y_1) + \boldsymbol{x}W_2 p(y_2)
-\]
-under the assumption that $p(y_2)$ is a much smaller eigenvalue than $p(y_1)$.
-The above approximation would be an exact equality only in a special case, where the two eigendistributions are linearly dependent (equal up to some constant $c$):
-\[p(\boldsymbol{x},y_2)=c p(\boldsymbol{x},y_1)\]
-In practice it is unlikely that we could find such equalities, but the more similar the two summed distributions are, the more precise our approximation of $p(\boldsymbol{x}|y_1\text{ or }y_2)$ would be. 
-
-Learning is the matter of clustering the eigendistributions by their similarity and then summing up all the elements within the same cluster to obtain the final approximation. If we have only a finite number of observations $\boldsymbol{x}$, then we can find an optimal solution to this problem by brute-force. Alternatively a more efficient approach, might be to use modified k-means algorithm, which always converges to a local optimum. 
-\fi
 
 \section{Convergence proof}
 
@@ -371,39 +371,23 @@ In other words, $\boldsymbol{x}$ will be assigned to the cluster $C$ of this  $y
 K-means clustering works by iteratively recomputing $C(y_j)^{(t)}$ at time-step $t$ for all $j$ and then assigning $\mu(y_j)^{(t)}$ to be the new value of $W_j^{(t+1)}$ at the next time-step. Let the loss function be
 
 \[
-\mathcal{L} = \sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C(y_j)} \lVert  W_j - \boldsymbol{x}\rVert^1p(\boldsymbol{x})
+\mathcal{L} = \sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C(y_j)} \lVert  W_j - \boldsymbol{x}\rVert_1p(\boldsymbol{x})
 \]
-where $\lVert \cdot \rVert^1$ stands for $l_1$ metric (Manhattan distance). We can prove that $\mathcal{L}$ always decreases and is bounded (can't be negative), hence the learning converges. First we show that
+ We can prove that $\mathcal{L}$ always decreases and is bounded (can't be negative), hence the learning converges. First we show that
 \[
-\mathcal{L}(s_k)^{(t)} =\sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C(y_j)^{(t)}} \lVert  W_j^{(t)} - \boldsymbol{x}\rVert^1p(\boldsymbol{x})
-\ge \sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \lVert  W_j^{(t+1)} - \boldsymbol{x}\rVert^1p(\boldsymbol{x})
+\mathcal{L}(s_k)^{(t)} =\sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C(y_j)^{(t)}} \lVert  W_j^{(t)} - \boldsymbol{x}\rVert_1p(\boldsymbol{x})
+\ge \sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \lVert  W_j^{(t+1)} - \boldsymbol{x}\rVert_1p(\boldsymbol{x})
 \]
 and then
 \[
-\sum_{j} \sum_{\boldsymbol{x}\in C(y_j)^{(t)}} \lVert W_j^{(t+1)} - \boldsymbol{x}\rVert^1 p(\boldsymbol{x}) \ge \sum_{j} \sum_{\boldsymbol{x}\in C(y_j)^{(t+1)}} \lVert W_j^{(t+1)}-\boldsymbol{x}\rVert^1 p(\boldsymbol{x}) = \mathcal{L}^{(t+1)}
+\sum_{j} \sum_{\boldsymbol{x}\in C(y_j)^{(t)}} \lVert W_j^{(t+1)} - \boldsymbol{x}\rVert_1 p(\boldsymbol{x}) \ge \sum_{j} \sum_{\boldsymbol{x}\in C(y_j)^{(t+1)}} \lVert W_j^{(t+1)}-\boldsymbol{x}\rVert_1 p(\boldsymbol{x}) = \mathcal{L}^{(t+1)}
 \]
 The first inequality follows from the definition of $W_j^{(t+1)} = \mu(y_j)^{(t)}$, which is a form of maximum likelihood estimation.
 \[
-\sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C(y_j)^{(t)}} \lVert  W_j^{(t)} - \boldsymbol{x}\rVert^1p(\boldsymbol{x})
-\ge \sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \lVert  \mu(y_j)^{(t)} - \boldsymbol{x}\rVert^1p(\boldsymbol{x})
+\sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C(y_j)^{(t)}} \lVert  W_j^{(t)} - \boldsymbol{x}\rVert_1p(\boldsymbol{x})
+\ge \sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \lVert  \mu(y_j)^{(t)} - \boldsymbol{x}\rVert_1p(\boldsymbol{x})
 \]
 The second inequality follows from the fact that $C(y_j)^{(t)}$ will differ from $C(y_j)^{(t+1)}$ only if there exists some $\boldsymbol{x} \in C(y_j)^{(t)}$ such that we could find some different $y_h$ with the property $\boldsymbol{x} W_k \ge \boldsymbol{x} W_j$. Then such $\boldsymbol{x}$ would be moved from $C(y_j)^{(t)}$ to $C(y_h)^{(t+1)}$, but this could only result in the $\mathcal{L}^{(t+1)}$ to increase (or stay constant), because 
-\begin{gather*}
-	\boldsymbol{x} W_h \ge \boldsymbol{x} W_j \\
-	\sum_{x_i\in\boldsymbol{x} }w_{ih} \ge \sum_{x_i\in\boldsymbol{x} }w_{ij} \\
-	\sum_{x_i\in\boldsymbol{x} }1-w_{ih} \le \sum_{x_i\in\boldsymbol{x} }1-w_{ij} \\
-	\sum_{x_i\in\boldsymbol{x} }\vert 1-w_{ih}\vert^1 \le \sum_{x_i\in\boldsymbol{x} }\vert 1-w_{ij}\vert^1
-\end{gather*}
-Let $1-\boldsymbol{x}$ be the complement of binary vector (ones and zeroes flipped). Because weights sum up to $1$, this implies that
-\begin{gather*}
-(1-\boldsymbol{x}) W_h \le (1-\boldsymbol{x}) W_j \\
-\sum_{x_i\notin\boldsymbol{x} }w_{ih} \le \sum_{x_i\notin\boldsymbol{x} }w_{ij} \\
-\sum_{x_i\notin\boldsymbol{x} }\vert 0-w_{ih}\vert^1 \le \sum_{x_i\notin\boldsymbol{x} }\vert 0-w_{ij}\vert^1
-\end{gather*}
-Adding the two inequalities together by sides we obtain
-\[
-	\lVert \boldsymbol{x} - W_h \rVert^1 \le \lVert  \boldsymbol{x} - W_j \rVert^1
-\]
 This concludes the proof.
 
 So far we have shown that learning converges without accounting for $\boldsymbol{a}$ and entropy maximisation. To address this, let us we modify the definition of $C(y_j)$ to include $\boldsymbol{a}$ 
@@ -540,7 +524,7 @@ In the example from figure \ref{fig:ecc_conv_machine}, the neurons $[y_1,y_2,y_3
 p(\boldsymbol{x}) = p(\boldsymbol{x}|y_1)p(y_1)+  p(\boldsymbol{x}|y_2)p(y_2)+  p(\boldsymbol{x}|y_3)p(y_3)\text{ where }\boldsymbol{x}=[x_1,x_2] \\
 p(\boldsymbol{x}) = p(\boldsymbol{x}|y_4)p(y_4)+  p(\boldsymbol{x}|y_5)p(y_5)+  p(\boldsymbol{x}|y_6)p(y_6)\text{ where }\boldsymbol{x}=[x_2,x_3]
 \end{gather*}
-such that $p(\boldsymbol{x}|y_2) \approx p(\boldsymbol{x}|y_{\sigma(4)}), p(\boldsymbol{x}|y_{3}) \approx p(\boldsymbol{x}|y_{\sigma(5)}),p(\boldsymbol{x}|y_3) \approx p(\boldsymbol{x}|y_{\sigma(6)}) $ for some permutation $\sigma$. Both columns are approximately isomorphic. We can stack multiple layers on top of each other and the equivariance will be preserved. For example let $W_1,W_2$ be the weights of connections from $[y_1,y_2,y_3]$ and   $[y_4,y_5,y_6]$ respectively, outgoing to some neuron $z_1$ in next layer. If the two columns are isomorphic then $W_1\approx\sigma W_2$. Hence it can be seen that the networks can self-organise and equivariance will emerge. The only inductive bias is the topology $\tau$. (Convolutional pattern of $\tau$ can easily emerge on its own if we assume that the neurons are embedded in a physical space and the axons are sparsely projected to some small local neighbourhood in subsequent regions of neocortex.)
+such that $p(\boldsymbol{x}|y_2) \approx p(\boldsymbol{x}|y_{\sigma(4)}), p(\boldsymbol{x}|y_{3}) \approx p(\boldsymbol{x}|y_{\sigma(5)}),p(\boldsymbol{x}|y_3) \approx p(\boldsymbol{x}|y_{\sigma(6)}) $ for some permutation $\sigma$. Both columns are approximately isomorphic. We can stack multiple layers on top of each other and the equivariance will be preserved. For example let $W_1,W_2$ be the weights of connections from $[y_1,y_2,y_3]$ and   $[y_4,y_5,y_6]$ respectively, outgoing to  neurons $z_1,z_c$ in next layer (with $c$ channels). If the two columns are isomorphic then $W_1\approx\sigma W_2$. Hence it can be seen that the networks can self-organise and equivariance will emerge. The only inductive bias is the topology $\tau$. (Convolutional pattern of $\tau$ can easily emerge on its own if we assume that the neurons are embedded in a physical space and the axons are sparsely projected to some small local neighbourhood in subsequent regions of neocortex.)
 
 Convolutional ECC networks can be trained either layer-by-layer (from bottom to top) or all at once (hebbian learning works everywhere simultaneously). The only difference between the two approaches is that training layer-by-layer can be much faster and more efficient on a static dataset, whereas online learning of all layers at once allows for extracting temporal dependencies in an interactive environment. 
 

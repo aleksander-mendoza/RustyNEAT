@@ -1,11 +1,12 @@
 \contentsline {section}{\numberline {1}Introduction}{2}{}%
 \contentsline {section}{\numberline {2}Exclusive coincidence classes}{4}{}%
 \contentsline {section}{\numberline {3}Fundamental theory}{7}{}%
-\contentsline {section}{\numberline {4}Universal approximation}{9}{}%
-\contentsline {section}{\numberline {5}Convergence proof}{10}{}%
-\contentsline {section}{\numberline {6}Convolutional networks}{12}{}%
-\contentsline {section}{\numberline {7}Motor feedback}{14}{}%
-\contentsline {section}{\numberline {8}Reinforcement learning and control}{19}{}%
-\contentsline {section}{\numberline {9}Optimisations and efficiency benchmarks}{23}{}%
-\contentsline {section}{\numberline {10}ECC are spiking networks}{24}{}%
-\contentsline {section}{\numberline {11}Evolving ECC networks}{25}{}%
+\contentsline {section}{\numberline {4}Linear probability spaces and eigendistributions}{10}{}%
+\contentsline {section}{\numberline {5}Universal approximation}{12}{}%
+\contentsline {section}{\numberline {6}Convergence proof}{13}{}%
+\contentsline {section}{\numberline {7}Convolutional networks}{15}{}%
+\contentsline {section}{\numberline {8}Motor feedback}{17}{}%
+\contentsline {section}{\numberline {9}Reinforcement learning and control}{22}{}%
+\contentsline {section}{\numberline {10}Optimisations and efficiency benchmarks}{26}{}%
+\contentsline {section}{\numberline {11}ECC are spiking networks}{27}{}%
+\contentsline {section}{\numberline {12}Evolving ECC networks}{28}{}%
