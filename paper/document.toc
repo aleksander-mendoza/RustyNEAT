@@ -1,12 +1,38 @@
 \contentsline {section}{\numberline {1}Introduction}{2}{}%
-\contentsline {section}{\numberline {2}Exclusive coincidence classes}{4}{}%
+\contentsline {paragraph}{How to read this paper}{2}{}%
+\contentsline {paragraph}{Motivation}{3}{}%
+\contentsline {paragraph}{Introductory example}{4}{}%
+\contentsline {section}{\numberline {2}Network of exclusive coincidence classes}{5}{}%
 \contentsline {section}{\numberline {3}Fundamental theory}{7}{}%
-\contentsline {section}{\numberline {4}Linear probability spaces and eigendistributions}{10}{}%
-\contentsline {section}{\numberline {5}Universal approximation}{12}{}%
-\contentsline {section}{\numberline {6}Convergence proof}{13}{}%
-\contentsline {section}{\numberline {7}Convolutional networks}{15}{}%
-\contentsline {section}{\numberline {8}Motor feedback}{17}{}%
-\contentsline {section}{\numberline {9}Reinforcement learning and control}{22}{}%
-\contentsline {section}{\numberline {10}Optimisations and efficiency benchmarks}{26}{}%
-\contentsline {section}{\numberline {11}ECC are spiking networks}{27}{}%
-\contentsline {section}{\numberline {12}Evolving ECC networks}{28}{}%
+\contentsline {paragraph}{ECC networks and Bayesian inference}{7}{}%
+\contentsline {paragraph}{Interpretations of $W$ matrix}{8}{}%
+\contentsline {paragraph}{Models of $q(\boldsymbol {x}|y_j)$ distribution}{9}{}%
+\contentsline {paragraph}{Interpretations of $\boldsymbol {x}W$ product}{10}{}%
+\contentsline {paragraph}{Bits $x_i$ are mutually independent random variables}{11}{}%
+\contentsline {paragraph}{Maximum likelihood estimation of W}{11}{}%
+\contentsline {paragraph}{Similarities between ECC and SVD}{12}{}%
+\contentsline {paragraph}{Similarities between ECC and k-means }{13}{}%
+\contentsline {paragraph}{Proof of convergence}{13}{}%
+\contentsline {section}{\numberline {4}Convolutional networks}{15}{}%
+\contentsline {paragraph}{Convolutional topology and topological receptive fields}{15}{}%
+\contentsline {paragraph}{Translation invariance and column isomorphism}{16}{}%
+\contentsline {paragraph}{Multilayer networks}{17}{}%
+\contentsline {paragraph}{Probability $q(\boldsymbol {x})$ is relative}{17}{}%
+\contentsline {paragraph}{Training and its results}{18}{}%
+\contentsline {paragraph}{Universal approximation}{18}{}%
+\contentsline {paragraph}{Problem with distinguishing bit subsets}{22}{}%
+\contentsline {section}{\numberline {5}Motor feedback}{22}{}%
+\contentsline {paragraph}{View translation/random eye movement}{22}{}%
+\contentsline {paragraph}{Benchmarks}{24}{}%
+\contentsline {paragraph}{Recurrent connections within columns}{24}{}%
+\contentsline {paragraph}{Deeper layers are less sensitive to small changes}{24}{}%
+\contentsline {section}{\numberline {6}Reinforcement learning and control}{26}{}%
+\contentsline {paragraph}{ECC can't learn value functions}{26}{}%
+\contentsline {paragraph}{Geometric deep learning theory}{26}{}%
+\contentsline {paragraph}{Reinforcement learning samples inefficiency}{27}{}%
+\contentsline {paragraph}{Inference of groups from actions and observations}{28}{}%
+\contentsline {paragraph}{Reducing reward maximisation problem to a search problem}{28}{}%
+\contentsline {paragraph}{Supervised vs unsupervised (This paragraph is mostly work-in-progress)}{29}{}%
+\contentsline {section}{\numberline {7}Optimisations and efficiency benchmarks}{31}{}%
+\contentsline {section}{\numberline {8}ECC are spiking networks}{32}{}%
+\contentsline {section}{\numberline {9}Evolving ECC networks}{33}{}%

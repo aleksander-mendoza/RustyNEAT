@@ -337,7 +337,7 @@ class FullColumnMachine:
         print("PATCH_SIZE=", self.m.in_shape)
         layer = self.m.get_layer(idx)
         i = "I" if min_deviation_from_mean is not None else ""
-        benchmarks_save = self.machine_shape.save_file(idx + 1) + " accuracy"+i+".txt"
+        benchmarks_save = self.machine_shape.save_file(idx + 1) + " accuracy" + i + ".txt"
         out_mnist = Mnist(self.machine_shape, idx + 1)
         if os.path.exists(out_mnist.file) and not overwrite_data:
             out_mnist.load()
@@ -355,7 +355,8 @@ class FullColumnMachine:
                     eval_data = out_mnist.mnist.subdataset(train_len)
                     train_lbls = LABELS[0:train_len].numpy()
                     eval_lbls = LABELS[train_len:].numpy()
-                    lc = train_data.fit_naive_bayes(train_lbls, 10, invariant_to_column=min_deviation_from_mean is not None)
+                    lc = train_data.fit_naive_bayes(train_lbls, 10,
+                                                    invariant_to_column=min_deviation_from_mean is not None)
                     lc.clear_class_prob()
                     train_out_lbl = lc.batch_classify(train_data, min_deviation_from_mean)
                     eval_out_lbl = lc.batch_classify(eval_data, min_deviation_from_mean)
@@ -454,22 +455,33 @@ def run_experiments():
 
 def parse_benchmarks(file_name):
     with open('predictive_coding_stacked8/' + file_name, "r") as f:
-        accuracy8 = 0
-        accuracy1 = 0
+        train_accuracy8 = 0
+        train_accuracy1 = 0
+        eval_accuracy8 = 0
+        eval_accuracy1 = 0
         for line in f:
             attributes = line.split(",")
             attributes = [attr.split("=") for attr in attributes]
             attributes = {key.strip(): value for key, value in attributes}
             split_val = float(attributes["split"])
             if split_val == 0.1:
-                accuracy1 = max(accuracy1, float(attributes["eval_accuracy"]))
+                eval_accuracy1 = max(eval_accuracy1, float(attributes["eval_accuracy"]))
+                train_accuracy1 = max(train_accuracy1, float(attributes["train_accuracy"]))
             elif split_val == 0.8:
-                accuracy8 = max(accuracy8, float(attributes["eval_accuracy"]))
-        return accuracy8, accuracy1
+                eval_accuracy8 = max(eval_accuracy8, float(attributes["eval_accuracy"]))
+                train_accuracy8 = max(train_accuracy8, float(attributes["train_accuracy"]))
+        return eval_accuracy1, eval_accuracy8, train_accuracy1, train_accuracy8
 
 
 EXTRACT_K_S = re.compile("k([0-9]+)s([0-9]+)c([0-9]+)d([0-9]+)")
 HAS_DRIFT = re.compile("d[2-9][0-9]*")
+TABLE_MODE = 'csv'  # alternatives: latex, csv
+if TABLE_MODE == 'latex':
+    TABLE_FIELD_SEP = ' & '
+    TABLE_ROW_SEP = ' \\\\\n\\hline\n'
+elif TABLE_MODE == 'csv':
+    TABLE_FIELD_SEP = ', '
+    TABLE_ROW_SEP = '\n'
 
 
 class ExperimentData:
@@ -486,22 +498,42 @@ class ExperimentData:
         self.name = experiment_name
         self.comp_stride, self.comp_kernel = self.shape.composed_conv(len(self.shape) - 1)
         self.out_shape = htm.conv_out_size([28, 28], self.comp_stride, self.comp_kernel)[:2]
-        self.softmax8, self.softmax1 = parse_benchmarks(experiment_name + " accuracy2.txt")
-        self.naive8, self.naive1 = parse_benchmarks(experiment_name + " accuracy.txt")
+        self.benchmarks = {
+            'softmax': parse_benchmarks(experiment_name + " accuracy2.txt"),
+            'vote': parse_benchmarks(experiment_name + " accuracyI.txt"),
+            'naive': parse_benchmarks(experiment_name + " accuracy.txt"),
+        }
         self.has_drift = HAS_DRIFT.search(experiment_name) is not None
+
+    def acc(self, benchmark, split):
+        return "{:.0%}".format(self.benchmark(benchmark, split, False)) + "/" + \
+               "{:.0%}".format(self.benchmark(benchmark, split, True))
+
+    def all_acc(self, split):
+        return self.acc("softmax", split) + ";" + self.acc("naive", split) + ";" + self.acc("vote", split)
+
+    def benchmark(self, benchmark, split, train):
+        benchmark = self.benchmarks[benchmark]
+        if split == 1:
+            split = 0
+        elif split == 8:
+            split = 1
+        else:
+            raise Exception("Should be either 1 or 8")
+        return benchmark[(2 if train else 0) + split]
 
     def format(self, db):
         k = str(self.comp_kernel[0]) + "x" + str(self.comp_kernel[1])
         o = str(self.out_shape[0]) + "x" + str(self.out_shape[1])
-        acc8 = "{:.2f}".format(self.softmax8) + "/" + "{:.2f}".format(self.naive8)
-        acc1 = "{:.2f}".format(self.softmax1) + "/" + "{:.2f}".format(self.naive1)
+        acc8 = self.all_acc(8)
+        acc1 = self.all_acc(1)
         s = self.shape
-        prev_softmax8 = [db[self.shape.code_name(i)].softmax8 for i in range(1, len(self.shape))]
-        prev_softmax8.append(self.softmax8)
-        path = ' '.join(["k" + str(k) + "c" + str(c) + "d" + str(d) + "({:.2f})".format(s8)
+        prev_softmax8 = [db[self.shape.code_name(i)].acc("softmax", 8) for i in range(1, len(self.shape))]
+        prev_softmax8.append(self.acc("softmax", 8))
+        path = ' '.join(["k" + str(k) + "c" + str(c) + "d" + str(d) + "("+s8+")"
                          for k, c, d, s8
                          in zip(s.kernels, s.channels[1:], s.drifts, prev_softmax8)])
-        return ', '.join([acc8, acc1, k, o, path])
+        return TABLE_FIELD_SEP.join([acc8, acc1, k, o, path])
 
     def experiment(self):
         save_file = self.name + " accuracyI.txt"
@@ -538,21 +570,19 @@ class ExperimentDB:
                     if abs(experiment.comp_kernel[0] - depth[0]) > depth[1]:
                         continue
                 scores.append(experiment)
-        scores.sort(key=lambda x: x.softmax8)
+        scores.sort(key=lambda x: x.benchmark('softmax', 8, False))
         print("Depth =", depth, ",  with_drift =", with_drift)
         for exp_data in scores:
-            print(exp_data.format(self.experiment_data))
+            print(exp_data.format(self.experiment_data), end=TABLE_ROW_SEP)
 
     def experiment_on_all(self):
         for e in self.experiment_data.values():
             e.experiment()
 
 
-
 # run_experiments()
-# for d in range(16):
 edb = ExperimentDB()
-edb.experiment_on_all()
-# edb.print_accuracy2_results([26, 2], with_drift=True)
-# edb.print_accuracy2_results([26, 2], with_drift=False)
+# edb.experiment_on_all()
+edb.print_accuracy2_results([26, 2], with_drift=True)
+edb.print_accuracy2_results([26, 2], with_drift=False)
 #     print_accuracy2_results(d, with_drift=False)
