@@ -283,7 +283,7 @@ class FullColumnMachine:
                 def __getitem__(self, idx):
                     return self.imgs.to_f32_numpy(idx), self.lbls[idx]
 
-            for split in [0.1, 0.2, 0.5, 0.8, 0.9]:
+            for split in [0.1, 0.8]:  # 0.2, 0.5, 0.9
                 train_len = int(len(MNIST) * split)
                 eval_len = len(MNIST) - train_len
                 train_data = out_mnist.mnist.subdataset(0, train_len)
@@ -523,24 +523,35 @@ class ExperimentData:
         return benchmark[(2 if train else 0) + split]
 
     def format(self, db):
+        s = self.shape
         k = str(self.comp_kernel[0]) + "x" + str(self.comp_kernel[1])
         o = str(self.out_shape[0]) + "x" + str(self.out_shape[1])
-        acc8 = self.all_acc(8)
-        acc1 = self.all_acc(1)
-        s = self.shape
-        prev_softmax8 = [db[self.shape.code_name(i)].acc("softmax", 8) for i in range(1, len(self.shape))]
-        prev_softmax8.append(self.acc("softmax", 8))
-        path = ' '.join(["k" + str(k) + "c" + str(c) + "d" + str(d) + "("+s8+")"
-                         for k, c, d, s8
-                         in zip(s.kernels, s.channels[1:], s.drifts, prev_softmax8)])
-        return TABLE_FIELD_SEP.join([acc8, acc1, k, o, path])
+        codename = ["Yes" if self.has_drift else "No"] + \
+                   ["k" + str(k) + "c" + str(c) + "d" + str(d) for k, c, d in zip(s.kernels, s.channels[1:], s.drifts)]
+        acc8 = [k]
+        acc1 = [o]
 
-    def experiment(self):
-        save_file = self.name + " accuracyI.txt"
-        if not os.path.exists(save_file):
+        for i in range(1, len(self.shape)):
+            prev_ex = db[self.shape.code_name(i)]
+            acc8.append(prev_ex.all_acc(8))
+            acc1.append(prev_ex.all_acc(1))
+        acc8.append(self.all_acc(8))
+        acc1.append(self.all_acc(1))
+        assert len(codename) == len(acc8) == len(acc1)
+        return TABLE_ROW_SEP.join([TABLE_FIELD_SEP.join(codename),TABLE_FIELD_SEP.join(acc8),TABLE_FIELD_SEP.join(acc1)])
+
+    def experiment(self, benchmark, overwrite_benchmarks=False):
+        if benchmark=="vote":
+            save_file = self.name + " accuracyI.txt"
+            if not os.path.exists(save_file):
+                m = FullColumnMachine(self.shape)
+                print(save_file)
+                m.eval_with_naive_bayes(min_deviation_from_mean=0.01, overwrite_benchmarks=overwrite_benchmarks)
+        elif benchmark == "softmax":
+            save_file = self.name + " accuracy2.txt"
             m = FullColumnMachine(self.shape)
             print(save_file)
-            m.eval_with_naive_bayes(min_deviation_from_mean=0.01)
+            m.eval_with_classifier_head(epochs=4, overwrite_benchmarks=overwrite_benchmarks)
 
 
 class ExperimentDB:
@@ -575,14 +586,13 @@ class ExperimentDB:
         for exp_data in scores:
             print(exp_data.format(self.experiment_data), end=TABLE_ROW_SEP)
 
-    def experiment_on_all(self):
+    def experiment_on_all(self, mode, overwrite_benchmarks=False):
         for e in self.experiment_data.values():
-            e.experiment()
+            e.experiment(mode,overwrite_benchmarks=overwrite_benchmarks)
 
 
 # run_experiments()
 edb = ExperimentDB()
-# edb.experiment_on_all()
+# edb.experiment_on_all("softmax", overwrite_benchmarks=True)
 edb.print_accuracy2_results([26, 2], with_drift=True)
 edb.print_accuracy2_results([26, 2], with_drift=False)
-#     print_accuracy2_results(d, with_drift=False)

@@ -24,15 +24,19 @@
 \contentsline {section}{\numberline {5}Motor feedback}{22}{}%
 \contentsline {paragraph}{View translation/random eye movement}{22}{}%
 \contentsline {paragraph}{Benchmarks}{24}{}%
-\contentsline {paragraph}{Recurrent connections within columns}{24}{}%
 \contentsline {paragraph}{Deeper layers are less sensitive to small changes}{24}{}%
-\contentsline {section}{\numberline {6}Reinforcement learning and control}{26}{}%
-\contentsline {paragraph}{ECC can't learn value functions}{26}{}%
-\contentsline {paragraph}{Geometric deep learning theory}{26}{}%
-\contentsline {paragraph}{Reinforcement learning samples inefficiency}{27}{}%
-\contentsline {paragraph}{Inference of groups from actions and observations}{28}{}%
-\contentsline {paragraph}{Reducing reward maximisation problem to a search problem}{28}{}%
-\contentsline {paragraph}{Supervised vs unsupervised (This paragraph is mostly work-in-progress)}{29}{}%
-\contentsline {section}{\numberline {7}Optimisations and efficiency benchmarks}{31}{}%
-\contentsline {section}{\numberline {8}ECC are spiking networks}{32}{}%
-\contentsline {section}{\numberline {9}Evolving ECC networks}{33}{}%
+\contentsline {paragraph}{Recurrent connections within columns}{24}{}%
+\contentsline {paragraph}{Voting and recurrent connections between layers}{26}{}%
+\contentsline {section}{\numberline {6}Reinforcement learning and control}{27}{}%
+\contentsline {paragraph}{ECC can't learn value functions}{27}{}%
+\contentsline {paragraph}{Geometric deep learning theory}{27}{}%
+\contentsline {paragraph}{Reinforcement learning samples inefficiency}{28}{}%
+\contentsline {paragraph}{Inference of groups from actions and observations}{29}{}%
+\contentsline {paragraph}{Parametric groups}{29}{}%
+\contentsline {paragraph}{Reducing reward maximisation problem to a search problem}{29}{}%
+\contentsline {paragraph}{Supervised vs unsupervised (This paragraph is mostly work-in-progress)}{30}{}%
+\contentsline {section}{\numberline {7}Optimisations and efficiency benchmarks}{32}{}%
+\contentsline {paragraph}{Optimisations}{32}{}%
+\contentsline {paragraph}{Benchmarks}{33}{}%
+\contentsline {section}{\numberline {8}ECC are spiking networks}{33}{}%
+\contentsline {section}{\numberline {9}Evolving ECC networks}{34}{}%
