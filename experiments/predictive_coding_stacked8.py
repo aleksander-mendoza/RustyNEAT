@@ -80,9 +80,11 @@ def preprocess_mnist():
 
 class MachineShape:
 
-    def __init__(self, channels, kernels, strides, drifts):
-        assert len(channels) == len(kernels) + 1 == len(strides) + 1 == len(drifts) + 1
+    def __init__(self, channels, kernels, strides, drifts, k):
+        assert len(channels) == len(kernels) + 1
+        assert len(kernels) == len(strides) == len(drifts) == len(k)
         self.channels = channels
+        self.k = k
         self.kernels = kernels
         self.strides = strides
         self.drifts = drifts
@@ -92,9 +94,16 @@ class MachineShape:
         kernels = [[k, k] for k in self.kernels]
         return htm.conv_compose_array(strides=strides[:idx + 1], kernels=kernels[:idx + 1])
 
+    def code_name_part(self, idx):
+        k = "k" + str(self.kernels[idx])
+        s = "s" + str(self.strides[idx])
+        c = "c" + str(self.channels[idx])
+        d = "d" + str(self.drifts[idx])
+        k_ = "k" + str(self.k[idx]) if self.k[idx] > 1 else ""
+        return k+s+c+k_+d
+
     def code_name(self, idx):
-        path = ''.join(["k" + str(k) + "s" + str(s) + "c" + str(c) + "d" + str(d) + "_" for k, c, s, d in
-                        zip(self.kernels[:idx], self.channels[:idx], self.strides[:idx], self.drifts[:idx])])
+        path = ''.join([self.code_name_part(i) + "_" for i in range(idx)])
         return path + "c" + str(self.channels[idx])
 
     def save_file(self, idx):
@@ -163,11 +172,14 @@ class SingleColumnMachine:
                                 stride=self.machine_shape.stride(-1),
                                 in_channels=self.machine_shape.channels[-2],
                                 out_channels=self.machine_shape.channels[-1],
-                                k=1)
+                                k=self.machine_shape.k[-1])
+            prev_k = self.machine_shape.k[-2] if len(self.machine_shape.k) > 1 else 1
             if self.threshold == 'in':
-                l.threshold = 1 / l.in_channels
+                l.threshold = prev_k / l.in_channels
             elif type(self.threshold) is float:
                 l.threshold = self.threshold
+            else:
+                l.threshold = prev_k / l.out_channels
             self.m.push(l)
         else:
             self.m.push(top)
@@ -371,7 +383,7 @@ class FullColumnMachine:
                     print(s)
 
 
-SDR_MNIST = Mnist(MachineShape([1], [], [], []), 0)
+SDR_MNIST = Mnist(MachineShape([1], [], [], [], []), 0)
 if os.path.exists(SDR_MNIST.file):
     SDR_MNIST.load()
 else:
@@ -400,19 +412,24 @@ def run_experiments():
         40: (8, 5),
         400: (20, 20)
     }
-    i49 = (49, 6, 1, 1, 1, None)
-    e144 = (144, 5, 1, 1, 1, None)
-    e200 = (200, 5, 1, 1, 1, None)
-    e256 = (256, 5, 1, 1, 1, None)
+    i49 = (49, 6, 1, 1, 1, None, 1)
+    e144 = (144, 5, 1, 1, 1, None, 1)
+    e200 = (200, 5, 1, 1, 1, None, 1)
+    e256 = (256, 5, 1, 1, 1, None, 1)
 
-    def e(c, k):
-        return c, k, 1, 1, 1, None
+    def e(channels, kernel, k=1):
+        return channels, kernel, 1, 1, 1, None, k
 
-    def c(c, d):
-        return c, 1, 1, d, 6, 'in'
+    def c(channels, drift, k=1):
+        return channels, 1, 1, drift, 6, 'in', k
 
     experiments = [
-        (1, [e(49, 6), c(9, 3), e(100, 6), c(9, 5), e(144, 6), c(16, 7), e(256, 6), c(20, 8), e(256, 6)]),
+        # (1, [e(49, 6), c(9, 3), e(100, 6), c(9, 5), e(144, 6), c(16, 7), e(256, 6), c(20, 8), e(256, 6)]),
+        (1, [e(49, 6), c(9, 3), e(100, 6, k=4), c(9, 5), e(144, 6, k=3), c(16, 7), e(256, 6, k=4), c(20, 8), e(256, 6, k=4)]),
+        # (1, [e(49, 6), e(100, 6,k=4), e(144, 6,k=3), e(256, 6,k=4), e(256, 6,k=4)]),
+        # (1, [e(49, 6), e(100, 6), e(144, 6, k=3), e(256, 6, k=4), e(256, 6, k=4)]),
+        # (1, [e(49, 6), e(100, 6), e(144, 6), e(256, 6, k=4), e(256, 6, k=4)]),
+        # (1, [e(49, 6), e(100, 6), e(144, 6), e(256, 6), e(256, 6, k=4)]),
         # (1, [e(100, 28)]),
         # (1, [e(256, 28)]),
         # (1, [e(400, 28)]),
@@ -430,14 +447,15 @@ def run_experiments():
     ]
     for experiment in experiments:
         first_channels, layers = experiment
-        kernels, strides, channels, drifts = [], [], [first_channels], []
+        kernels, strides, channels, drifts, ks = [], [], [first_channels], [], []
         for layer in layers:
-            channel, kernel, stride, drift, snapshots_per_sample, threshold = layer
+            channel, kernel, stride, drift, snapshots_per_sample, threshold, k = layer
             kernels.append(kernel)
             strides.append(stride)
             channels.append(channel)
             drifts.append(drift)
-            s = MachineShape(channels, kernels, strides, drifts)
+            ks.append(k)
+            s = MachineShape(channels, kernels, strides, drifts, ks)
             code_name = s.save_file(len(kernels))
             save_file = code_name + " data.pickle"
             if not os.path.exists(save_file):
@@ -450,6 +468,8 @@ def run_experiments():
                 m.eval_with_naive_bayes()
                 print(save_file)
                 m.eval_with_classifier_head()
+                print(save_file)
+                m.eval_with_naive_bayes(min_deviation_from_mean=0.01)
                 print(save_file)
 
 
@@ -473,7 +493,7 @@ def parse_benchmarks(file_name):
         return eval_accuracy1, eval_accuracy8, train_accuracy1, train_accuracy8
 
 
-EXTRACT_K_S = re.compile("k([0-9]+)s([0-9]+)c([0-9]+)d([0-9]+)")
+EXTRACT_K_S = re.compile("k([0-9]+)s([0-9]+)c([0-9]+)(k[0-9]+)?d([0-9]+)")
 HAS_DRIFT = re.compile("d[2-9][0-9]*")
 TABLE_MODE = 'csv'  # alternatives: latex, csv
 if TABLE_MODE == 'latex':
@@ -486,15 +506,17 @@ elif TABLE_MODE == 'csv':
 
 class ExperimentData:
     def __init__(self, experiment_name):
-        kernels, strides, channels, drifts = [], [], [], []
+        kernels, strides, channels, drifts, ks = [], [], [], [], []
         for m in EXTRACT_K_S.finditer(experiment_name):
-            k, s, c, d = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
+            k, s, c, d = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(5))
             kernels.append(k)
             strides.append(s)
             channels.append(c)
             drifts.append(d)
+            k = int(m.group(4))
+            ks.append(k)
         channels.append(int(experiment_name.rsplit('c', 1)[1]))
-        self.shape = MachineShape(channels, kernels, strides, drifts)
+        self.shape = MachineShape(channels, kernels, strides, drifts, ks)
         self.name = experiment_name
         self.comp_stride, self.comp_kernel = self.shape.composed_conv(len(self.shape) - 1)
         self.out_shape = htm.conv_out_size([28, 28], self.comp_stride, self.comp_kernel)[:2]
@@ -561,15 +583,23 @@ class ExperimentDB:
         self.experiments = [e[:-len(s)] for e in os.listdir('predictive_coding_stacked8/') if e.endswith(s)]
         self.experiment_data = {n: ExperimentData(n) for n in self.experiments}
 
-    def print_accuracy2_results(self, depth, with_drift=None):
-
+    def print_accuracy2_results(self, depth, with_drift=None, with_k=None):
         depth_pat = "*" if type(depth) == list else "{" + str(depth) + "}"
         if with_drift is None or with_drift is True:
-            pat = re.compile("(k[0-9]+s[0-9]+c[0-9]+d[0-9]+_)" + depth_pat + "c[0-9]+")
+            drift_pat = "d[0-9]+"
         elif with_drift is False:
-            pat = re.compile("(k[0-9]+s[0-9]+c[0-9]+d1_)" + depth_pat + "c[0-9]+")
+            drift_pat = "d1_"
         else:
-            raise Exception("Invalid drift")
+            raise Exception("Invalid with_drift")
+        if with_k is None:
+            k_pat = "(k[0-9]+)?"
+        elif with_k is True:
+            k_pat = "k[0-9]+"
+        elif with_k is False:
+            k_pat = ""
+        else:
+            raise Exception("Invalid with_k")
+        pat = re.compile("(k[0-9]+s[0-9]+c[0-9]+"+k_pat+drift_pat+"_)" + depth_pat + "c[0-9]+")
         scores = []
 
         for experiment in self.experiment_data.values():
@@ -582,7 +612,7 @@ class ExperimentDB:
                         continue
                 scores.append(experiment)
         scores.sort(key=lambda x: x.benchmark('softmax', 8, False))
-        print("Depth =", depth, ",  with_drift =", with_drift)
+        print("Depth =", depth, ",  with_drift =", with_drift, ",  with_k =", with_k)
         for exp_data in scores:
             print(exp_data.format(self.experiment_data), end=TABLE_ROW_SEP)
 
@@ -594,5 +624,5 @@ class ExperimentDB:
 # run_experiments()
 edb = ExperimentDB()
 # edb.experiment_on_all("softmax", overwrite_benchmarks=True)
-edb.print_accuracy2_results([26, 2], with_drift=True)
-edb.print_accuracy2_results([26, 2], with_drift=False)
+edb.print_accuracy2_results([26, 2], with_drift=True, with_k=True)
+edb.print_accuracy2_results([26, 2], with_drift=False, with_k=True)

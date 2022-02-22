@@ -67,11 +67,11 @@ impl<D: DenseWeight> CpuEccPopulation<D> {
         }
     }
     pub fn new(shape: [Idx; 3], k: Idx) -> Self {
+        assert_eq!(shape.channels()%k,0);
         let v = shape.product();
-        let region_size = shape.channels()/k;
         Self {
             k,
-            threshold: D::default_threshold(region_size),
+            threshold: D::default_threshold(shape.channels()),
             activity: vec![D::INITIAL_ACTIVITY; as_usize(v)],
             sums:  vec![D::ZERO;as_usize(v)],
             shape
