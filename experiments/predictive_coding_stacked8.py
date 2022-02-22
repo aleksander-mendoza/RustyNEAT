@@ -100,7 +100,7 @@ class MachineShape:
         c = "c" + str(self.channels[idx])
         d = "d" + str(self.drifts[idx])
         k_ = "k" + str(self.k[idx]) if self.k[idx] > 1 else ""
-        return k+s+c+k_+d
+        return k + s + c + k_ + d
 
     def code_name(self, idx):
         path = ''.join([self.code_name_part(i) + "_" for i in range(idx)])
@@ -425,7 +425,8 @@ def run_experiments():
 
     experiments = [
         # (1, [e(49, 6), c(9, 3), e(100, 6), c(9, 5), e(144, 6), c(16, 7), e(256, 6), c(20, 8), e(256, 6)]),
-        (1, [e(49, 6), c(9, 3), e(100, 6, k=4), c(9, 5), e(144, 6, k=3), c(16, 7), e(256, 6, k=4), c(20, 8), e(256, 6, k=4)]),
+        (1, [e(49, 6), c(9, 3), e(100, 6, k=4), c(9, 5), e(144, 6, k=3), c(16, 7), e(256, 6, k=4), c(20, 8),
+             e(256, 6, k=4)]),
         # (1, [e(49, 6), e(100, 6,k=4), e(144, 6,k=3), e(256, 6,k=4), e(256, 6,k=4)]),
         # (1, [e(49, 6), e(100, 6), e(144, 6, k=3), e(256, 6, k=4), e(256, 6, k=4)]),
         # (1, [e(49, 6), e(100, 6), e(144, 6), e(256, 6, k=4), e(256, 6, k=4)]),
@@ -513,7 +514,7 @@ class ExperimentData:
             strides.append(s)
             channels.append(c)
             drifts.append(d)
-            k = int(m.group(4))
+            k = 1 if m.group(4) is None else int(m.group(4)[1:])
             ks.append(k)
         channels.append(int(experiment_name.rsplit('c', 1)[1]))
         self.shape = MachineShape(channels, kernels, strides, drifts, ks)
@@ -525,6 +526,8 @@ class ExperimentData:
             'vote': parse_benchmarks(experiment_name + " accuracyI.txt"),
             'naive': parse_benchmarks(experiment_name + " accuracy.txt"),
         }
+        assert min(ks) > 0
+        self.has_k = max(ks) > 1
         self.has_drift = HAS_DRIFT.search(experiment_name) is not None
 
     def acc(self, benchmark, split):
@@ -544,26 +547,43 @@ class ExperimentData:
             raise Exception("Should be either 1 or 8")
         return benchmark[(2 if train else 0) + split]
 
-    def format(self, db):
-        s = self.shape
-        k = str(self.comp_kernel[0]) + "x" + str(self.comp_kernel[1])
-        o = str(self.out_shape[0]) + "x" + str(self.out_shape[1])
-        codename = ["Yes" if self.has_drift else "No"] + \
-                   ["k" + str(k) + "c" + str(c) + "d" + str(d) for k, c, d in zip(s.kernels, s.channels[1:], s.drifts)]
-        acc8 = [k]
-        acc1 = [o]
+    def format(self, db, detailed=True):
+        if detailed:
+            s = self.shape
+            k = str(self.comp_kernel[0]) + "x" + str(self.comp_kernel[1])
+            o = str(self.out_shape[0]) + "x" + str(self.out_shape[1])
+            codename = ["Yes" if self.has_drift else "No"] + \
+                       ["k" + str(k) + "c" + str(c) + ("/" + str(k_) if k_ > 1 else "") + "d" + str(d) for
+                        k, c, d, k_ in
+                        zip(s.kernels, s.channels[1:], s.drifts, self.shape.k)]
+            acc8 = [k]
+            acc1 = [o]
 
-        for i in range(1, len(self.shape)):
-            prev_ex = db[self.shape.code_name(i)]
-            acc8.append(prev_ex.all_acc(8))
-            acc1.append(prev_ex.all_acc(1))
-        acc8.append(self.all_acc(8))
-        acc1.append(self.all_acc(1))
-        assert len(codename) == len(acc8) == len(acc1)
-        return TABLE_ROW_SEP.join([TABLE_FIELD_SEP.join(codename),TABLE_FIELD_SEP.join(acc8),TABLE_FIELD_SEP.join(acc1)])
+            for i in range(1, len(self.shape)):
+                prev_ex = db[self.shape.code_name(i)]
+                acc8.append(prev_ex.all_acc(8))
+                acc1.append(prev_ex.all_acc(1))
+            acc8.append(self.all_acc(8))
+            acc1.append(self.all_acc(1))
+            assert len(codename) == len(acc8) == len(acc1)
+            return TABLE_ROW_SEP.join(
+                [TABLE_FIELD_SEP.join(codename), TABLE_FIELD_SEP.join(acc8), TABLE_FIELD_SEP.join(acc1)])
+        else:
+            k = str(self.comp_kernel[0]) + "x" + str(self.comp_kernel[1])
+            o = str(self.out_shape[0]) + "x" + str(self.out_shape[1])
+            acc8 = "{:.2f}/{:.2f}".format(self.benchmark("softmax", 8, False), self.benchmark("naive", 8, False))
+            acc1 = "{:.2f}/{:.2f}".format(self.benchmark("softmax", 1, False), self.benchmark("naive", 1, False))
+            s = self.shape
+            prev_softmax8 = [db[self.shape.code_name(i)].benchmark("softmax", 8, False) for i in
+                             range(1, len(self.shape))]
+            prev_softmax8.append(self.benchmark("softmax", 8, False))
+            path = ' '.join(["k" + str(k) + "c" + str(c) + "d" + str(d) + "({:.2f})".format(s8)
+                             for k, c, d, s8
+                             in zip(s.kernels, s.channels[1:], s.drifts, prev_softmax8)])
+            return ', '.join([acc8, acc1, k, o, path])
 
     def experiment(self, benchmark, overwrite_benchmarks=False):
-        if benchmark=="vote":
+        if benchmark == "vote":
             save_file = self.name + " accuracyI.txt"
             if not os.path.exists(save_file):
                 m = FullColumnMachine(self.shape)
@@ -584,33 +604,19 @@ class ExperimentDB:
         self.experiment_data = {n: ExperimentData(n) for n in self.experiments}
 
     def print_accuracy2_results(self, depth, with_drift=None, with_k=None):
-        depth_pat = "*" if type(depth) == list else "{" + str(depth) + "}"
-        if with_drift is None or with_drift is True:
-            drift_pat = "d[0-9]+"
-        elif with_drift is False:
-            drift_pat = "d1_"
-        else:
-            raise Exception("Invalid with_drift")
-        if with_k is None:
-            k_pat = "(k[0-9]+)?"
-        elif with_k is True:
-            k_pat = "k[0-9]+"
-        elif with_k is False:
-            k_pat = ""
-        else:
-            raise Exception("Invalid with_k")
-        pat = re.compile("(k[0-9]+s[0-9]+c[0-9]+"+k_pat+drift_pat+"_)" + depth_pat + "c[0-9]+")
         scores = []
-
         for experiment in self.experiment_data.values():
-            if pat.fullmatch(experiment.name):
-                if with_drift is True and not experiment.has_drift:
+            if with_drift is not None and with_drift != experiment.has_drift:
+                continue
+            if type(depth) is list:
+                if abs(experiment.comp_kernel[0] - depth[0]) > depth[1]:
                     continue
-
-                if type(depth) is list:
-                    if abs(experiment.comp_kernel[0] - depth[0]) > depth[1]:
-                        continue
-                scores.append(experiment)
+            elif type(depth) is int:
+                if len(experiment.shape) == depth:
+                    continue
+            if with_k is not None and with_k != experiment.has_k:
+                continue
+            scores.append(experiment)
         scores.sort(key=lambda x: x.benchmark('softmax', 8, False))
         print("Depth =", depth, ",  with_drift =", with_drift, ",  with_k =", with_k)
         for exp_data in scores:
@@ -618,7 +624,7 @@ class ExperimentDB:
 
     def experiment_on_all(self, mode, overwrite_benchmarks=False):
         for e in self.experiment_data.values():
-            e.experiment(mode,overwrite_benchmarks=overwrite_benchmarks)
+            e.experiment(mode, overwrite_benchmarks=overwrite_benchmarks)
 
 
 # run_experiments()

@@ -602,6 +602,7 @@ In biological brains,  the ``sticky'' activations could be modelled using attrac
 
 The remarkable achievement is that the ``sticky'' layers with $d>1$ allow for significant reduction in number of channels. It forms a bottleneck, which forces the network to build translation-invariant abstractions of observed objects. If the motor feedback was even richer (allowing for head rotation, body movement, object manipulation etc.) then the networks would be able to learn about more complex semantic properties of the interactive environment.
 
+
 \begin{figure}[!htbp]
 	\centering
 	\includegraphics[width=13.8cm]{benchmarks}
@@ -609,13 +610,28 @@ The remarkable achievement is that the ``sticky'' layers with $d>1$ allow for si
 	\label{fig:benchmarks}
 \end{figure} 
 
+Figure \ref{fig:benchmarks_votes} provides further details on the few architectures previously highlighted in colour. It shows accuracies of three classification strategies: linear regression, naive bayes and voting. While the first two have access to all bits from the final output layer, the last classification head is consists of many ``smaller heads'' - one for every column. Each one of them attempts to guess the label of MNIST digit based solely on activation pattern (one active bit) within a single column. At the end, whichever digit receives the most votes, wins. Such classifier is unable to take advantage of location information. 
 
 \begin{figure}[!htbp]
 	\centering
 	\includegraphics[width=13.8cm]{benchmarks_votes}
-	\caption{MNIST recognition accuracy benchmarks. The green rows mark two specific architectures that are nearly identical, except that one uses ``drift'' and has ``sticky'' layers with significant channel bottlenecks.  The red rows are shallow architectures without convolution (kernel $28\times 28$ is equivalent to densely-connected layer), which show what happens when the number of channels grows}
-	\label{fig:benchmarks}
+	\caption{The results are in the format of X\%/Y\%  where X stands for evaluation set and Y is for train set accuracy score.}
+	\label{fig:benchmarks_votes}
 \end{figure} 
+
+\paragraph{Multiple bits per column} The topology of convolutional ECC networks can be extended to allow for more than 1 bit to appear in a single column. The only difference is that now there are several inhibitory neurons. The column is then divided into a few non-overlapping subpopulations such that all of the excitatory neurons within the same subpopulation are mutually exclusive (inhibited by the same neuron). The architecture marked previously in green, has layers with as many as 256 channels. This results in $0.03\%$ sparsity, which is much lower than the estimated $2\%-5\%$ in the real brain. By subdividing the columns the sparsity percentage can be raised. For example by subdividing a column with 100 channels into 4 subpopulations, the resulting sparsity is $\frac{100/4}=\frac{20}=5\%$. Figure \ref{fig:benchmarks_k} shows that the accuracy decreases. This is expected because now we are modelling $q(\boldsymbol{x}|y_j)$ with fewer coincidence classes $m$ allowing us for ``less resolution''. The surprising observations is that the decrease is very small and almost negligible (difference of around 1\%-2\%). That's because now  we are modelling $q(\boldsymbol{x}|y_j^{(1)},y_j^{(2)}...,y_j^{(Y)})$ using a product of  $q(\boldsymbol{x}|y_j^{(1)},y_j^{(2)}...,y_j^{(Y)})=q(\boldsymbol{x}|y_j^{(1)})q(\boldsymbol{x}|y_j^{(2)})...q(\boldsymbol{x}|y_j^{(Y)})$. 
+
+\begin{figure}[!htbp]
+	\centering
+	\includegraphics[width=13.8cm]{benchmarks_k}
+	\caption{The layer topology is now marked with cX/Y which stands for X channels subdivided into Y populations. As a result there will be Y active bits per column. This table can be easily compared with figure \ref{fig:benchmarks_votes}.}
+	\label{fig:benchmarks_k}
+\end{figure} 
+
+\paragraph{Sparse connections (dropout)} All of our ECC networks so far have used weight matrices $W$ representing dense connection. The real neurons are not so well organised. A far more biologically-plausible model can be achieved by randomly setting certain weights in $W$ to zero forever (hebbian learning is not allowed to modify them). 
+Randomly dropping certain percentage of weights allows for building sparsely-connected networks where each neurons has access to only some fragment of the input. 
+
+When we subdivide a column into several subpopulations, each one of them will have access to the same fragment of input. By adding dropout, we can introduce enough bias to prevent all of the subpopulations from becoming identical. This allows for additional regularisation.
 
 \paragraph{Deeper layers are less sensitive to small changes} 
 Different layers have their own sensitivity to motor feedback. The lower ones are used to detect smaller features, like line patterns. Even small ``eve movement'' are enough to entirely change the detailed features, therefore the low layers should be more sensitive to small motor feedback. Deeper layers could be driven by motor-feedback neurons that activate in response to larger movements. For example, eve movement should not affect the more general landmarks in the surrounding environment, but head-direction could have a significant effect. As a result, the deeper  layers could learn to recognise increasingly more general concepts that change at broader scales of movement. 
