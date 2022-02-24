@@ -46,7 +46,7 @@ assert str(
     sdr) == "[7, 8, 9, 10, 11, 40, 41, 42, 43, 44]"  # neurons between 0 and 19 for integer; neurons between 20 and 49 for float
 
 # Now it's time for a real-life example. We will use hotgym dataset (the same one as Numenta used).
-hotgym = pd.read_csv('htm/data/hotgym.csv')
+hotgym = pd.read_csv('../htm/data/hotgym.csv')
 hotgym['timestamp'] = pd.to_datetime(hotgym['timestamp'])
 hotgym['kw_energy_consumption'] = pd.to_numeric(hotgym['kw_energy_consumption'])
 hotgym = hotgym.set_index('timestamp')

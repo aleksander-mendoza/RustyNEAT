@@ -619,7 +619,7 @@ Figure \ref{fig:benchmarks_votes} provides further details on the few architectu
 	\label{fig:benchmarks_votes}
 \end{figure} 
 
-\paragraph{Multiple bits per column} The topology of convolutional ECC networks can be extended to allow for more than 1 bit to appear in a single column. The only difference is that now there are several inhibitory neurons. The column is then divided into a few non-overlapping subpopulations such that all of the excitatory neurons within the same subpopulation are mutually exclusive (inhibited by the same neuron). The architecture marked previously in green, has layers with as many as 256 channels. This results in $0.03\%$ sparsity, which is much lower than the estimated $2\%-5\%$ in the real brain. By subdividing the columns the sparsity percentage can be raised. For example by subdividing a column with 100 channels into 4 subpopulations, the resulting sparsity is $\frac{100/4}=\frac{20}=5\%$. Figure \ref{fig:benchmarks_k} shows that the accuracy decreases. This is expected because now we are modelling $q(\boldsymbol{x}|y_j)$ with fewer coincidence classes $m$ allowing us for ``less resolution''. The surprising observations is that the decrease is very small and almost negligible (difference of around 1\%-2\%). That's because now  we are modelling $q(\boldsymbol{x}|y_j^{(1)},y_j^{(2)}...,y_j^{(Y)})$ using a product of  $q(\boldsymbol{x}|y_j^{(1)},y_j^{(2)}...,y_j^{(Y)})=q(\boldsymbol{x}|y_j^{(1)})q(\boldsymbol{x}|y_j^{(2)})...q(\boldsymbol{x}|y_j^{(Y)})$. 
+\paragraph{Multiple bits per column} The topology of convolutional ECC networks can be extended to allow for more than 1 bit to appear in a single column. The only difference is that now there are several inhibitory neurons. The column is then divided into a few non-overlapping subpopulations such that all of the excitatory neurons within the same subpopulation are mutually exclusive (inhibited by the same neuron). The architecture marked previously in green, has layers with as many as 256 channels. This results in $0.03\%$ sparsity, which is much lower than the estimated $2\%-5\%$ in the real brain. By subdividing the columns the sparsity percentage can be raised. For example by subdividing a column with 100 channels into 4 subpopulations, the resulting sparsity is $\frac{1}{100/4}=\frac{1}{20}=5\%$. Figure \ref{fig:benchmarks_k} shows that the accuracy decreases. This is expected because now we are modelling $q(\boldsymbol{x}|y_j)$ with fewer coincidence classes $m$ allowing us for ``less resolution''. The surprising observations is that the decrease is very small and almost negligible (difference of around 1\%-2\%). That's because now  we are modelling $q(\boldsymbol{x}|y_{j_1},y_{j_2}...,y_{j_Y})$ using a product of  $q(\boldsymbol{x}|y_{j_1},y_{j_2}...,y_{j_Y})=q(\boldsymbol{x}|y_{j_1})q(\boldsymbol{x}|y_{j_2})...q(\boldsymbol{x}|y_{j_Y})$. 
 
 \begin{figure}[!htbp]
 	\centering
@@ -632,6 +632,8 @@ Figure \ref{fig:benchmarks_votes} provides further details on the few architectu
 Randomly dropping certain percentage of weights allows for building sparsely-connected networks where each neurons has access to only some fragment of the input. 
 
 When we subdivide a column into several subpopulations, each one of them will have access to the same fragment of input. By adding dropout, we can introduce enough bias to prevent all of the subpopulations from becoming identical. This allows for additional regularisation.
+
+Dropout combined with column subdivision is by far the most biologically accurate topology.
 
 \paragraph{Deeper layers are less sensitive to small changes} 
 Different layers have their own sensitivity to motor feedback. The lower ones are used to detect smaller features, like line patterns. Even small ``eve movement'' are enough to entirely change the detailed features, therefore the low layers should be more sensitive to small motor feedback. Deeper layers could be driven by motor-feedback neurons that activate in response to larger movements. For example, eve movement should not affect the more general landmarks in the surrounding environment, but head-direction could have a significant effect. As a result, the deeper  layers could learn to recognise increasingly more general concepts that change at broader scales of movement. 
@@ -671,32 +673,60 @@ In order to see how ECC networks can solve control tasks, we need to first under
 Geometric deep learning provides a mathematical framework and theory for understanding deep nets. The task is to find a function $f:\mathcal{X}\rightarrow\mathcal{Y}$ that belongs to some parameterised function class $\mathcal{F}=\{f_{\theta \in \Theta}\}$, where $\theta$ are typically the weights of a neural network. The set $\mathcal{X}$ is some high-dimensional input space $\mathcal{X}=\mathbb{R}^n$. The learning process attempts to find some $f_\theta$ that fits well into an observed set of samples $\mathcal{D}=\{(x_i,y_i)\}_{i=1}^N$. Identifying such a function is difficult due to curse of dimensionality. The number $N$ of necessary samples grows exponentially with the dimensionality $n$. In order to overcome this obstacle, deep nets use geometric priors. They assume existence of symmetries in the signal space. Each signal $x$ is a function $x:\Omega \rightarrow \mathcal{C}$ where $\Omega$ is called the domain and $\mathcal{C}$ is the value.
 For example a neural network that operates on 28x28 images with RGB pixels will receive signals $x:\mathbb{Z}_{28}\times \mathbb{Z}_{28} \rightarrow \mathbb{R}^{3}$. The signals form a Hilbert space and a linear space. Symmetries in $\Omega$ are defined by some group $\mathcal{G}$, whole elements $g\in \mathcal{G}$ act on domain $\Omega$. Group actions on signals are defined as $(g.x)(\omega)=x(g^{-1}\omega)$. For example computer images can be translated under the group of 2D translations acting on pixel coordinates $\mathbb{Z}_{28}\times \mathbb{Z}_{28}$. Deep network architectures allow constraining the search space $\mathcal{F}$ to include only functions that are invariant ($f(g.x)=f(x)$) or equivariant ($f(g.x)=g.f(x)$) under transformations of a specific group. This counters the curse of dimensionality and allows for identifying functions with less than exponential number of samples.
 
-\paragraph{Reinforcement learning samples inefficiency}
+\paragraph{Reinforcement learning sample inefficiency}
 While most modalities, such as computer vision, natural language, audio/speech recognition are largely considered to be ``solved'', reinforcement learning is the last frontier where deep networks still struggle. We have seen impressive results such as AlphaGo beating the world's champion in Go, but at the same time, those achievements were only possible by using immense amounts of training time and computing power. It appears as though reinforcement learning is in some sense ``different''. Could it be that control tasks have some unexplored hidden symmetries? What kind of deep network architecture could solve the curse of dimensionality and allow for efficient reinforcement learning?
 
 We propose that the missing symmetries are not in the inputs signal $x$, but in the actions that the agent can take. An agent moving 2 steps forward and 2 steps backward will end up in the same place. An agent rotating $360\deg$ around itself, will end up facing the same direction. Moving your hand 15cm up and 15cm down will not result in any change. 
 
-\underline{Neuroscientific hypothesis}: The biological brains are capable of learning action symmetries and the results are be observed in form of head-direction cells and grid cells. We predict existence of cells coding many other group symmetries. For a long time it has been suspected that the hippocampus learns graphs. We propose that those are not just any graphs. They should be Cayley graphs. If our hypothesis is true, then it would be rather likely that the human language has evolved as a result of building higher and more sophisticated group abstractions of the real world. 
+\underline{Neuroscientific hypothesis}: The biological brains are capable of learning action symmetries and the results can be observed in form of head-direction cells and grid cells. We predict existence of cells coding many other group symmetries. For a long time it has been suspected that the hippocampus learns graphs. We propose that those are not just any graphs. They should be Cayley graphs generated by agent's actions. If our hypothesis is true, then it would be rather likely that the human language has evolved as a result of building higher and more sophisticated group abstractions of the real world. 
 \iffalse Every word of human language might be bound to some element of that group. 
 Many of those elements might commute. For example all of the following sentences, even though not grammatically correct, are understandable and their ``common sense'' meaning is the same: ``I ate duck'', ``ate I  duck'', ``ate duck I'', ``duck I ate''. This would agree with the fact that transformer architectures (deep nets modelling class of permutation-equivariant functions) are so good at processing natural language. 
 \fi
 
 \paragraph{Inference of groups from actions and observations}
 
-Geometric deep learning theory can be modified to learn groups $\mathcal{G}$ instead of functions $\mathcal{F}$. The network is presented with a trajectory \[x_1,g_1,x_2,g_2,x_3,g_3...\] 
-of alternating actions and signals. The structure of $\mathcal{G}$ is not known to us. We attempt to infer  $\mathcal{G}_\theta$ under the assumption that  it belongs to some parametric family $G=\{\mathcal{G}_{\theta\in\Theta}\}$. The goal is to find some $\mathcal{G}_\theta$ such that the following holds 
+Geometric deep learning theory can be modified to learn groups $\mathcal{G}$ instead of functions $\mathcal{F}$. Let $\mathcal{A}$ be a generator set of $\mathcal{G}$. The network is presented with a trajectory 
+\[x_1,g_1,x_2,g_2,x_3,g_3... \text{ such that } \forall_{t>0} g_t \in \mathcal{A}\] 
+of alternating actions and signals. The structure of $\mathcal{G}$ is not known to us. We only see the generating set $\mathcal{A}$, which is known in advance, but we can never observe any other group element. We attempt to infer  $\mathcal{G}_\theta$ under the assumption that  it belongs to some parametric family $G=\{\mathcal{G}_{\theta\in\Theta}\}$. The goal is to find some $\mathcal{G}_\theta$ such that the following holds 
 \[
-\exists_{ g_0\in\mathcal{G}_\theta} \forall_{t>0} g_t...g_2g_1gx_0 = x_{t+1}
+\exists_{ g_0\in\mathcal{G}_\theta} \forall_{t>0} g_t...g_2g_1g.x_0 = x_{t+1}
 \] The observation $x_0$ is considered to be the initial state of the agent, before it has observed any signal. The initial $g_0$ is called the ``anchoring point'' and it determines how $x_1$ relates to the initial $x_0$. As a result, the learned group $\mathcal{G}_\theta$ must be able to explain how the agent got to the staring $x_1$. 
 
-\underline{Neuroscientific motivation}: The grid/hd/place cell patterns are stable. There must exist some mechanism for anchoring them to the observed cues. If we did not use $g$ and $x_0$, then there might exist multiple possible $\mathcal{G}_\theta$ fitting the trajectory and any one of them could be chosen randomly. The pattern stability is ensured, because agent can use the first observation $x_1$ (cues) to infer $g_0$.
+\underline{Neuroscientific motivation}: The grid/hd/place cell patterns are stable. There must exist some mechanism for anchoring them to the observed cues. If we did not use $g_0$ and $x_0$, then there might exist multiple possible $\mathcal{G}_\theta$ fitting the trajectory and any one of them could be chosen randomly. The pattern stability is ensured, because agent can use the first observation $x_1$ (cues) to infer $g_0$.
 There is also one additional benefit. The learning algorithm should be capable of imagining the first $x_1$ based only on ``made up'' scenario $g_0$. It should also be able to recall past experiences by replaying them from a specific starting $g_0$.
 
 \paragraph{Parametric groups}
 
-There might exist many possible ways to parameterise structure of a group. Any finitely generated group can be defined using a set of word equivalences and then new equalities can be found using Knuth-Benedix procedure. Differentiable encoding can be achieved with real vectors $\mathbb{R}^n$ and then deep network could be trained by modelling the group operation as a function. Such differentiable group encodings can be observed in Tolman-Eichenbaum machine. ECC networks allow for yet another group representation using sparse binary vectors. 
+There might exist many possible ways to parameterise structure of a group. Any finitely generated group can be defined using a set of word equivalences and then new equalities can be found using Knuth-Benedix procedure. Differentiable encoding can be achieved with real vectors $\mathbb{R}^n$ and then deep network could be trained by modelling the differentiable (Lie) group operations. Such encodings can be observed to emerge in Tolman-Eichenbaum machine. 
 
-TODO: Show the exact ECC network topology used for inference of groups
+ECC networks allow for yet another group representation using sparse binary vectors. 
+Every group element $g_{\boldsymbol{x}}$ is represented as a set of neurons (bits in binary vector) $g_{\boldsymbol{x}}=\{i:x_i\in\boldsymbol{x}\}$. Network connections  $W$ represent edges in Cayley graph. Such encoding allows for certain degree of imprecision and fuzziness. We can measure similarity of nodes by the overlap in their binary vectors. This allows for robustness when observations $\boldsymbol{x}$ are noisy.
+
+
+Learning parametric groups has many analogies to inductive grammatical inference (learning finite state automata). We could represent any group using its Cayley graph and then try to minimise it by merging certain group elements with equivalence relations. The goal would be to find the minimal quotient group such that its actions on signals $\boldsymbol{x}$ are preserved (consistent with the observed trajectory). 
+
+
+In classical reinforcement learning, the agent occupies a specific state in a Markov decision process (MDP). It is assumed that the agent knows exactly where it is at any point in time. Deep reinforcement learning generalises MDP by working with partially observable states. Such agents do not know the state and can only see certain representations $\boldsymbol{x}$ of it instead (like images).
+
+We assume that the environment is an infinite group $\mathcal{G}_*$ whose elements $g_s$ are the states. Every $g_s$ produces certain observation $\mathcal{X}(g_s)=\boldsymbol{x}$. Agent acts on $\boldsymbol{x}$ with group-generating element $g_a\in \mathcal{A}$. The result of action is $g_a.\mathcal{X}(g_s)=\mathcal{X}(g_ag_s)$. 
+
+The input to first layer in ECC network is the signal $g_{\boldsymbol{x}}$, while its output $g_{\boldsymbol{y}}\in\mathcal{G}_{\theta}$ is an approximation of $g_s\in\mathcal{G}_{*}$. 
+
+
+\paragraph{Group manifolds}
+
+We can define a distance metric $d(g_1,g_2)$ on $\mathcal{G}$ generated by $\mathcal{A}$ as the minimum length of word $g_3$ such that $g_3g_1=g_2$.
+We can use such metric to induce topology of open balls on $\mathcal{G}$.
+(If $\mathcal{G}$ is also differentiable then it's a Lie group, but we're not concerned with this here) .
+
+Within the open ball, a group might look different than elsewhere. For example movement of an ant inside a box might look like a group of two-dimensional translations, until it hits a wall. We will soon use the open balls to measure how many steps can be taken in an arbitrary direction, before the ant is stopped by a wall.
+
+
+
+
+\paragraph{Learning groups and cosets}
+
+Suppose we have a convolutional ECC network. The first layer receives signals $x:\Omega \rightarrow \{0,1\}$ that encode observations of the external world. Every time the agent takes an action $g\in\mathbb{A}$, the signal changes accordingly. 
 
 
 \paragraph{Reducing reward maximisation problem to a search problem}
@@ -734,10 +764,7 @@ The agent has two modelling tasks, both unsupervised. One of them is learning to
 
 If the agent builds an internal model of the world, that works like a map, it could then use such cognitive map to very quickly and efficiently search for energy sources. This only requires imagination, which is much cheaper than locomotion. The ECC networks do not see any reward. Instead, when the energy increases, certain neurons become temporarily more plastic than usually. This mechanism could be used to bias the cognitive map more towards places and actions that lead to the source of energy.
 
-Once the agent has an internal map, it could then exactly know which aspects of the environment are unexplored. Unlike in the current deep reinforcement learning approaches, an agent with episodic memory would only need to visit a novel place once in order to learn about it. If the world is dynamically changing, then an attention mechanism will be necessary. If an animal sees or hears something unexpected it will focus all its attention on the novel experience. This mechanism can be explained using ECC networks as well. Suppose that the current internal model $\boldsymbol{y}$ explains all the previously experienced observations $p(\boldsymbol{x})=\sum_j p(\boldsymbol{x},y_j)$. If the agent experiences something novel that does not fit into any specific $y$, then it will be surprised. The agent will become curious and focus on the novel experience for a while. After the model  $\boldsymbol{y}$ restructures itself and learns about the new $\boldsymbol{x}$, then the agent become ``bored''. 
-
-\
-
+Once the agent has an internal map, it could then exactly know which aspects of the environment are unexplored. Unlike in the current deep reinforcement learning approaches, an agent with episodic memory would only need to visit a novel place once in order to learn about it. If the world is dynamically changing, then an attention mechanism will be necessary. If an animal sees or hears something unexpected it will focus all its attention on the novel experience. This mechanism can be explained using ECC networks as well. Suppose that the current internal model $\boldsymbol{y}$ explains all the previously experienced observations $p(\boldsymbol{x})=\sum_j p(\boldsymbol{x},y_j)$. If the agent experiences something novel that does not fit into any specific $y$, then it will be surprised. The agent will become curious and focus on the novel experience for a while. After the model  $\boldsymbol{y}$ restructures itself and learns about the new $\boldsymbol{x}$, then the agent becomes ``bored''. 
 
 \section{Optimisations and efficiency benchmarks}
 
@@ -747,6 +774,47 @@ Sparsity enables major optimisations. We can define ECC layers with thousands of
 \paragraph{Benchmarks}
 We ran benchmarks on random patches of MNIST images. Each patch was 25x25 pixels. The network had 734400 learnable parameters (and several non-learnable sparse matrices). Our implementation written in Rust was able to process 2000 images per second on a single thread on 2.7 GHz Intel i5 core. When learning was enabled, it could train on 1700 images per second.
 
+\section{Inhibitory plasticity}
+
+In the original definition, all of the excitatory neurons that share a common inhibitory one, are mutually exclusive. This is an abstraction that simplifies the biological mechanisms.
+In reality the inhibitory neurons themselves are plastic and there exist special hebbian learning rules for them, called inhibitory long term potentiation (iLTP). It is possible to provide alternative implementation of ECC networks in a way that uses iLTP. 
+
+\paragraph{Problems of ECC networks}
+There are two problems in ECC networks that iLTP could solve at once. One of them is the question of what happens when one excitatory neuron in connected to two inhibitory. Then it will be mutually exclusive with two populations and as a result, it will fire significantly less often then any of its neighbours. Figure \ref{fig:inh_problem} provides an example.
+ 
+ \begin{figure}[!htbp]
+ 	\centering
+ 	\begin{tikzpicture}[scale=0.2]
+ 		\tikzstyle{every node}+=[inner sep=0pt]
+ 		\draw [black] (23.6,-17) circle (3);
+ 		\draw (23.6,-17) node {$y_1$};
+ 		\draw [black] (32.7,-17) circle (3);
+ 		\draw (32.7,-17) node {$y_2$};
+ 		\draw [black] (42.1,-17) circle (3);
+ 		\draw (42.1,-17) node {$y_3$};
+ 		\draw [black] (28.1,-9.6) circle (3);
+ 		\draw (28.1,-9.6) node {$e_1$};
+ 		\draw [black] (28.1,-9.6) circle (2.4);
+ 		\draw [black] (37.7,-9.6) circle (3);
+ 		\draw (37.7,-9.6) node {$e_2$};
+ 		\draw [black] (37.7,-9.6) circle (2.4);
+ 		\draw [black] (26.54,-12.16) -- (25.16,-14.44);
+ 		\fill [black] (25.16,-14.44) -- (26,-14.01) -- (25.15,-13.49);
+ 		\draw [black] (29.68,-12.15) -- (31.12,-14.45);
+ 		\fill [black] (31.12,-14.45) -- (31.12,-13.51) -- (30.27,-14.04);
+ 		\draw [black] (36.02,-12.09) -- (34.38,-14.51);
+ 		\fill [black] (34.38,-14.51) -- (35.24,-14.13) -- (34.41,-13.57);
+ 		\draw [black] (39.23,-12.18) -- (40.57,-14.42);
+ 		\fill [black] (40.57,-14.42) -- (40.59,-13.48) -- (39.73,-13.99);
+ 	\end{tikzpicture}
+ 	\caption{Suppose $s_1<s_2<s_3$. Then $y_1$ won't be able to fire, because $y_2$ has higher $s_2$. Unfortunately $y_2$ also is unable to fire because it loses against $y_3$. As a result none of the neurons connected to $e_1$ fires. The same problem appears when $s_1>s_2>s_3$. As a result the probability of $y_2$ becoming active is significantly lower than that of its neighbours.}
+ 	\label{fig:inh_problem}
+ \end{figure} 
+
+The second problem is concerned with biological plausibility. In all of the ECC topologies presented so far, the ratio of inhibitory to excitatory neurons is around 1 to a few dozen or hundred. In the real brain, inhibitory neurons make up about 20\%. This leads to an efficiency problem. Currently the pattern of inhibition is fixed and a single neuron would need to send its inhibitory neurotransmitter to all of the excitatory neurons. It should be noted that most of the time, a given input pattern $\boldsymbol{x}$ will significantly potentiate ($s$ value will be high) only for a small fraction of $\boldsymbol{y}$ neurons. It would be more efficient to first look at the pattern in  $\boldsymbol{x}$ and then send the inhibitory  neurotransmitters only to those $y$ that we expect to fire the most.
+
+\paragraph{Plastic inhibitory neurons}
+Both of the problems are solved by introducing more inhibitory neurons and allowing them to choose their connections via plasticity mechanisms. Instead of using $\argmax$, every neuron should have a spiking threshold. The inhibitory neurons $\boldsymbol{el}$are excited by the same (or similar) inputs $\boldsymbol{x}$ as the excitatory $\boldsymbol{y}$. When a neuron $y_j$ is depolarised ($s_j$ raises ``high enough'') but does not fire ($s_j$ is below the threshold) after $e_k$, then the synapse from $e_k$ to $y_j$ is strengthened. 
 
 \section{ECC are spiking networks}
 

@@ -32,13 +32,18 @@
 \contentsline {section}{\numberline {6}Reinforcement learning and control}{29}{}%
 \contentsline {paragraph}{ECC can't learn value functions}{29}{}%
 \contentsline {paragraph}{Geometric deep learning theory}{30}{}%
-\contentsline {paragraph}{Reinforcement learning samples inefficiency}{30}{}%
+\contentsline {paragraph}{Reinforcement learning sample inefficiency}{30}{}%
 \contentsline {paragraph}{Inference of groups from actions and observations}{31}{}%
 \contentsline {paragraph}{Parametric groups}{32}{}%
-\contentsline {paragraph}{Reducing reward maximisation problem to a search problem}{32}{}%
-\contentsline {paragraph}{Supervised vs unsupervised (This paragraph is mostly work-in-progress)}{33}{}%
-\contentsline {section}{\numberline {7}Optimisations and efficiency benchmarks}{35}{}%
-\contentsline {paragraph}{Optimisations}{35}{}%
-\contentsline {paragraph}{Benchmarks}{35}{}%
-\contentsline {section}{\numberline {8}ECC are spiking networks}{35}{}%
-\contentsline {section}{\numberline {9}Evolving ECC networks}{37}{}%
+\contentsline {paragraph}{Group manifolds}{33}{}%
+\contentsline {paragraph}{Learning groups and cosets}{33}{}%
+\contentsline {paragraph}{Reducing reward maximisation problem to a search problem}{33}{}%
+\contentsline {paragraph}{Supervised vs unsupervised (This paragraph is mostly work-in-progress)}{34}{}%
+\contentsline {section}{\numberline {7}Optimisations and efficiency benchmarks}{36}{}%
+\contentsline {paragraph}{Optimisations}{36}{}%
+\contentsline {paragraph}{Benchmarks}{36}{}%
+\contentsline {section}{\numberline {8}Inhibitory plasticity}{37}{}%
+\contentsline {paragraph}{Problems of ECC networks}{37}{}%
+\contentsline {paragraph}{Plastic inhibitory neurons}{38}{}%
+\contentsline {section}{\numberline {9}ECC are spiking networks}{38}{}%
+\contentsline {section}{\numberline {10}Evolving ECC networks}{39}{}%
