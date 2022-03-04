@@ -27,7 +27,16 @@ mod cpu_ecc_machine;
 mod parallel;
 mod cpu_sdr_dataset;
 mod shaped_array;
+mod cpu_ecc_spiking;
+mod conv_spiking_weights;
+mod conv_spiking_shape;
+mod cpu_sdr_spiking;
+mod as_usize;
 
+pub use cpu_ecc_spiking::*;
+pub use conv_spiking_weights::*;
+pub use cpu_sdr_spiking::*;
+pub use as_usize::*;
 pub use shaped_array::*;
 pub use cpu_sdr_dataset::*;
 pub use cpu_ecc_population::*;

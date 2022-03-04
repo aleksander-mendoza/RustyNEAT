@@ -1,4 +1,4 @@
-use crate::{VectorFieldOne, Shape2, Shape3, VectorFieldPartialOrd, EccProgram, CpuSDR, CpuEccDense, DenseWeight, top_small_k_indices, EncoderTarget, Shape, range_contains, from_xyz, w_idx, ConvShape};
+use crate::{VectorFieldOne, Shape2, Shape3, VectorFieldPartialOrd, EccProgram, CpuSDR, CpuEccDense, DenseWeight, top_small_k_indices, EncoderTarget, Shape, range_contains, from_xyz, w_idx, ConvShape, ConvShapeTrait, HasShape, HasShapeMut, Metric};
 use crate::xorshift::xorshift32;
 use std::ops::{Deref, DerefMut, IndexMut, Index};
 use itertools::Itertools;
@@ -13,39 +13,38 @@ pub type Rand = u32;
 pub fn xorshift_rand(rand:Rand)->Rand{
     xorshift32(rand)
 }
-pub fn as_usize(i:Idx)->usize{
-    i as usize
-}
+
 pub fn as_idx(i:usize)->Idx{
     i as u32
 }
 
 
 
-pub trait EccLayer {
+pub trait EccLayer:HasShapeMut {
     type A:SDR;
+    type D:DenseWeight;
+    fn get_threshold(&self) -> Self::D;
+    fn set_threshold(&mut self, threshold: Self::D);
+    fn get_plasticity(&self) -> Self::D;
+    fn set_plasticity(&mut self, threshold: Self::D);
     fn k(&self) -> Idx;
     fn set_k(&mut self, k: Idx);
-    fn shape(&self)->&ConvShape;
-    fn shape_mut(&mut self)->&mut ConvShape;
+
     fn learnable_parameters(&self) -> usize;
 
     fn get_max_incoming_synapses(&self) -> Idx;
-    fn get_threshold_f32(&self) -> f32;
-    fn set_threshold_f32(&mut self, threshold: f32);
-    fn set_plasticity_f32(&mut self, fractional: f32);
-    fn get_plasticity_f32(&self) -> f32;
 
-    fn run(&mut self, input: &Self::A) -> Self::A {
-        let output = self.infer(input);
-        self.decrement_activities(&output);
-        output
-    }
+
     fn new_empty_sdr(&self,capacity:Idx)->Self::A;
     fn new_empty_output_sdr(&self)->Self::A {
         let k = self.k();
         let a = self.shape().out_area();
         self.new_empty_sdr(a*k)
+    }
+    fn run(&mut self, input: &Self::A) -> Self::A {
+        let output = self.infer(input);
+        self.decrement_activities(&output);
+        output
     }
     fn infer(&mut self, input: &Self::A) -> Self::A {
         let mut output = self.new_empty_output_sdr();
@@ -73,12 +72,4 @@ pub trait EccLayer {
     //     top_k
     // }
 
-}
-
-pub trait EccLayerD{
-    type D;
-    fn get_threshold(&self) -> Self::D;
-    fn set_threshold(&mut self, threshold: Self::D);
-    fn get_plasticity(&self) -> Self::D;
-    fn set_plasticity(&mut self, threshold: Self::D);
 }

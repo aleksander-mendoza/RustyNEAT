@@ -1,4 +1,4 @@
-use crate::{SDR, EccLayer, CpuSDR, CpuEccDense, Idx, DenseWeight, ConvShape, VectorFieldOne, Shape3, VectorFieldPartialOrd, Shape};
+use crate::{SDR, EccLayer, CpuSDR, CpuEccDense, Idx, DenseWeight, ConvShape, VectorFieldOne, Shape3, VectorFieldPartialOrd, Shape, ConvShapeTrait, HasShape, Metric};
 use std::ops::{Index, IndexMut};
 use serde::{Serialize, Deserialize};
 use rand::Rng;
@@ -11,7 +11,7 @@ pub struct EccMachine<A: SDR, L: EccLayer<A=A>> {
     inputs: Vec<A>,
 }
 
-pub type CpuEccMachine<D> = EccMachine<CpuSDR, CpuEccDense<D>>;
+pub type CpuEccMachine<D,M> = EccMachine<CpuSDR, CpuEccDense<D,M>>;
 
 impl<A: SDR, L: EccLayer<A=A>> Index<usize> for EccMachine<A, L> {
     type Output = L;
@@ -46,20 +46,20 @@ impl<A: SDR, L: EccLayer<A=A>> EccMachine<A, L> {
     pub fn composed_kernel_and_stride_up_to(&self, idx: usize) -> ([Idx;2],[Idx;2]) {
         let (mut kernel, mut stride) = ([1;2], [1;2]);
         for l in self.ecc[..idx].iter() {
-            (stride, kernel) = stride.conv_compose(&kernel, l.shape().stride(), l.shape().kernel());
+            (stride, kernel) = stride.conv_compose(&kernel, l.stride(), l.kernel());
         }
         (kernel,stride)
     }
     pub fn push(&mut self, top: L) {
         if let Some(l) = self.out_shape() {
-            assert_eq!(l, top.shape().in_shape());
+            assert_eq!(l, top.in_shape());
         }
         self.inputs.push(top.new_empty_output_sdr());
         self.ecc.push(top);
     }
     pub fn prepend(&mut self, bottom: L) {
         if let Some(l) = self.in_shape() {
-            assert_eq!(l, bottom.shape().out_shape());
+            assert_eq!(l, bottom.out_shape());
         }
         self.inputs.insert(0,bottom.new_empty_output_sdr());
         self.ecc.insert(0,bottom);
@@ -82,7 +82,7 @@ impl<A: SDR, L: EccLayer<A=A>> EccMachine<A, L> {
     }
     pub fn new_singleton(layer: L) -> Self {
         Self {
-            inputs: vec![layer.new_empty_sdr(layer.shape().in_volume()), layer.new_empty_output_sdr()],
+            inputs: vec![layer.new_empty_sdr(layer.in_volume()), layer.new_empty_output_sdr()],
             ecc: vec![layer],
         }
     }
@@ -104,17 +104,17 @@ impl<A: SDR, L: EccLayer<A=A>> EccMachine<A, L> {
             let kernel = kernels[i];
             let stride = strides[i];
             let l = new_layer(prev_output, in_channels, out_channels, k, kernel, stride, rng);
-            prev_output = *l.shape().in_grid();
+            prev_output = *l.in_grid();
             layers_vec.push(l);
         }
         layers_vec.reverse();
         #[cfg(debug_assertions)] {
-            let last = layers_vec.last().unwrap().shape().out_shape();
+            let last = layers_vec.last().unwrap().out_shape();
             debug_assert!(last.grid().all_eq(&output), "{:?}=={:?}", last.grid(), output);
             debug_assert_eq!(last.channels(), *channels.last().unwrap());
-            debug_assert_eq!(layers_vec[0].shape().in_channels(), channels[0]);
+            debug_assert_eq!(layers_vec[0].in_channels(), channels[0]);
             for (prev, next) in layers_vec.iter().tuple_windows() {
-                debug_assert!(prev.shape().out_shape().all_eq(next.shape().in_shape()), "{:?}=={:?}", prev.shape().out_shape(), next.shape().in_shape());
+                debug_assert!(prev.out_shape().all_eq(next.in_shape()), "{:?}=={:?}", prev.out_shape(), next.in_shape());
             }
         }
         let mut inputs = vec![layers_vec.first().unwrap().new_empty_sdr(prev_output.product())];
@@ -138,8 +138,8 @@ impl<A: SDR, L: EccLayer<A=A>> EccMachine<A, L> {
     pub fn output_sdr_mut(&mut self, layer_index: usize) -> &mut A {
         &mut self.inputs[layer_index + 1]
     }
-    pub fn set_plasticity_f32_everywhere(&mut self, plasticity: f32) {
-        self.ecc.iter_mut().for_each(|l| l.set_plasticity_f32(plasticity))
+    pub fn set_plasticity_everywhere(&mut self, plasticity: L::D) {
+        self.ecc.iter_mut().for_each(|l| l.set_plasticity(plasticity))
     }
     pub fn last_output_sdr(&self) -> &A {
         self.inputs.last().unwrap()
@@ -196,32 +196,32 @@ impl<A: SDR, L: EccLayer<A=A>> EccMachine<A, L> {
         self.infer_up_to_layer(self.len(), input)
     }
     pub fn in_shape(&self) -> Option<&[Idx; 3]> {
-        self.ecc.first().map(|f| f.shape().in_shape())
+        self.ecc.first().map(|f| f.in_shape())
     }
     pub fn in_channels(&self) -> Option<Idx> {
-        self.ecc.first().map(|f| f.shape().in_channels())
+        self.ecc.first().map(|f| f.in_channels())
     }
     pub fn in_volume(&self) -> Option<Idx> {
-        self.ecc.first().map(|f| f.shape().in_volume())
+        self.ecc.first().map(|f| f.in_volume())
     }
     pub fn in_grid(&self) -> Option<&[Idx; 2]> {
-        self.ecc.first().map(|f| f.shape().in_grid())
+        self.ecc.first().map(|f| f.in_grid())
     }
     pub fn out_grid(&self) -> Option<&[Idx; 2]> {
-        self.ecc.last().map(|f| f.shape().out_grid())
+        self.ecc.last().map(|f| f.out_grid())
     }
     pub fn out_shape(&self) -> Option<&[Idx; 3]> {
-        self.ecc.last().map(|f| f.shape().out_shape())
+        self.ecc.last().map(|f| f.out_shape())
     }
     pub fn out_channels(&self) -> Option<Idx> {
-        self.ecc.last().map(|f| f.shape().out_channels())
+        self.ecc.last().map(|f| f.out_channels())
     }
     pub fn out_volume(&self) -> Option<Idx> {
-        self.ecc.last().map(|f| f.shape().out_volume())
+        self.ecc.last().map(|f| f.out_volume())
     }
 }
 
-impl<D: DenseWeight> CpuEccMachine<D> {
+impl<D: DenseWeight,M:Metric<D>> CpuEccMachine<D,M> {
     pub fn new_cpu(output: [Idx; 2], kernels: &[[Idx; 2]], strides: &[[Idx; 2]], channels: &[Idx], k: &[Idx], rng: &mut impl Rng) -> Self {
         Self::new(output, kernels, strides, channels, k, rng,
                   |output, in_channels, out_channels, k, kernel, stride, rng|
@@ -238,12 +238,12 @@ impl<D: DenseWeight> CpuEccMachine<D> {
         vec.reverse();
         #[cfg(debug_assertions)] {
             for (prev, next) in vec.iter().tuple_windows() {
-                debug_assert!(prev.shape().out_shape().all_eq(next.shape().in_shape()), "{:?}=={:?}", prev.shape().out_shape(), next.shape().in_shape());
+                debug_assert!(prev.out_shape().all_eq(next.in_shape()), "{:?}=={:?}", prev.out_shape(), next.in_shape());
             }
         }
         Self { ecc: vec, inputs: pretrained.inputs.iter().map(|_| CpuSDR::new()).collect() }
     }
-    pub fn push_repeated_column(&mut self, top: &CpuEccDense<D>, column_pos: [Idx; 2]) {
+    pub fn push_repeated_column(&mut self, top: &CpuEccDense<D,M>, column_pos: [Idx; 2]) {
         self.push(if let Some(input) = self.out_shape() {
             let output = input.grid().conv_out_size(top.stride(), top.kernel());
             CpuEccDense::from_repeated_column(output, top, column_pos)
@@ -251,7 +251,7 @@ impl<D: DenseWeight> CpuEccMachine<D> {
             top.clone()
         })
     }
-    pub fn prepend_repeated_column(&mut self, bottom: &CpuEccDense<D>, column_pos: [Idx; 2]) {
+    pub fn prepend_repeated_column(&mut self, bottom: &CpuEccDense<D,M>, column_pos: [Idx; 2]) {
         self.prepend(if let Some(output) = self.in_shape() {
             CpuEccDense::from_repeated_column(*output.grid(), bottom, column_pos)
         } else {

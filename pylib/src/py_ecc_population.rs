@@ -17,7 +17,7 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{VectorFieldOne, Idx, EccLayer, Rand, SDR, EccLayerD, w_idx, as_usize, ConvShape, Shape3, Shape2, ShapedArray};
+use htm::{VectorFieldOne, Idx, EccLayer, Rand, SDR, w_idx, ConvShape, Shape3, Shape2, ShapedArray, HasShape, ConvWeightVec, Metric, MetricL1};
 use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
@@ -55,7 +55,7 @@ pub struct CpuEccPopulation {
 ///
 #[pyclass]
 pub struct ConvWeights {
-    pub ecc: htm::ConvWeights<f32>,
+    pub ecc: htm::ConvWeights<f32, MetricL1<f32>>,
 }
 
 #[pymethods]
@@ -303,36 +303,52 @@ impl ConvWeights {
         let mut rng = rand::thread_rng();
         Self { ecc: htm::ConvWeights::new(htm::ConvShape::new_in(input, out_channels,kernel, stride),  &mut rng) }
     }
+    #[staticmethod]
+    #[text_signature = "(input,output)"]
+    pub fn new_linear(input:Idx,output:Idx) -> Self {
+        Self { ecc: htm::ConvWeights::new(ConvShape::new_linear(input,output),&mut rand::thread_rng()) }
+    }
+    #[staticmethod]
+    #[text_signature = "(shape)"]
+    pub fn new_identity(py:Python,shape:PyObject) -> PyResult<Self> {
+        let shape = arrX(py,&shape,1,1,1)?;
+        Ok(Self { ecc: htm::ConvWeights::new(ConvShape::new_identity(shape),&mut rand::thread_rng()) })
+    }
     #[text_signature = "()"]
     pub fn restore_dropped_out_weights(&mut self) {
         self.ecc.restore_dropped_out_weights()
     }
-    #[text_signature = "(number_of_connections_to_drop)"]
-    pub fn dropout(&mut self, py: Python, number_of_connections_to_drop: PyObject) -> PyResult<()> {
+    #[text_signature = "(number_of_connections_to_drop,per_kernel,normalise)"]
+    pub fn dropout(&mut self, py: Python, number_of_connections_to_drop: PyObject,per_kernel:Option<bool>,normalise:Option<bool>) -> PyResult<()> {
+        let per_kernel = per_kernel.unwrap_or(false);
+        let normalise = normalise.unwrap_or(true);
         if PyFloat::is_exact_type_of(number_of_connections_to_drop.as_ref(py)) {
-            self.ecc.dropout_per_kernel_f32(number_of_connections_to_drop.extract(py)?, &mut rand::thread_rng())
+            if per_kernel{
+                self.ecc.dropout_per_kernel_f32(number_of_connections_to_drop.extract(py)?, &mut rand::thread_rng())
+            }else{
+                self.ecc.dropout_f32(number_of_connections_to_drop.extract(py)?, &mut rand::thread_rng())
+            }
         } else {
-            self.ecc.dropout_per_kernel(number_of_connections_to_drop.extract(py)?, &mut rand::thread_rng())
+            if per_kernel{
+                self.ecc.dropout_per_kernel(number_of_connections_to_drop.extract(py)?, &mut rand::thread_rng())
+            }else{
+                self.ecc.dropout(number_of_connections_to_drop.extract(py)?, &mut rand::thread_rng())
+            }
         }
-        Ok(())
-    }
-    #[text_signature = "(number_of_connections_to_drop_per_kernel_column)"]
-    pub fn dropout_per_kernel(&mut self, py: Python, number_of_connections_to_drop_per_kernel_column: PyObject) -> PyResult<()> {
-        if PyFloat::is_exact_type_of(number_of_connections_to_drop_per_kernel_column.as_ref(py)) {
-            self.ecc.dropout_per_kernel_f32(number_of_connections_to_drop_per_kernel_column.extract(py)?, &mut rand::thread_rng())
-        } else {
-            self.ecc.dropout_per_kernel(number_of_connections_to_drop_per_kernel_column.extract(py)?, &mut rand::thread_rng())
+        if normalise{
+            self.ecc.normalize_all()
         }
         Ok(())
     }
 
-    #[text_signature = "()"]
-    pub fn normalize_all(&mut self) {
-        self.ecc.normalize_all()
-    }
     #[text_signature = "(output_idx)"]
-    pub fn normalize(&mut self, output_idx: Idx) {
-        self.ecc.normalize(output_idx)
+    pub fn normalize(&mut self, output_idx: Option<Idx>) {
+        if let Some(output_idx) = output_idx {
+                self.ecc.normalize(output_idx)
+        }else{
+                self.ecc.normalize_all()
+        }
+
     }
 
     #[text_signature = "(output_neuron)"]
@@ -345,31 +361,33 @@ impl ConvWeights {
     }
     #[text_signature = "(sums,reset,parallel)"]
     pub fn store_all_incoming_weight_sums(&self, sums:&mut WeightSums, reset:Option<bool>, parallel:Option<bool>) {
+        let par = parallel.unwrap_or(false);
         if reset.unwrap_or(false){
-            if parallel.unwrap_or(false){
-                self.ecc.store_all_incoming_weight_sums(&mut sums.ecc)
-            }else{
+            if par{
                 self.ecc.parallel_store_all_incoming_weight_sums(&mut sums.ecc)
+            }else{
+                    self.ecc.store_all_incoming_weight_sums(&mut sums.ecc)
+
             }
         }else{
-            if parallel.unwrap_or(false){
-                self.ecc.reset_and_store_all_incoming_weight_sums(&mut sums.ecc)
-            }else{
+            if par{
                 self.ecc.parallel_reset_and_store_all_incoming_weight_sums(&mut sums.ecc)
+            }else{
+                    self.ecc.reset_and_store_all_incoming_weight_sums(&mut sums.ecc)
             }
         }
 
     }
     #[text_signature = "(output_neuron)"]
     pub fn get_weight_sum(&self, output_neuron: Idx) -> f32 {
-        self.ecc.incoming_weight_sum(output_neuron)
+            self.ecc.incoming_weight_sum(output_neuron)
     }
     #[text_signature = "(output_idx)"]
     pub fn get_weights(&mut self, output_neuron_idx: Option<Idx>) -> Vec<f32>{
         if let Some(output_neuron_idx) = output_neuron_idx{
             self.ecc.incoming_weight_copy(output_neuron_idx).to_vec()
-        }else {
-            self.ecc.get_weights().to_vec()
+        } else {
+            self.ecc.weight_slice().to_vec()
         }
     }
 }

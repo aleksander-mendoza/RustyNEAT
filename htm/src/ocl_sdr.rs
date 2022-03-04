@@ -8,6 +8,7 @@ use crate::ecc_program::EccProgram;
 use ndalgebra::context::Context;
 use crate::{CpuSDR, OclBitset, as_usize};
 use crate::sdr::SDR;
+use crate::as_usize::AsUsize;
 
 #[derive(Clone)]
 pub struct OclSDR {
@@ -38,7 +39,7 @@ impl SDR for OclSDR{
     fn set_from_sdr(&mut self, other: &Self) {
         assert!(other.cardinality as usize<=self.max_active_neurons());
         self.cardinality = other.cardinality;
-        self.buffer.copy_with_offset_from(other.prog.queue(),other.buffer(),0,0,as_usize(other.cardinality));
+        self.buffer.copy_with_offset_from(other.prog.queue(),other.buffer(),0,0,other.cardinality.as_usize());
     }
 
     fn to_vec(&self) -> Vec<u32> {

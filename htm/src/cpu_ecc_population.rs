@@ -9,7 +9,7 @@ use ndalgebra::buffer::Buffer;
 use crate::cpu_bitset::CpuBitset;
 use std::cmp::Ordering;
 use serde::{Serialize, Deserialize};
-use crate::{Shape, resolve_range, EncoderTarget, Synapse, top_large_k_indices, top_small_k_indices, Shape3, from_xyz, Shape2, from_xy, range_contains, DenseWeight, w_idx, kernel_column_weight_sum, debug_assert_approx_eq_weight, EccLayerD, kernel_column_dropped_weights_count, ConvShape};
+use crate::{Shape, resolve_range, EncoderTarget, Synapse, top_large_k_indices, top_small_k_indices, Shape3, from_xyz, Shape2, from_xy, range_contains, DenseWeight, w_idx, debug_assert_approx_eq_weight, kernel_column_dropped_weights_count, ConvShape};
 use std::collections::{Bound, HashSet};
 use crate::vector_field::{VectorFieldOne, VectorFieldDiv, VectorFieldAdd, VectorFieldMul, ArrayCast, VectorFieldSub, VectorFieldPartialOrd};
 use crate::population::Population;
@@ -18,11 +18,12 @@ use crate::xorshift::{auto_gen_seed64, xorshift64, auto_gen_seed, xorshift, xors
 use itertools::{Itertools, assert_equal};
 use std::iter::Sum;
 use ocl::core::DeviceInfo::MaxConstantArgs;
-use crate::ecc::{EccLayer, as_usize, Idx, as_idx, Rand, xorshift_rand};
+use crate::ecc::{EccLayer, Idx, as_idx, Rand, xorshift_rand};
 use crate::sdr::SDR;
 use rand::prelude::SliceRandom;
 use failure::Fail;
 use rayon::prelude::*;
+use crate::as_usize::AsUsize;
 
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -47,14 +48,14 @@ impl<D: DenseWeight> CpuEccPopulation<D> {
         let shape = column_grid.add_channels(pretrained.shape().channels());
         let kv = pretrained.shape().product();
         let new_v = shape.product();
-        let mut activity = vec![D::ZERO; as_usize(kv * new_v)];
+        let mut activity = vec![D::ZERO; (kv * new_v).as_usize()];
         for channel in 0..shape.channels() {
             let pretrained_idx = pretrained.shape().idx(pretrained_column_pos.add_channels(channel));
             for x in 0..shape.width() {
                 for y in 0..shape.height() {
                     let pos = from_xyz(x, y, channel);
                     let idx = shape.idx(pos);
-                    activity[as_usize(idx)] = pretrained.activity[as_usize(pretrained_idx)];
+                    activity[idx.as_usize()] = pretrained.activity[pretrained_idx.as_usize()];
                 }
             }
         }
@@ -62,7 +63,7 @@ impl<D: DenseWeight> CpuEccPopulation<D> {
             k: pretrained.k,
             threshold: pretrained.threshold,
             activity,
-            sums: vec![D::ZERO;as_usize(new_v)],
+            sums: vec![D::ZERO;new_v.as_usize()],
             shape
         }
     }
@@ -72,46 +73,8 @@ impl<D: DenseWeight> CpuEccPopulation<D> {
         Self {
             k,
             threshold: D::default_threshold(shape.channels()),
-            activity: vec![D::INITIAL_ACTIVITY; as_usize(v)],
-            sums:  vec![D::ZERO;as_usize(v)],
-            shape
-        }
-    }
-    pub fn concat<T>(layers: &[T], f: impl Fn(&T) -> &Self) -> Self {
-        assert_ne!(layers.len(), 0, "No layers provided!");
-        let first_layer = f(&layers[0]);
-        let mut grid = first_layer.shape().grid();
-        assert!(layers.iter().all(|a| f(a).shape().grid().all_eq(grid)), "All concatenated layers must have the same width and height!");
-        let k = if layers.iter().any(|a| f(a).k()>1){
-            assert!(layers.iter().map(|a| f(a).get_region_size()).all_equal(), "All layers are region_size but their region sizes are different");
-            layers.iter().map(|a| f(a).get_region_size()).sum()
-        }else{
-            1
-        };
-        let concatenated_sum: Idx = layers.iter().map(|a| f(a).shape().channels()).sum();
-        let shape = grid.add_channels(concatenated_sum);
-        let new_v = shape.product();
-        let mut activity = vec![D::INITIAL_ACTIVITY; as_usize(new_v)];
-        let mut channel_offset = 0;
-        for l in 0..layers.len() {
-            let l = f(&layers[l]);
-            let v = l.shape().product();
-            for w in 0..l.shape().width() {
-                for h in 0..l.shape().height() {
-                    for c in 0..l.shape().channels() {
-                        let original_idx = l.shape().idx(from_xyz(w, h, c));
-                        let idx = shape.idx(from_xyz(w, h, channel_offset + c));
-                        activity[as_usize(idx)] = l.activity[as_usize(original_idx)];
-                    }
-                }
-            }
-            channel_offset += l.shape().channels();
-        }
-        Self {
-            k,
-            threshold: first_layer.threshold,
-            activity,
-            sums: vec![D::ZERO;as_usize(new_v)],
+            activity: vec![D::INITIAL_ACTIVITY; v.as_usize()],
+            sums:  vec![D::ZERO;v.as_usize()],
             shape
         }
     }
@@ -132,30 +95,20 @@ impl<D: DenseWeight> CpuEccPopulation<D> {
     pub fn reset_sums(&mut self){
         self.sums.fill(D::ZERO);
     }
-    pub fn get_threshold_f32(&self) -> f32 {
-        D::w_to_f32(self.threshold)
-    }
-    pub fn set_threshold_f32(&mut self, fractional: f32) {
-        self.threshold = D::f32_to_w(fractional)
-    }
-
     pub fn decrement_activities(&mut self, output:&CpuSDR) {
         for &winner in output.iter() {
-            self.activity[as_usize(winner)] -= D::ACTIVITY_PENALTY;
+            self.activity[winner.as_usize()] -= D::ACTIVITY_PENALTY;
         }
     }
     /**sum(self.sums[i] for i in output)*/
     pub fn sums_for_sdr(&self, output:&CpuSDR)-> D{
-        output.iter().map(|&i|self.sums[as_usize(i)]).sum()
+        output.iter().map(|&i|self.sums[i.as_usize()]).sum()
     }
     pub fn min_activity(&self) -> D {
         self.activity.iter().cloned().reduce(D::min_w).unwrap()
     }
     pub fn max_activity(&self) -> D {
         self.activity.iter().cloned().reduce(D::max_w).unwrap()
-    }
-    pub fn min_activity_f32(&self) -> f32 {
-        D::w_to_f32(self.min_activity())
     }
     pub fn activity(&self, output_idx: usize) -> D {
         self.activity[output_idx]
@@ -169,9 +122,6 @@ impl<D: DenseWeight> CpuEccPopulation<D> {
     pub fn set_initial_activity(&mut self) {
         self.activity.fill(D::INITIAL_ACTIVITY)
     }
-    pub fn activity_f32(&self, output_idx: usize) -> f32 {
-        D::w_to_f32(self.activity(output_idx))
-    }
     pub fn r(&self, idx: usize) -> D {
         self.sums[idx]+self.activity[idx]
     }
@@ -184,9 +134,9 @@ impl<D: DenseWeight> CpuEccPopulation<D> {
     }
     pub fn determine_winners_topk(&self, output: &mut CpuSDR) {
         let t = self.threshold;
-        let a = as_usize(self.shape().grid().product());
-        let c = as_usize(self.shape().channels());
-        let k = as_usize(self.k());
+        let a = self.shape().grid().product().as_usize();
+        let c = self.shape().channels().as_usize();
+        let k = self.k().as_usize();
         output.clear();
         for column_idx in 0..a {
             let r = c * column_idx;
@@ -211,10 +161,10 @@ impl<D: DenseWeight> CpuEccPopulation<D> {
     }
     pub fn determine_winners_top1_per_region(&self, output: &mut CpuSDR) {
         let t = self.threshold;
-        let a = as_usize(self.shape().grid().product());
-        let k = as_usize(self.k());
+        let a = self.shape().grid().product().as_usize();
+        let k = self.k().as_usize();
         assert_eq!(self.shape().channels() % self.k(), 0);
-        let region_size = as_usize(self.shape().channels() / self.k());
+        let region_size = (self.shape().channels() / self.k()).as_usize();
         output.clear();
         for region_idx in 0..a * k {//There are k regions per column, each has region_size neurons.
             //We need to pick the top 1 winner within each region.
@@ -236,13 +186,55 @@ impl<D: DenseWeight> CpuEccPopulation<D> {
         }
     }
 }
+impl<'a, D: DenseWeight+'a> CpuEccPopulation<D> {
+
+    pub fn concat< T>(layers: &'a [T], f: impl Fn(&'a T) -> &'a Self) -> Self {
+        assert_ne!(layers.len(), 0, "No layers provided!");
+        let first_layer = f(&layers[0]);
+        let mut grid = first_layer.shape().grid();
+        assert!(layers.iter().all(|a| f(a).shape().grid().all_eq(grid)), "All concatenated layers must have the same width and height!");
+        let k = if layers.iter().any(|a| f(a).k()>1){
+            assert!(layers.iter().map(|a| f(a).get_region_size()).all_equal(), "All layers are region_size but their region sizes are different");
+            layers.iter().map(|a| f(a).get_region_size()).sum()
+        }else{
+            1
+        };
+        let concatenated_sum: Idx = layers.iter().map(|a| f(a).shape().channels()).sum();
+        let shape = grid.add_channels(concatenated_sum);
+        let new_v = shape.product();
+        let mut activity = vec![D::INITIAL_ACTIVITY; new_v.as_usize()];
+        let mut channel_offset = 0;
+        for l in 0..layers.len() {
+            let l = f(&layers[l]);
+            let v = l.shape().product();
+            for w in 0..l.shape().width() {
+                for h in 0..l.shape().height() {
+                    for c in 0..l.shape().channels() {
+                        let original_idx = l.shape().idx(from_xyz(w, h, c));
+                        let idx = shape.idx(from_xyz(w, h, channel_offset + c));
+                        activity[idx.as_usize()] = l.activity[original_idx.as_usize()];
+                    }
+                }
+            }
+            channel_offset += l.shape().channels();
+        }
+        Self {
+            k,
+            threshold: first_layer.threshold,
+            activity,
+            sums: vec![D::ZERO;new_v.as_usize()],
+            shape
+        }
+    }
+
+}
 impl<D: DenseWeight+Send+Sync> CpuEccPopulation<D> {
     pub fn parallel_determine_winners_top1_per_region(&self, output: &mut CpuSDR) {
         let t = self.threshold;
-        let a = as_usize(self.shape().grid().product());
-        let k = as_usize(self.k());
+        let a = self.shape().grid().product().as_usize();
+        let k = self.k().as_usize();
         assert_eq!(self.shape().channels() % self.k(), 0);
-        let region_size = as_usize(self.shape().channels() / self.k());
+        let region_size = (self.shape().channels() / self.k()).as_usize();
         output.clear();
         for region_idx in 0..a * k {//There are k regions per column, each has region_size neurons.
             //We need to pick the top 1 winner within each region.
@@ -263,11 +255,11 @@ impl CpuEccPopulation<f32> {
         self.activity.iter_mut().for_each(|a| *a -= min)
     }
 }
-
-impl CpuEccPopulation<u32> {
-    pub fn reset_activity(&mut self) {
-        let free_space = u32::INITIAL_ACTIVITY - self.max_activity();
-        self.activity.iter_mut().for_each(|a| *a += free_space)
-    }
-}
+//
+// impl CpuEccPopulation<u32> {
+//     pub fn reset_activity(&mut self) {
+//         let free_space = u32::INITIAL_ACTIVITY - self.max_activity();
+//         self.activity.iter_mut().for_each(|a| *a += free_space)
+//     }
+// }
 

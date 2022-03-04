@@ -9,7 +9,7 @@ pub fn parallel_map_collect<A, T, B>(a: &[A], t: &mut [T], f: impl Fn(&A, &mut T
     });
     b
 }
-
+/**Maps every element from A to B. Every thread has mutable access to its own element T*/
 pub fn parallel_map_vector<A, T, B, F>(a: &[A], t: &mut [T], b: &mut [B], f: F) where F:Fn(&A, &mut T, &mut B) + Send + Sync{
     assert_eq!(a.len(), b.len());
     let atomic_counter = AtomicUsize::new(0);

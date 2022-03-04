@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter, Debug};
 use ocl::core::{MemInfo, MemInfoResult, BufferRegion, Mem, ArgVal};
 use ndalgebra::buffer::Buffer;
 use crate::ecc_program::EccProgram;
-use crate::{CpuBitset, EncoderTarget, Shape, Idx, as_idx, as_usize, OclSDR, range_contains, VectorFieldSub, VectorFieldPartialOrd, VectorFieldRem, VectorFieldAdd, ConvShape, Shape3, Shape2, VectorFieldRng, range_translate};
+use crate::{CpuBitset, EncoderTarget, Shape, Idx, as_idx, as_usize, OclSDR, range_contains, VectorFieldSub, VectorFieldPartialOrd, VectorFieldRem, VectorFieldAdd, ConvShape, Shape3, Shape2, VectorFieldRng, range_translate, ConvShapeTrait};
 use std::collections::{HashMap, HashSet};
 use std::borrow::Borrow;
 use serde::{Serialize, Deserialize};
@@ -13,6 +13,7 @@ use crate::vector_field::{VectorField, VectorFieldMul};
 use crate::sdr::SDR;
 use rand::Rng;
 use rayon::iter::{IntoParallelRefMutIterator, IntoParallelRefIterator, ParallelIterator};
+use crate::as_usize::AsUsize;
 
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Default)]
 pub struct CpuSDR(Vec<Idx>);
@@ -386,7 +387,7 @@ impl CpuSDR {
     }
     pub fn rand(cardinality:Idx, size: Idx) -> Self{
         assert!(cardinality<=size);
-        let mut s= Self::with_capacity(as_usize(cardinality));
+        let mut s= Self::with_capacity(cardinality.as_usize());
         s.add_unique_random(cardinality,0..size);
         s
     }
@@ -398,7 +399,7 @@ impl CpuSDR {
     }
     pub fn fill_into<D:Copy>(&self, value: D, array: &mut [D]) {
         for &i in self.as_slice() {
-            array[as_usize(i)] = value
+            array[i.as_usize()] = value
         }
     }
     pub fn parallel_fill_into<D:Copy+Send+Sync>(&self, value: D, array: &mut[D]) {
@@ -406,7 +407,7 @@ impl CpuSDR {
         let sums_ptr = array.as_mut_ptr() as usize;
         self.par_iter().for_each(|&output_idx| {
             let sums_slice = unsafe { std::slice::from_raw_parts_mut(sums_ptr as *mut D, sums_len) };
-            sums_slice[as_usize(output_idx)] = value
+            sums_slice[output_idx.as_usize()] = value
         })
     }
     /**Randomly picks some neurons that a present in other SDR but not in self SDR.

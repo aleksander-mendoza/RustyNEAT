@@ -13,10 +13,11 @@ use pyo3::basic::CompareOp;
 use numpy::{PyReadonlyArrayDyn, PyArrayDyn, IntoPyArray, PyArray,Ix1,Ix3,Ix4, PY_ARRAY_API, npyffi, Element, ToNpyDims, DataType, PyReadonlyArray, PyArray3, PyArray1};
 use numpy::npyffi::{NPY_ORDER, npy_intp, NPY_ARRAY_WRITEABLE};
 use std::os::raw::c_int;
+use htm::{AsUsize, Metric};
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{Encoder, EncoderTarget, EncoderRange, Shape, VectorFieldOne, Synapse, SDR, as_usize, Idx, Shape3, ConvShape, ShapedArray, Shape2};
+use htm::{Encoder, EncoderTarget, EncoderRange, Shape, VectorFieldOne, Synapse, SDR,  Idx, Shape3, ConvShape, ShapedArray, Shape2};
 use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
@@ -29,7 +30,7 @@ use std::any::{Any, TypeId};
 use pyo3::ffi::PyFloat_Type;
 use rand::{thread_rng, Rng};
 use crate::py_htm::CpuSDR;
-use crate::py_ecc::{CpuEccDense, CpuEccMachine};
+use crate::py_ecc::{CpuEccDense, CpuEccMachine, CpuEccDenseL2, CpuEccMachineL2};
 use crate::py_ecc_population::{ConvWeights, CpuEccPopulation, WeightSums};
 use crate::util::{impl_save_load};
 
@@ -192,9 +193,9 @@ impl Occurrences {
 impl CpuSdrDataset{
     fn to_numpy_<'py,T:Element+Copy>(&self,py:Python<'py>,idx:usize,one:T) -> &'py PyArray<T, Ix3>{
         let sdr = &self.sdr[idx];
-        let mut arr = PyArray3::zeros(py,self.sdr.shape().map(as_usize),false);
+        let mut arr = PyArray3::zeros(py,self.sdr.shape().map(Idx::as_usize),false);
         let s = unsafe{arr.as_slice_mut().unwrap()};
-        sdr.iter().for_each(|&i|s[as_usize(i)]=one);
+        sdr.iter().for_each(|&i|s[i.as_usize()]=one);
         arr
     }
 }
@@ -260,31 +261,62 @@ impl CpuSdrDataset {
     pub fn filter_by_cardinality_threshold(&mut self, min_cardinality:Idx){
         self.sdr.filter_by_cardinality_threshold(min_cardinality)
     }
-    #[text_signature = "(number_of_samples,ecc,log)"]
-    fn train_machine_with_patches(&self, number_of_samples: usize, ecc: &mut CpuEccMachine,log:Option<usize>){
-        if let Some(log) = log {
-            assert!(log>0,"Logging interval must be greater than 0");
-            self.sdr.train_machine_with_patches(number_of_samples,&mut ecc.ecc,&mut rand::thread_rng(),|i|if i % log == 0{println!("Processed samples {}", i+1)})
-        } else{
-            self.sdr.train_machine_with_patches(number_of_samples,&mut ecc.ecc,&mut rand::thread_rng(),|i|{})
+    #[text_signature = "(number_of_samples,ecc,log,decrement_activities)"]
+    fn train_machine_with_patches(&self, py:Python, number_of_samples: usize, ecc: PyObject,log:Option<usize>,decrement_activities:Option<bool>) -> PyResult<()>{
+        fn train(sdr:&htm::CpuSdrDataset,number_of_samples: usize, ecc: &mut htm::CpuEccMachine<f32,impl Metric<f32>>,log:Option<usize>,decrement_activities:Option<bool>) {
+            let d = decrement_activities.unwrap_or(true);
+            if let Some(log) = log {
+                assert!(log > 0, "Logging interval must be greater than 0");
+                sdr.train_machine_with_patches(d,number_of_samples, ecc, &mut rand::thread_rng(), |i| if i % log == 0 { println!("Processed samples {}", i + 1) })
+            } else {
+                sdr.train_machine_with_patches(d,number_of_samples, ecc, &mut rand::thread_rng(), |i| {})
+            }
         }
+
+        if let Ok(mut ecc) = ecc.extract::<PyRefMut<CpuEccMachine>>(py){
+            train(&self.sdr,number_of_samples,&mut ecc.ecc,log,decrement_activities)
+        }else{
+            let mut ecc = ecc.extract::<PyRefMut<CpuEccMachineL2>>(py)?;
+            train(&self.sdr,number_of_samples,&mut ecc.ecc,log,decrement_activities)
+        }
+        Ok(())
     }
-    #[text_signature = "(number_of_samples,drift,patches_per_sample,ecc,log)"]
-    pub fn train_with_patches(&self, number_of_samples: usize, drift:[Idx;2], patches_per_sample:usize, ecc: &mut CpuEccDense,log:Option<usize>) {
-        if let Some(log) = log {
-            assert!(log>0,"Logging interval must be greater than 0");
-            self.sdr.train_with_patches(number_of_samples,drift,patches_per_sample,&mut ecc.ecc,&mut rand::thread_rng(),|i|if i % log == 0{println!("Processed samples {}", i+1)})
-        } else{
-            self.sdr.train_with_patches(number_of_samples,drift,patches_per_sample,&mut ecc.ecc,&mut rand::thread_rng(),|i|{})
+    #[text_signature = "(number_of_samples,drift,patches_per_sample,ecc,log,decrement_activities)"]
+    pub fn train_with_patches(&self, py:Python, number_of_samples: usize, drift:[Idx;2], patches_per_sample:usize, ecc: PyObject, log:Option<usize>,decrement_activities:Option<bool>) ->PyResult<()> {
+        fn train(sdr:&htm::CpuSdrDataset,number_of_samples: usize, drift:[Idx;2], patches_per_sample:usize, ecc: &mut htm::CpuEccDense<f32,impl Metric<f32>>,log:Option<usize>,decrement_activities:Option<bool>) {
+            let d = decrement_activities.unwrap_or(true);
+            if let Some(log) = log {
+                assert!(log > 0, "Logging interval must be greater than 0");
+                sdr.train_with_patches(d,number_of_samples, drift, patches_per_sample, ecc, &mut rand::thread_rng(), |i| if i % log == 0 { println!("Processed samples {}", i + 1) })
+            } else {
+                sdr.train_with_patches(d,number_of_samples, drift, patches_per_sample, ecc, &mut rand::thread_rng(), |i| {})
+            }
         }
+        if let Ok(mut ecc) = ecc.extract::<PyRefMut<CpuEccDense>>(py){
+            train(&self.sdr,number_of_samples,drift,patches_per_sample,&mut ecc.ecc,log,decrement_activities)
+        }else{
+            let mut ecc = ecc.extract::<PyRefMut<CpuEccDenseL2>>(py)?;
+            train(&self.sdr,number_of_samples,drift,patches_per_sample,&mut ecc.ecc,log,decrement_activities)
+        }
+        Ok(())
     }
-    #[text_signature = "(number_of_samples,ecc,log)"]
-    pub fn train(&self, number_of_samples: usize, ecc: &mut CpuEccDense,log:Option<usize>) {
-        if let Some(log) = log {
-            self.sdr.train(number_of_samples,&mut ecc.ecc,&mut rand::thread_rng(),|i|if i % log == 0{println!("Processed samples {}", i+1)})
-        } else{
-            self.sdr.train(number_of_samples,&mut ecc.ecc,&mut rand::thread_rng(),|i|{})
+    #[text_signature = "(number_of_samples,ecc,log,decrement_activities)"]
+    pub fn train(&self, py:Python, number_of_samples: usize, ecc: PyObject,log:Option<usize>,decrement_activities:Option<bool>) ->PyResult<()>{
+        fn train(sdr:&htm::CpuSdrDataset,number_of_samples: usize, ecc: &mut htm::CpuEccDense<f32,impl Metric<f32>>,log:Option<usize>,decrement_activities:Option<bool>) {
+            let d = decrement_activities.unwrap_or(true);
+            if let Some(log) = log {
+                sdr.train(d,number_of_samples, ecc, &mut rand::thread_rng(), |i| if i % log == 0 { println!("Processed samples {}", i + 1) })
+            } else {
+                sdr.train(d,number_of_samples,ecc, &mut rand::thread_rng(), |i| {})
+            }
         }
+        if let Ok(mut ecc) = ecc.extract::<PyRefMut<CpuEccDense>>(py){
+            train(&self.sdr,number_of_samples,&mut ecc.ecc,log,decrement_activities)
+        }else{
+            let mut ecc = ecc.extract::<PyRefMut<CpuEccDenseL2>>(py)?;
+            train(&self.sdr,number_of_samples,&mut ecc.ecc,log,decrement_activities)
+        }
+        Ok(())
     }
     #[text_signature = "()"]
     fn clear(&mut self) {
@@ -303,12 +335,22 @@ impl CpuSdrDataset {
         self.sdr.rand(&mut rand::thread_rng()).map(|sdr|CpuSDR { sdr:sdr.clone()})
     }
     #[text_signature = "(ecc,indices)"]
-    fn conv_subregion_indices_with_ecc(&self, ecc:&CpuEccDense, indices: &SubregionIndices) -> Self{
-        Self{sdr:self.sdr.conv_subregion_indices_with_ecc(&ecc.ecc,&indices.sdr)}
+    fn conv_subregion_indices_with_ecc(&self, py:Python, ecc:PyObject, indices: &SubregionIndices) -> PyResult<Self>{
+        Ok(Self{sdr:if let Ok(mut ecc) = ecc.extract::<PyRefMut<CpuEccDense>>(py){
+            self.sdr.conv_subregion_indices_with_ecc(&ecc.ecc,&indices.sdr)
+        }else{
+            let mut ecc = ecc.extract::<PyRefMut<CpuEccDenseL2>>(py)?;
+            self.sdr.conv_subregion_indices_with_ecc(&ecc.ecc,&indices.sdr)
+        }})
     }
     #[text_signature = "(ecc,indices)"]
-    fn conv_subregion_indices_with_machine(&self, ecc:&CpuEccMachine, indices: &SubregionIndices) -> Self{
-        Self{sdr:self.sdr.conv_subregion_indices_with_machine(&ecc.ecc,&indices.sdr)}
+    fn conv_subregion_indices_with_machine(&self, py:Python, ecc:PyObject, indices: &SubregionIndices) -> PyResult<Self>{
+        Ok(Self{sdr:if let Ok(mut ecc) = ecc.extract::<PyRefMut<CpuEccMachine>>(py){
+            self.sdr.conv_subregion_indices_with_machine(&ecc.ecc,&indices.sdr)
+        }else{
+            let mut ecc = ecc.extract::<PyRefMut<CpuEccMachineL2>>(py)?;
+            self.sdr.conv_subregion_indices_with_machine(&ecc.ecc,&indices.sdr)
+        }})
     }
     #[text_signature = "(kernel,stride,indices)"]
     fn conv_subregion_indices_with_ker(&self, kernel:[Idx;2],stride:[Idx;2], indices: &SubregionIndices) -> Self{
@@ -345,8 +387,13 @@ impl CpuSdrDataset {
         SubregionIndices{sdr:self.sdr.gen_rand_conv_subregion_indices_with_ker(&kernel,&stride,number_of_samples,&mut rand::thread_rng())}
     }
     #[text_signature = "(ecc_dense,number_of_samples)"]
-    fn gen_rand_conv_subregion_indices_with_ecc(&self, ecc:&CpuEccDense,number_of_samples:usize) -> SubregionIndices{
-        SubregionIndices{sdr:self.sdr.gen_rand_conv_subregion_indices_with_ecc(&ecc.ecc,number_of_samples,&mut rand::thread_rng())}
+    fn gen_rand_conv_subregion_indices_with_ecc(&self, py:Python, ecc:PyObject,number_of_samples:usize) -> PyResult<SubregionIndices>{
+        Ok(SubregionIndices{sdr:if let Ok(mut ecc) = ecc.extract::<PyRefMut<CpuEccDense>>(py){
+            self.sdr.gen_rand_conv_subregion_indices_with_ecc(&ecc.ecc,number_of_samples,&mut rand::thread_rng())
+        }else{
+            let mut ecc = ecc.extract::<PyRefMut<CpuEccDenseL2>>(py)?;
+            self.sdr.gen_rand_conv_subregion_indices_with_ecc(&ecc.ecc,number_of_samples,&mut rand::thread_rng())
+        }})
     }
     #[text_signature = "(ecc_machine,number_of_samples)"]
     fn gen_rand_conv_subregion_indices_with_machine(&self, ecc:&CpuEccMachine,number_of_samples:usize) -> SubregionIndices{
@@ -385,7 +432,7 @@ impl CpuSdrDataset {
     fn count<'py>(&self, py:Python<'py>) -> PyResult<&'py PyArray<u32, Ix3>> {
         let v = self.sdr.count();
         let a = PyArray::from_vec(py,v);
-        a.reshape(self.sdr.shape().map(as_usize))
+        a.reshape(self.sdr.shape().map(Idx::as_usize))
     }
     #[text_signature = "(outputs)"]
     fn measure_receptive_fields<'py>(&self, py:Python<'py>,outputs:&CpuSdrDataset) ->  PyResult<&'py PyArray<u32, Ix4>> {
@@ -393,12 +440,17 @@ impl CpuSdrDataset {
         let v = self.sdr.measure_receptive_fields(&outputs.sdr);
         let a = PyArray::from_vec(py,v);
         let s = self.sdr.shape();
-        let s = [s[0],s[1],s[2],ov].map(as_usize);
+        let s = [s[0],s[1],s[2],ov].map(Idx::as_usize);
         a.reshape(s)
     }
     #[text_signature = "(ecc_dense)"]
-    fn batch_infer(&self,ecc:&CpuEccDense) -> CpuSdrDataset{
-        Self{sdr:self.sdr.batch_infer(&ecc.ecc)}
+    fn batch_infer(&self,py:Python,ecc:PyObject) -> PyResult<CpuSdrDataset>{
+        Ok(Self{sdr:if let Ok(mut ecc) = ecc.extract::<PyRefMut<CpuEccDense>>(py){
+            self.sdr.batch_infer(&ecc.ecc)
+        }else{
+            let mut ecc = ecc.extract::<PyRefMut<CpuEccDenseL2>>(py)?;
+            self.sdr.batch_infer(&ecc.ecc)
+        }})
     }
     #[text_signature = "(ecc_machine)"]
     fn machine_infer(&self,ecc:&mut CpuEccMachine) -> CpuSdrDataset{
@@ -415,9 +467,14 @@ impl CpuSdrDataset {
         Self{sdr:self.sdr.batch_infer_conv_weights(&ecc.ecc,target.ecc.clone())}
     }
     #[text_signature = "(ecc_dense)"]
-    fn batch_infer_and_measure_s_expectation(&self,ecc:&CpuEccDense) -> (CpuSdrDataset,f32,u32){
-        let (sdr,s_exp,missed) = self.sdr.batch_infer_and_measure_s_expectation(&ecc.ecc);
-        (Self{sdr},s_exp,missed)
+    fn batch_infer_and_measure_s_expectation(&self,py:Python,ecc:PyObject) -> PyResult<(CpuSdrDataset,f32,u32)>{
+        let (sdr,s_exp,missed) = if let Ok(mut ecc) = ecc.extract::<PyRefMut<CpuEccDense>>(py){
+            self.sdr.batch_infer_and_measure_s_expectation(&ecc.ecc)
+        }else{
+            let mut ecc = ecc.extract::<PyRefMut<CpuEccDenseL2>>(py)?;
+            self.sdr.batch_infer_and_measure_s_expectation(&ecc.ecc)
+        };
+        Ok((Self{sdr},s_exp,missed))
     }
     #[text_signature = "(ecc_dense,target)"]
     fn batch_infer_conv_weights_and_measure_s_expectation(&self, ecc:&ConvWeights, target:&CpuEccPopulation) -> (CpuSdrDataset, f32, u32) {

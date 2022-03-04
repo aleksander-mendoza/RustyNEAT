@@ -1,0 +1,8 @@
+split=0.1, train_len=6000, eval_len=54000, epoch=0, train_accuracy=0.4563333333333333, eval_accuracy=0.540074074074074
+split=0.1, train_len=6000, eval_len=54000, epoch=1, train_accuracy=0.5738333333333333, eval_accuracy=0.5577592592592593
+split=0.1, train_len=6000, eval_len=54000, epoch=2, train_accuracy=0.59, eval_accuracy=0.564037037037037
+split=0.1, train_len=6000, eval_len=54000, epoch=3, train_accuracy=0.5948333333333333, eval_accuracy=0.5692592592592592
+split=0.8, train_len=48000, eval_len=12000, epoch=0, train_accuracy=0.5559166666666666, eval_accuracy=0.6095833333333334
+split=0.8, train_len=48000, eval_len=12000, epoch=1, train_accuracy=0.6043958333333334, eval_accuracy=0.6236666666666667
+split=0.8, train_len=48000, eval_len=12000, epoch=2, train_accuracy=0.6144375, eval_accuracy=0.6266666666666667
+split=0.8, train_len=48000, eval_len=12000, epoch=3, train_accuracy=0.6184583333333333, eval_accuracy=0.6300833333333333

@@ -7,7 +7,7 @@ use crate::vector_field::{VectorField, VectorFieldNum};
 use std::collections::{Bound, HashSet};
 use num_traits::{Num, One, Zero};
 use itertools::Itertools;
-use crate::{CpuSDR, VectorFieldPartialOrd, VectorFieldSub};
+use crate::{CpuSDR, VectorFieldPartialOrd, VectorFieldSub, VectorFieldOne};
 use std::cmp::Ordering;
 use std::cmp::Ordering::{Greater, Less};
 use std::iter::FromIterator;
@@ -413,9 +413,11 @@ pub trait Shape3 {
     fn width_mut(&mut self) -> &mut Self::T;
     fn height_mut(&mut self) -> &mut Self::T;
     fn channels_mut(&mut self) -> &mut Self::T;
+    fn area(&self) -> Self::T;
+    fn volume(&self)->Self::T;
 }
 
-impl<T: Copy> Shape3 for [T; 3] {
+impl<T: Copy+Mul<Output=T>+One> Shape3 for [T; 3] {
     type T = T;
 
     fn grid(&self) -> &[T; 2] {
@@ -442,6 +444,13 @@ impl<T: Copy> Shape3 for [T; 3] {
     fn width_mut(&mut self) -> &mut T { &mut self[0] }
     fn height_mut(&mut self) -> &mut T { &mut self[1] }
     fn channels_mut(&mut self) -> &mut T { &mut self[2] }
+
+    fn area(&self) -> Self::T {
+        self.grid().product()
+    }
+    fn volume(&self)->Self::T{
+        self.product()
+    }
 }
 
 pub trait Shape2 {
@@ -452,9 +461,10 @@ pub trait Shape2 {
     fn width(&self) -> Self::T;
 
     fn height(&self) -> Self::T;
+    fn area(&self) ->Self::T;
 }
 
-impl<T: Copy> Shape2 for [T; 2] {
+impl<T: Copy+Mul<Output=T>+One> Shape2 for [T; 2] {
     type T = T;
     type A3 = [T; 3];
 
@@ -469,6 +479,10 @@ impl<T: Copy> Shape2 for [T; 2] {
     fn height(&self) -> T {
         self[1]
     }
+
+    fn area(&self) -> Self::T {
+        self.product()
+    }
 }
 
 pub fn from_xy<T>(width: T, height: T) -> [T; 2] {
@@ -478,3 +492,4 @@ pub fn from_xy<T>(width: T, height: T) -> [T; 2] {
 pub fn from_xyz<T>(width: T, height: T, channels: T) -> [T; 3] {
     [width, height, channels]
 }
+

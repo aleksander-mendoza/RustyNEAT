@@ -8,42 +8,46 @@
 \contentsline {paragraph}{Interpretations of $W$ matrix}{8}{}%
 \contentsline {paragraph}{Models of $q(\boldsymbol {x}|y_j)$ distribution}{9}{}%
 \contentsline {paragraph}{Interpretations of $\boldsymbol {x}W$ product}{10}{}%
+\contentsline {paragraph}{Binary vector subsets and their overlap probabilities}{11}{}%
 \contentsline {paragraph}{Bits $x_i$ are mutually independent random variables}{11}{}%
-\contentsline {paragraph}{Maximum likelihood estimation of W}{11}{}%
+\contentsline {paragraph}{Maximum likelihood estimation of W}{12}{}%
 \contentsline {paragraph}{Similarities between ECC and SVD}{12}{}%
 \contentsline {paragraph}{Similarities between ECC and k-means }{13}{}%
-\contentsline {paragraph}{Proof of convergence}{13}{}%
-\contentsline {section}{\numberline {4}Convolutional networks}{15}{}%
-\contentsline {paragraph}{Convolutional topology and topological receptive fields}{15}{}%
-\contentsline {paragraph}{Translation invariance and column isomorphism}{16}{}%
-\contentsline {paragraph}{Multilayer networks}{17}{}%
-\contentsline {paragraph}{Probability $q(\boldsymbol {x})$ is relative}{17}{}%
-\contentsline {paragraph}{Training and its results}{18}{}%
-\contentsline {paragraph}{Universal approximation}{18}{}%
-\contentsline {paragraph}{Problem with distinguishing bit subsets}{22}{}%
-\contentsline {section}{\numberline {5}Motor feedback}{22}{}%
-\contentsline {paragraph}{View translation/random eye movement}{22}{}%
-\contentsline {paragraph}{Benchmarks}{24}{}%
-\contentsline {paragraph}{Multiple bits per column}{24}{}%
-\contentsline {paragraph}{Sparse connections (dropout)}{27}{}%
-\contentsline {paragraph}{Deeper layers are less sensitive to small changes}{28}{}%
-\contentsline {paragraph}{Recurrent connections within columns}{28}{}%
-\contentsline {paragraph}{Voting and recurrent connections between layers}{28}{}%
-\contentsline {section}{\numberline {6}Reinforcement learning and control}{29}{}%
-\contentsline {paragraph}{ECC can't learn value functions}{29}{}%
-\contentsline {paragraph}{Geometric deep learning theory}{30}{}%
-\contentsline {paragraph}{Reinforcement learning sample inefficiency}{30}{}%
-\contentsline {paragraph}{Inference of groups from actions and observations}{31}{}%
-\contentsline {paragraph}{Parametric groups}{32}{}%
-\contentsline {paragraph}{Group manifolds}{33}{}%
-\contentsline {paragraph}{Learning groups and cosets}{33}{}%
-\contentsline {paragraph}{Reducing reward maximisation problem to a search problem}{33}{}%
-\contentsline {paragraph}{Supervised vs unsupervised (This paragraph is mostly work-in-progress)}{34}{}%
-\contentsline {section}{\numberline {7}Optimisations and efficiency benchmarks}{36}{}%
-\contentsline {paragraph}{Optimisations}{36}{}%
-\contentsline {paragraph}{Benchmarks}{36}{}%
-\contentsline {section}{\numberline {8}Inhibitory plasticity}{37}{}%
-\contentsline {paragraph}{Problems of ECC networks}{37}{}%
-\contentsline {paragraph}{Plastic inhibitory neurons}{38}{}%
-\contentsline {section}{\numberline {9}ECC are spiking networks}{38}{}%
-\contentsline {section}{\numberline {10}Evolving ECC networks}{39}{}%
+\contentsline {paragraph}{\texttt {infer} and \texttt {generate} define two different models of $q(\boldsymbol {x})$}{14}{}%
+\contentsline {paragraph}{Proof of convergence for k-means algorithm}{16}{}%
+\contentsline {section}{\numberline {4}Convolutional networks}{17}{}%
+\contentsline {paragraph}{Convolutional topology and topological receptive fields}{17}{}%
+\contentsline {paragraph}{Translation invariance and column isomorphism}{18}{}%
+\contentsline {paragraph}{Multilayer networks}{19}{}%
+\contentsline {paragraph}{Probability $q(\boldsymbol {x})$ is relative}{20}{}%
+\contentsline {paragraph}{Training and its results}{20}{}%
+\contentsline {paragraph}{Universal approximation}{20}{}%
+\contentsline {paragraph}{Problem with distinguishing bit subsets}{24}{}%
+\contentsline {section}{\numberline {5}Motor feedback}{24}{}%
+\contentsline {paragraph}{View translation/random eye movement}{24}{}%
+\contentsline {paragraph}{Benchmarks}{25}{}%
+\contentsline {paragraph}{Multiple bits per column}{27}{}%
+\contentsline {paragraph}{Sparse connections (dropout)}{28}{}%
+\contentsline {paragraph}{Deeper layers are less sensitive to small changes}{29}{}%
+\contentsline {paragraph}{Recurrent connections within columns}{29}{}%
+\contentsline {paragraph}{Voting and recurrent connections between layers}{29}{}%
+\contentsline {section}{\numberline {6}Reinforcement learning and control}{30}{}%
+\contentsline {paragraph}{ECC can't learn value functions}{30}{}%
+\contentsline {paragraph}{Geometric deep learning theory}{31}{}%
+\contentsline {paragraph}{Reinforcement learning sample inefficiency}{31}{}%
+\contentsline {paragraph}{Inference of groups from actions and observations}{32}{}%
+\contentsline {paragraph}{Parametric groups}{33}{}%
+\contentsline {paragraph}{Inductive inference of groups}{34}{}%
+\contentsline {paragraph}{ECC networks are a parallel algorithm for group inference from noisy observations}{35}{}%
+\contentsline {paragraph}{Group manifolds}{35}{}%
+\contentsline {paragraph}{Learning groups and cosets}{35}{}%
+\contentsline {paragraph}{Reducing reward maximisation problem to a search problem}{36}{}%
+\contentsline {paragraph}{Supervised vs unsupervised (This paragraph is mostly work-in-progress)}{37}{}%
+\contentsline {section}{\numberline {7}Optimisations and efficiency benchmarks}{38}{}%
+\contentsline {paragraph}{Optimisations}{38}{}%
+\contentsline {paragraph}{Benchmarks}{39}{}%
+\contentsline {section}{\numberline {8}Inhibitory plasticity}{39}{}%
+\contentsline {paragraph}{Problems of ECC networks}{39}{}%
+\contentsline {paragraph}{Plastic inhibitory neurons}{40}{}%
+\contentsline {section}{\numberline {9}ECC are spiking networks}{40}{}%
+\contentsline {section}{\numberline {10}Evolving ECC networks}{42}{}%

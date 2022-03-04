@@ -2,6 +2,7 @@ use std::ops::{Deref, DerefMut};
 use crate::{Idx, as_usize, VectorFieldOne, CpuEccPopulation, DenseWeight};
 use serde::{Serialize, Deserialize};
 use std::fmt::{Debug, Formatter};
+use crate::as_usize::AsUsize;
 
 #[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct ShapedArray<D> {
@@ -51,7 +52,7 @@ impl<D> ShapedArray<D> {
     }
     pub fn new(shape: [Idx; 3], initial_value: D) -> Self where D: Clone {
         Self {
-            arr: vec![initial_value; as_usize(shape.product())],
+            arr: vec![initial_value; shape.product().as_usize()],
             shape,
         }
     }
@@ -62,14 +63,14 @@ impl<D> ShapedArray<D> {
         }
     }
     pub fn from(shape: [Idx; 3], arr: Vec<D>) -> Self {
-        assert_eq!(as_usize(shape.product()), arr.len());
+        assert_eq!(shape.product().as_usize(), arr.len());
         Self {
             arr,
             shape,
         }
     }
     pub fn from_slice(shape: [Idx; 3], arr: &[D]) -> Self where D:Clone{
-        assert_eq!(as_usize(shape.product()), arr.len());
+        assert_eq!(shape.product().as_usize(), arr.len());
         Self::from(shape, Vec::from(arr))
     }
 }

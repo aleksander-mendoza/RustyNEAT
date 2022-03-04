@@ -9,7 +9,7 @@ use ndalgebra::buffer::Buffer;
 use crate::cpu_bitset::CpuBitset;
 use std::cmp::Ordering;
 use serde::{Serialize, Deserialize};
-use crate::{Shape, resolve_range, EncoderTarget, Synapse, top_large_k_indices, top_small_k_indices, Shape3, from_xyz, Shape2, from_xy, range_contains, DenseWeight, w_idx, kernel_column_weight_sum, debug_assert_approx_eq_weight, EccLayerD, kernel_column_dropped_weights_count, ConvShape, ConvWeights, CpuEccMachine};
+use crate::{Shape, resolve_range, EncoderTarget, Synapse, top_large_k_indices, top_small_k_indices, Shape3, from_xyz, Shape2, from_xy, range_contains, DenseWeight, w_idx, debug_assert_approx_eq_weight, kernel_column_dropped_weights_count, ConvShape, ConvWeights, CpuEccMachine, ConvShapeTrait, ConvWeightVec, HasShape, HasShapeMut, DenseWeightL2, Metric};
 use std::collections::{Bound, HashSet};
 use crate::vector_field::{VectorFieldOne, VectorFieldDiv, VectorFieldAdd, VectorFieldMul, ArrayCast, VectorFieldSub, VectorFieldPartialOrd};
 use crate::population::Population;
@@ -18,32 +18,33 @@ use crate::xorshift::{auto_gen_seed64, xorshift64, auto_gen_seed, xorshift, xors
 use itertools::{Itertools, assert_equal};
 use std::iter::Sum;
 use ocl::core::DeviceInfo::MaxConstantArgs;
-use crate::ecc::{EccLayer, as_usize, Idx, as_idx, Rand, xorshift_rand};
+use crate::ecc::{EccLayer, Idx, as_idx, Rand, xorshift_rand};
 use crate::sdr::SDR;
 use rand::prelude::SliceRandom;
 use crate::cpu_ecc_population::CpuEccPopulation;
+use crate::as_usize::AsUsize;
 
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-pub struct CpuEccDense<D: DenseWeight> {
-    w: ConvWeights<D>,
+pub struct CpuEccDense<D: DenseWeight,M:?Sized + Metric<D>> {
+    w: ConvWeights<D,M>,
     p: CpuEccPopulation<D>,
 }
 
-impl<D: DenseWeight> Deref for CpuEccDense<D> {
-    type Target = ConvWeights<D>;
+impl<D: DenseWeight,M:Metric<D>> Deref for CpuEccDense<D,M> {
+    type Target = ConvWeights<D,M>;
 
     fn deref(&self) -> &Self::Target {
         self.weights()
     }
 }
 
-impl<D: DenseWeight> DerefMut for CpuEccDense<D> {
+impl<D: DenseWeight,M:Metric<D>> DerefMut for CpuEccDense<D,M> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.weights_mut()
     }
 }
-impl<D: DenseWeight + Send + Sync> CpuEccDense<D> {
+impl<D: DenseWeight + Send + Sync,M:Metric<D>+ Send + Sync> CpuEccDense<D,M> {
     pub fn parallel_run(&mut self, input: &CpuSDR) -> CpuSDR {
         let Self{w,p} = self;
         w.parallel_run(input, p)
@@ -69,17 +70,17 @@ impl<D: DenseWeight + Send + Sync> CpuEccDense<D> {
         w.batch_infer_and_measure_s_expectation(input, f,p.clone(),of)
     }
 }
-impl<D: DenseWeight> CpuEccDense<D> {
-    pub fn into_machine(self) -> CpuEccMachine<D> {
+impl<D: DenseWeight,M:Metric<D>> CpuEccDense<D,M> {
+    pub fn into_machine(self) -> CpuEccMachine<D, M> {
         CpuEccMachine::new_singleton(self)
     }
-    pub fn weights(&self) -> &ConvWeights<D> {
+    pub fn weights(&self) -> &ConvWeights<D, M> {
         &self.w
     }
     pub fn population(&self) -> &CpuEccPopulation<D> {
         &self.p
     }
-    pub fn weights_mut(&mut self) -> &mut ConvWeights<D> {
+    pub fn weights_mut(&mut self) -> &mut ConvWeights<D, M> {
         &mut self.w
     }
     pub fn population_mut(&mut self) -> &mut CpuEccPopulation<D> {
@@ -93,18 +94,31 @@ impl<D: DenseWeight> CpuEccDense<D> {
     pub fn new(shape: ConvShape, k: Idx, rng: &mut impl Rng) -> Self {
         Self { p: CpuEccPopulation::new(shape.output_shape(), k), w: ConvWeights::new(shape, rng) }
     }
-    pub fn from(weights:ConvWeights<D>, pop:CpuEccPopulation<D>) -> Self {
-        assert_eq!(weights.out_shape(),pop.shape());
-        Self { p:pop, w:weights}
+    pub fn from(weights: ConvWeights<D, M>, pop: CpuEccPopulation<D>) -> Self {
+        assert_eq!(weights.out_shape(), pop.shape());
+        Self { p: pop, w: weights }
     }
-    pub fn concat<T>(layers: &[T], f: impl Fn(&T) -> &Self) -> Self {
+}
+impl<'a, D: DenseWeight + 'a,M:Metric<D> + 'a> CpuEccDense<D,M> {
+    pub fn concat< T,F:'a + Fn(&'a T) -> &'a Self>(layers: &'a [T], f:  F) -> Self {
         let w = ConvWeights::concat(layers, |p| f(p).weights());
         let p = CpuEccPopulation::concat(layers, |p| f(p).population());
         Self { w, p }
     }
 }
 
-impl<D: DenseWeight> EccLayerD for CpuEccDense<D> {
+impl<D: DenseWeight,M:Metric<D>> HasShape for CpuEccDense<D,M>{
+    fn shape(&self) -> &ConvShape {
+        self.weights().shape()
+    }
+}
+impl<D: DenseWeight,M:Metric<D>> HasShapeMut for CpuEccDense<D,M>{
+    fn shape_mut(&mut self) -> &mut ConvShape {
+        self.weights_mut().shape_mut()
+    }
+}
+impl<D: DenseWeight,M:Metric<D>> EccLayer for CpuEccDense<D,M> {
+    type A = CpuSDR;
     type D = D;
     fn get_threshold(&self) -> D {
         self.population().get_threshold()
@@ -120,9 +134,6 @@ impl<D: DenseWeight> EccLayerD for CpuEccDense<D> {
     fn set_plasticity(&mut self, plasticity: D) {
         ConvWeights::set_plasticity(self,plasticity)
     }
-}
-impl<D: DenseWeight> EccLayer for CpuEccDense<D> {
-    type A = CpuSDR;
 
     fn k(&self) -> Idx { self.population().k() }
 
@@ -130,33 +141,11 @@ impl<D: DenseWeight> EccLayer for CpuEccDense<D> {
         self.population_mut().set_k(k)
     }
 
-    fn shape(&self) -> &ConvShape {
-        self.weights().shape()
-    }
-
-    fn shape_mut(&mut self) -> &mut ConvShape {
-        self.weights_mut().shape_mut()
-    }
-
     fn learnable_parameters(&self) -> usize {
         self.weights().len()
     }
     fn get_max_incoming_synapses(&self) -> Idx {
         self.kernel_column_volume()
-    }
-    fn get_threshold_f32(&self) -> f32 {
-        self.population().get_threshold_f32()
-    }
-
-    fn set_threshold_f32(&mut self, fractional: f32) {
-        self.population_mut().set_threshold_f32(fractional)
-    }
-
-    fn set_plasticity_f32(&mut self, fractional: f32) {
-        self.plasticity = D::f32_to_w(fractional)
-    }
-    fn get_plasticity_f32(&self) -> f32 {
-        D::w_to_f32(self.plasticity)
     }
 
     fn new_empty_sdr(&self, capacity: Idx) -> Self::A {
@@ -171,89 +160,110 @@ impl<D: DenseWeight> EccLayer for CpuEccDense<D> {
     fn decrement_activities(&mut self, output: &CpuSDR) {
         self.population_mut().decrement_activities(output)
     }
-
     fn learn(&mut self, input: &CpuSDR, output: &CpuSDR) {
         self.weights_mut().learn(input, output);
         #[cfg(debug_assertions)] {
             let min_acc = self.population().min_activity();
             for output_idx in 0..self.out_volume() {
-                debug_assert!(self.population().activity[as_usize(output_idx)].lt(min_acc + D::TOTAL_SUM), "{} @ {} < {}", output_idx, self.population().activity[as_usize(output_idx)], min_acc)
+                debug_assert!(self.population().activity[output_idx.as_usize()].lt(min_acc + D::TOTAL_SUM), "{} @ {} < {}", output_idx, self.population().activity[output_idx.as_usize()], min_acc)
             }
         }
     }
-}
 
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use rand::SeedableRng;
     use std::cmp::Ordering::{Greater, Less};
+    use crate::{MetricL1, MetricL2};
 
     #[test]
     fn test2() -> Result<(), String> {
-        test2_::<u32>()
+        test2_::<f32,MetricL2<f32>>()
     }
 
     #[test]
     fn test3() -> Result<(), String> {
-        test3_::<u32>()
+        test3_::<f32,MetricL2<f32>>()
     }
 
     #[test]
     fn test4() -> Result<(), String> {
-        test4_::<u32>()
+        test4_::<f32,MetricL2<f32>>()
     }
 
     #[test]
     fn test5() -> Result<(), String> {
-        test5_::<u32>()
+        test5_::<f32,MetricL2<f32>>()
     }
 
     #[test]
     fn test6() -> Result<(), String> {
-        test6_::<u32>()
+        test6_::<f32,MetricL2<f32>>()
     }
 
     #[test]
     fn test7() -> Result<(), String> {
-        test7_::<u32>()
+        test7_::<f32,MetricL2<f32>>()
+    }
+    #[test]
+    fn test8() -> Result<(), String> {
+        test8_::<f32,MetricL2<f32>>()
     }
 
     #[test]
+    fn test9() -> Result<(), String> {
+        test9_::<f32,MetricL2<f32>>()
+    }
+    #[test]
     fn test2f() -> Result<(), String> {
-        test2_::<f32>()
+        test2_::<f32,MetricL2<f32>>()
     }
 
     #[test]
     fn test3f() -> Result<(), String> {
-        test3_::<f32>()
+        test3_::<f32,MetricL2<f32>>()
     }
 
     #[test]
     fn test4f() -> Result<(), String> {
-        test4_::<f32>()
+        test4_::<f32,MetricL1<f32>>()
     }
 
     #[test]
     fn test5f() -> Result<(), String> {
-        test5_::<f32>()
+        test5_::<f32,MetricL1<f32>>()
     }
 
     #[test]
     fn test6f() -> Result<(), String> {
-        test6_::<f32>()
+        test6_::<f32,MetricL1<f32>>()
     }
 
     #[test]
     fn test7f() -> Result<(), String> {
-        test7_::<f32>()
+        test7_::<f32,MetricL1<f32>>()
+    }
+    #[test]
+    fn test8f() -> Result<(), String> {
+        test8_::<f32,MetricL1<f32>>()
     }
 
-    fn test2_<D: DenseWeight>() -> Result<(), String> {
+    #[test]
+    fn test9f() -> Result<(), String> {
+        test9_::<f32,MetricL1<f32>>()
+    }
+    #[test]
+    fn test10f() -> Result<(), String> {
+        test10_::<f32,MetricL1<f32>>()
+    }
+
+    fn test2_<D: DenseWeight,M:Metric<D>>() -> Result<(), String> {
         let mut rng = rand::thread_rng();
         let k = 8;
-        let mut a = CpuEccDense::<D>::new(ConvShape::new([4, 4], [2, 2], [1, 1], 3, 4), 1, &mut rng);
+        let mut a = CpuEccDense::<D,M>::new(ConvShape::new([4, 4], [2, 2], [1, 1], 3, 4), 1, &mut rng);
         for _ in 0..1024 {
             let input: Vec<u32> = (0..k).map(|_| rng.gen_range(0..a.in_volume() as u32)).collect();
             let mut input = CpuSDR::from(input);
@@ -267,11 +277,11 @@ mod tests {
         Ok(())
     }
 
-    fn test3_<D: DenseWeight>() -> Result<(), String> {
+    fn test3_<D: DenseWeight,M:Metric<D>>() -> Result<(), String> {
         let mut rng = rand::rngs::StdRng::seed_from_u64(634634636);//rand::thread_rng();
         let k = 8;
-        let mut a = CpuEccDense::<D>::new(ConvShape::new([4, 4], [2, 2], [1, 1], 3, 4), 1, &mut rng);
-        a.set_plasticity_f32(0.1);//let's see if this breaks anything
+        let mut a = CpuEccDense::<D,M>::new(ConvShape::new([4, 4], [2, 2], [1, 1], 3, 4), 1, &mut rng);
+        a.set_plasticity(D::f32_to_w(0.1));//let's see if this breaks anything
         for i in 0..1024 {
             let input: Vec<u32> = (0..k).map(|_| rng.gen_range(0..a.in_volume() as u32)).collect();
             let mut input = CpuSDR::from(input);
@@ -285,12 +295,12 @@ mod tests {
         Ok(())
     }
 
-    fn test4_<D: DenseWeight>() -> Result<(), String> {
+    fn test4_<D: DenseWeight,M:Metric<D>>() -> Result<(), String> {
         let s = auto_gen_seed64();
         let mut rng = rand::rngs::StdRng::seed_from_u64(s);
         let k = 16;
-        let mut a = CpuEccDense::<D>::new(ConvShape::new([1, 1], [4, 4], [1, 1], 3, 4), 1, &mut rng);
-        a.set_threshold_f32(0.2);
+        let mut a = CpuEccDense::<D,M>::new(ConvShape::new([1, 1], [4, 4], [1, 1], 3, 4), 1, &mut rng);
+        a.set_threshold(D::f32_to_w(0.2));
         for i in 0..1024 {
             let input: Vec<u32> = (0..k).map(|_| rng.gen_range(0..a.in_volume() as u32)).collect();
             let mut input = CpuSDR::from(input);
@@ -312,11 +322,11 @@ mod tests {
         Ok(())
     }
 
-    fn test5_<D: DenseWeight>() -> Result<(), String> {
+    fn test5_<D: DenseWeight,M:Metric<D>>() -> Result<(), String> {
         let mut rng = rand::thread_rng();
         let k = 16;
-        let mut a = CpuEccDense::<D>::new(ConvShape::new([1, 1], [4, 4], [1, 1], 3, 4), 1, &mut rng);
-        a.set_threshold_f32(0.99);//let's see if this breaks anything
+        let mut a = CpuEccDense::<D,M>::new(ConvShape::new([1, 1], [4, 4], [1, 1], 3, 4), 1, &mut rng);
+        a.set_threshold(D::f32_to_w(0.99));//let's see if this breaks anything
         for _ in 0..1024 {
             let input: Vec<u32> = (0..k).map(|_| rng.gen_range(0..a.in_volume() as u32)).collect();
             let mut input = CpuSDR::from(input);
@@ -331,10 +341,10 @@ mod tests {
         Ok(())
     }
 
-    fn test6_<D: DenseWeight>() -> Result<(), String> {
+    fn test6_<D: DenseWeight,M:Metric<D>>() -> Result<(), String> {
         let mut rng = rand::thread_rng();
         let k = 16;
-        let mut a = CpuEccMachine::<D>::new_cpu([1, 1],
+        let mut a = CpuEccMachine::<D,M>::new_cpu([1, 1],
                                                 &[[5, 5], [3, 3], [3, 3]],
                                                 &[[2, 2], [1, 1], [1, 1]],
                                                 &[1, 20, 20, 20],
@@ -356,10 +366,10 @@ mod tests {
     }
 
 
-    fn test7_<D: DenseWeight>() -> Result<(), String> {
+    fn test7_<D: DenseWeight,M:Metric<D>>() -> Result<(), String> {
         let mut rng = rand::thread_rng();
         let k = 1;
-        let mut a = CpuEccMachine::<D>::new_cpu([1, 1],
+        let mut a = CpuEccMachine::<D,M>::new_cpu([1, 1],
                                                 &[[5, 5], [3, 3], [3, 3]],
                                                 &[[2, 2], [1, 1], [1, 1]],
                                                 &[1, 5, 2, 2],
@@ -384,24 +394,16 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test8() -> Result<(), String> {
-        test8_::<u32>()
-    }
 
-    #[test]
-    fn test8f() -> Result<(), String> {
-        test8_::<f32>()
-    }
 
-    fn test8_<D: DenseWeight>() -> Result<(), String> {
+    fn test8_<D: DenseWeight,M:Metric<D>>() -> Result<(), String> {
         let mut rng = rand::thread_rng();
         let k = 1;
         let kernel = [3, 3];
         let stride = [1, 1];
         let in_channels = 4;
         let out_channels = [2, 3, 6];
-        let mut a: Vec<CpuEccDense<D>> = out_channels.iter().map(|&out_channels|
+        let mut a: Vec<CpuEccDense<D,M>> = out_channels.iter().map(|&out_channels|
             CpuEccDense::new(ConvShape::new([1, 1], kernel, stride, in_channels, out_channels), k, &mut rng)).collect();
         let mut c = CpuEccDense::concat(&a, |a| a);
 
@@ -422,22 +424,14 @@ mod tests {
     }
 
 
-    #[test]
-    fn test9() -> Result<(), String> {
-        test9_::<u32>()
-    }
 
-    #[test]
-    fn test9f() -> Result<(), String> {
-        test9_::<f32>()
-    }
 
-    fn test9_<D: DenseWeight>() -> Result<(), String> {
+    fn test9_<D: DenseWeight,M:Metric<D>>() -> Result<(), String> {
         let s = auto_gen_seed64();
         let mut rng = rand::rngs::StdRng::seed_from_u64(s);
         let k = 16;
-        let mut a = CpuEccDense::<D>::new(ConvShape::new([1, 1], [4, 4], [1, 1], 3, 4), 1, &mut rng);
-        a.set_threshold_f32(0.2);
+        let mut a = CpuEccDense::<D,M>::new(ConvShape::new([1, 1], [4, 4], [1, 1], 3, 4), 1, &mut rng);
+        a.set_threshold(D::f32_to_w(0.2));
         let mut a2 = a.clone();
         println!("seed=={}", s);
         assert_eq!(a2.k(), 1);
@@ -461,22 +455,17 @@ mod tests {
     }
 
 
-    #[test]
-    fn test10() -> Result<(), String> {
-        test10_::<u32>()
-    }
+    // #[test]
+    // fn test10() -> Result<(), String> {
+    //     test10_::<u32>()
+    // }
 
-    #[test]
-    fn test10f() -> Result<(), String> {
-        test10_::<f32>()
-    }
-
-    fn test10_<D: DenseWeight>() -> Result<(), String> {
+    fn test10_<D: DenseWeight,M:Metric<D>>() -> Result<(), String> {
         let s = auto_gen_seed64();
         let mut rng = rand::rngs::StdRng::seed_from_u64(s);
         let k = 16;
-        let mut a = CpuEccDense::<D>::new(ConvShape::new([2, 2], [4, 4], [1, 1], 3, 4), 1, &mut rng);
-        a.set_threshold_f32(0.2);
+        let mut a = CpuEccDense::<D,M>::new(ConvShape::new([2, 2], [4, 4], [1, 1], 3, 4), 1, &mut rng);
+        a.set_threshold(D::f32_to_w(0.2));
         let mut a2 = a.clone();
         println!("seed=={}", s);
         assert_eq!(a2.k(), 1);

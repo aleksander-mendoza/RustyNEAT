@@ -17,7 +17,7 @@ use std::os::raw::c_int;
 use crate::ocl_err_to_py_ex;
 use crate::py_ndalgebra::{DynMat, try_as_dtype};
 use crate::py_ocl::Context;
-use htm::{Encoder, EncoderTarget, EncoderRange, Shape, VectorFieldOne, Synapse, SDR, as_usize, Idx, Shape3};
+use htm::{Encoder, EncoderTarget, EncoderRange, Shape, VectorFieldOne, Synapse, SDR, Idx, Shape3, AsUsize};
 use std::time::SystemTime;
 use std::ops::Deref;
 use chrono::Utc;
@@ -1487,7 +1487,7 @@ impl PySequenceProtocol for CpuSDR {
 #[pyproto]
 impl PySequenceProtocol for OclSDR {
     fn __len__(&self) -> usize {
-        as_usize(self.sdr.cardinality())
+        self.sdr.cardinality().as_usize()
     }
 }
 

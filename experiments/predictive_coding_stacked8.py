@@ -80,11 +80,13 @@ def preprocess_mnist():
 
 class MachineShape:
 
-    def __init__(self, channels, kernels, strides, drifts, k):
+    def __init__(self, channels, kernels, strides, drifts, k, l2=False, entropy_maximisation=True):
         assert len(channels) == len(kernels) + 1
         assert len(kernels) == len(strides) == len(drifts) == len(k)
         self.channels = channels
         self.k = k
+        self.l2 = l2
+        self.entropy_maximisation = entropy_maximisation
         self.kernels = kernels
         self.strides = strides
         self.drifts = drifts
@@ -103,8 +105,20 @@ class MachineShape:
         return k + s + c + k_ + d
 
     def code_name(self, idx):
+        prefix = ""
+        if idx > 0:
+            if self.l2:
+                prefix += "l2_"
+            if not self.entropy_maximisation:
+                prefix += "nem_"  # no entropy maximisation
         path = ''.join([self.code_name_part(i) + "_" for i in range(idx)])
-        return path + "c" + str(self.channels[idx])
+        return prefix + path + "c" + str(self.channels[idx])
+
+    def parent_code_name(self):
+        if len(self)==0:
+            return None
+        else:
+            return self.code_name(len(self)-1)
 
     def save_file(self, idx):
         return "predictive_coding_stacked8/" + self.code_name(idx)
@@ -121,10 +135,16 @@ class MachineShape:
     def __len__(self):
         return len(self.kernels)
 
+    def machine_type(self):
+        return ecc.CpuEccMachineL2 if self.l2 else ecc.CpuEccMachine
+
+    def dense_type(self):
+        return ecc.CpuEccDenseL2 if self.l2 else ecc.CpuEccDense
+
     def load_layer(self, idx):
         mf = self.save_file(idx + 1) + ".model"
         if os.path.exists(mf):
-            return ecc.CpuEccDense.load(mf)
+            return self.dense_type().load(mf)
         else:
             return None
 
@@ -162,12 +182,13 @@ class SingleColumnMachine:
         assert w * h == machine_shape.channels[-1]
         self.threshold = threshold
         self.machine_shape = machine_shape
-        self.m = ecc.CpuEccMachine()
+        self.m = self.machine_shape.machine_type()()
         self.w = w
         self.h = h
         top = self.machine_shape.load_layer(len(machine_shape) - 1)
         if top is None:
-            l = ecc.CpuEccDense([1, 1],
+            clazz = self.machine_shape.dense_type()
+            l = clazz([1, 1],
                                 kernel=self.machine_shape.kernel(-1),
                                 stride=self.machine_shape.stride(-1),
                                 in_channels=self.machine_shape.channels[-2],
@@ -245,7 +266,10 @@ class SingleColumnMachine:
 
         for s in tqdm(range(int(math.ceil(iterations / interval))), desc="training"):
             eval_ecc()
-            mnist.mnist.train_with_patches(interval, drift, snapshots_per_sample, layer, log)
+            mnist.mnist.train_with_patches(number_of_samples=interval, drift=drift,
+                                           patches_per_sample=snapshots_per_sample,
+                                           ecc=layer, log=log,
+                                           decrement_activities=self.machine_shape.entropy_maximisation)
             if save:
                 layer.save(self.machine_shape.save_file(idx + 1) + ".model")
         eval_ecc()
@@ -261,7 +285,7 @@ class FullColumnMachine:
 
     def __init__(self, machine_shape: MachineShape):
         self.machine_shape = machine_shape
-        self.m = ecc.CpuEccMachine()
+        self.m = self.machine_shape.machine_type()()
         bottom = machine_shape.load_layer(0)
         out_size = htm.conv_out_size([28, 28], bottom.stride, bottom.kernel)[:2]
         bottom = bottom.repeat_column(out_size)
@@ -269,7 +293,7 @@ class FullColumnMachine:
         for idx in range(1, len(machine_shape)):
             self.m.push_repeated_column(machine_shape.load_layer(idx))
 
-    def eval_with_classifier_head(self, overwrite_data=False, overwrite_benchmarks=False, epochs=2):
+    def eval_with_classifier_head(self, overwrite_data=False, overwrite_benchmarks=False, epochs=4):
         idx = len(self.machine_shape) - 1
         print("PATCH_SIZE=", self.m.in_shape)
         layer = self.m.get_layer(idx)
@@ -425,27 +449,28 @@ def run_experiments():
 
     experiments = [
         # (1, [e(49, 6), c(9, 3), e(100, 6), c(9, 5), e(144, 6), c(16, 7), e(256, 6), c(20, 8), e(256, 6)]),
-        (1, [e(49, 6), c(9, 3), e(100, 6, k=4), c(9, 5), e(144, 6, k=3), c(16, 7), e(256, 6, k=4), c(20, 8),
-             e(256, 6, k=4)]),
+        # (1, [e(49, 6), c(9, 3), e(100, 6, k=4), c(9, 5), e(144, 6, k=3), c(16, 7), e(256, 6, k=4), c(20, 8), e(256, 6, k=4)]),
         # (1, [e(49, 6), e(100, 6,k=4), e(144, 6,k=3), e(256, 6,k=4), e(256, 6,k=4)]),
         # (1, [e(49, 6), e(100, 6), e(144, 6, k=3), e(256, 6, k=4), e(256, 6, k=4)]),
         # (1, [e(49, 6), e(100, 6), e(144, 6), e(256, 6, k=4), e(256, 6, k=4)]),
         # (1, [e(49, 6), e(100, 6), e(144, 6), e(256, 6), e(256, 6, k=4)]),
-        # (1, [e(100, 28)]),
-        # (1, [e(256, 28)]),
-        # (1, [e(400, 28)]),
-        # (1, [e(6, 6), e(6, 6), e(6, 6), e(6, 6), e(6, 6)]),
-        # (1, [e(8, 6), e(2 * 8, 6), e(3 * 8, 6), e(4 * 8, 6), e(4 * 8, 6)]),
-        # (1, [e(8, 6), e(2 * 8, 6), e(3 * 8, 6), e(4 * 8, 6), e(5 * 8, 6)]),
+        (1, [e(100, 28)]),
+        (1, [e(256, 28)]),
+        (1, [e(400, 28)]),
+        (1, [e(6, 6), e(6, 6), e(6, 6), e(6, 6), e(6, 6)]),
+        (1, [e(8, 6), e(2 * 8, 6), e(3 * 8, 6), e(4 * 8, 6), e(4 * 8, 6)]),
+        (1, [e(8, 6), e(2 * 8, 6), e(3 * 8, 6), e(4 * 8, 6), e(5 * 8, 6)]),
         # (1, [e(8, 6), e(2 * 8, 3), e(3 * 8, 3), e(4 * 8, 3), e(4 * 8, 3), e(4 * 8, 3)]),
         # (1, [e(16, 6), e(2 * 16, 3), e(3 * 16, 3), e(4 * 16, 3), e(4 * 16, 3), e(4 * 16, 3)]),
         # (1, [e(16, 6), e(2 * 16, 6), e(3 * 16, 6), e(4 * 16, 6), e(4 * 16, 6)]),
-        # (1, [e(49, 6), e(100, 6), e(144, 6), e(256, 6), e(256, 6)]),
+        (1, [e(49, 6), e(100, 6), e(144, 6), e(256, 6), e(256, 6)]),
         # (1, [i49, c9(3), e144, c9(5), e144, c9(7), e144, c9(10), e144, c9(7)]),
         # (1, [i49, c9(3), e144, c9(5), e144, c16(7), e144, c16(10), e144, c16(7), e144, c16(3)]),
         # (1, [i49, c9(3), e144, c9(5), e144, c16(7), e200, c16(10), e200, c20(7), e200, c20(3)]),
         # (1, [i49, c9(3), e144, c9(5), e144, c16(7), e200, c20(10), e256, c25(7), e200, c20(3)]),
     ]
+    entropy_maximisation=False
+    metric_l2=True
     for experiment in experiments:
         first_channels, layers = experiment
         kernels, strides, channels, drifts, ks = [], [], [first_channels], [], []
@@ -456,7 +481,9 @@ def run_experiments():
             channels.append(channel)
             drifts.append(drift)
             ks.append(k)
-            s = MachineShape(channels, kernels, strides, drifts, ks)
+            s = MachineShape(channels, kernels, strides, drifts, ks,
+                             l2=metric_l2,
+                             entropy_maximisation=entropy_maximisation)
             code_name = s.save_file(len(kernels))
             save_file = code_name + " data.pickle"
             if not os.path.exists(save_file):
@@ -506,7 +533,16 @@ elif TABLE_MODE == 'csv':
 
 
 class ExperimentData:
-    def __init__(self, experiment_name):
+    def __init__(self, experiment_name:str):
+        self.leaf = True
+        self.name = experiment_name
+        l2 = experiment_name.startswith("l2_")
+        if l2:
+            experiment_name = experiment_name[len("l2_"):]
+        nem = experiment_name.startswith("nem_")
+        if nem:
+            experiment_name = experiment_name[len("nem_"):]
+        self.name_path = experiment_name
         kernels, strides, channels, drifts, ks = [], [], [], [], []
         for m in EXTRACT_K_S.finditer(experiment_name):
             k, s, c, d = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(5))
@@ -517,14 +553,15 @@ class ExperimentData:
             k = 1 if m.group(4) is None else int(m.group(4)[1:])
             ks.append(k)
         channels.append(int(experiment_name.rsplit('c', 1)[1]))
-        self.shape = MachineShape(channels, kernels, strides, drifts, ks)
-        self.name = experiment_name
+        self.shape = MachineShape(channels, kernels, strides, drifts, ks, l2=l2,
+                                  entropy_maximisation=not nem)
+
         self.comp_stride, self.comp_kernel = self.shape.composed_conv(len(self.shape) - 1)
         self.out_shape = htm.conv_out_size([28, 28], self.comp_stride, self.comp_kernel)[:2]
         self.benchmarks = {
-            'softmax': parse_benchmarks(experiment_name + " accuracy2.txt"),
-            'vote': parse_benchmarks(experiment_name + " accuracyI.txt"),
-            'naive': parse_benchmarks(experiment_name + " accuracy.txt"),
+            'softmax': parse_benchmarks(self.name + " accuracy2.txt"),
+            'vote': parse_benchmarks(self.name + " accuracyI.txt"),
+            'naive': parse_benchmarks(self.name + " accuracy.txt"),
         }
         assert min(ks) > 0
         self.has_k = max(ks) > 1
@@ -547,12 +584,16 @@ class ExperimentData:
             raise Exception("Should be either 1 or 8")
         return benchmark[(2 if train else 0) + split]
 
-    def format(self, db, detailed=True):
+    def format(self, db, detailed=True, metric=True):
         if detailed:
             s = self.shape
             k = str(self.comp_kernel[0]) + "x" + str(self.comp_kernel[1])
             o = str(self.out_shape[0]) + "x" + str(self.out_shape[1])
-            codename = ["Yes" if self.has_drift else "No"] + \
+            if metric:
+                codename = ["l2" if self.shape.l2 else "l1"]
+            else:
+                codename = ["Yes" if self.has_drift else "No"]
+            codename = codename + \
                        ["k" + str(k) + "c" + str(c) + ("/" + str(k_) if k_ > 1 else "") + "d" + str(d) for
                         k, c, d, k_ in
                         zip(s.kernels, s.channels[1:], s.drifts, self.shape.k)]
@@ -602,6 +643,11 @@ class ExperimentDB:
         s = " accuracy2.txt"
         self.experiments = [e[:-len(s)] for e in os.listdir('predictive_coding_stacked8/') if e.endswith(s)]
         self.experiment_data = {n: ExperimentData(n) for n in self.experiments}
+        for ex in self.experiment_data.values():
+            s:MachineShape = ex.shape
+            parent = self.experiment_data.get(s.parent_code_name())
+            if parent is not None:
+                parent.leaf = False
 
     def print_accuracy2_results(self, depth, with_drift=None, with_k=None):
         scores = []
@@ -622,13 +668,21 @@ class ExperimentDB:
         for exp_data in scores:
             print(exp_data.format(self.experiment_data), end=TABLE_ROW_SEP)
 
+    def compare_metrics(self):
+        for experiment in self.experiment_data.values():
+            if experiment.shape.l2 and experiment.leaf:
+                l1_experiment = self.experiment_data[experiment.name_path]
+                print(l1_experiment.format(self.experiment_data), end=TABLE_ROW_SEP)
+                print(experiment.format(self.experiment_data), end=TABLE_ROW_SEP)
+
     def experiment_on_all(self, mode, overwrite_benchmarks=False):
         for e in self.experiment_data.values():
             e.experiment(mode, overwrite_benchmarks=overwrite_benchmarks)
 
 
-# run_experiments()
-edb = ExperimentDB()
+run_experiments()
+# edb = ExperimentDB()
 # edb.experiment_on_all("softmax", overwrite_benchmarks=True)
-edb.print_accuracy2_results([26, 2], with_drift=True, with_k=True)
-edb.print_accuracy2_results([26, 2], with_drift=False, with_k=True)
+# edb.compare_metrics()
+# edb.print_accuracy2_results([26, 2], with_drift=False, with_k=False)
+# edb.print_accuracy2_results([26, 2], with_drift=False, with_k=False)

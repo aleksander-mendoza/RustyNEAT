@@ -46,7 +46,7 @@ Just like human brain, our networks take advantage of motor feedback during lear
 
 \paragraph{How to read this paper}
 
-This paper is still work-in-progress. It contains a complete details of all the results and conclusions that I reached. Reading all of it is not necessary. Every paragraph has some title that summarises its contents. Perhaps the most important points to takeaway is 
+This paper is still work-in-progress. It contains complete details of all the results and conclusions that I reached. Reading all of it is not necessary. Every paragraph has some title that summarises its contents. Perhaps the most important points to takeaway are 
 \begin{itemize}
 	\item Convolutional networks can arise from image translation caused by eye movement (without the need for sharing weights)
 	\item Deep networks achieve great results because they exploit function equivariances under certain group actions. Those group actions are ``hard-coded'' directly in the architecture. Our networks on the other hard try to learn those group actions by observing motor feedback. In short deep nets approximate functions, while ECC nets approximate groups.
@@ -54,7 +54,7 @@ This paper is still work-in-progress. It contains a complete details of all the 
 	\item The receptive fields of neurons could be seen as ``eigendinstributions'', whose linear combination determines the probability of every input stimulus  (with scalar coefficients being firing probabilities of respective neurons).
 	\item Some people (including Geoffrey Hinton) have hypothesised existence of voting mechanism in cortical columns. Such ``voting-like'' behaviour can naturally emerge in our networks by adding recurrent connections.
 	\item Our networks are a type of spiking networks, but their underlying theory works no matter whether the time is discrete or continuous.
-	\item Reinforcement learning has trouble with sample efficiency. Deep nets are efficient because they exploit symmetries in data. We are missing networks that could exploit symmetries in actions, by treating the set of actions as a generator set of some group. For example head direction cells represent the rotational symmetry  $\alpha + 360\deg = \alpha$. There should exist other types of cells that represents other group symmetries in action space. Building a human/animal-like reinforcement learning agents would solve sample efficiency problem and allow for greater generalisation by inferring those group symmetries from motor feedback.
+	\item Reinforcement learning has trouble with sample efficiency. Deep nets are efficient because they exploit symmetries in data. We are missing networks that could exploit symmetries in actions, by treating the set of actions as a generator set of some group. For example head direction cells represent the rotational symmetry  $\alpha + 360^{\circ} = \alpha$. There should exist other types of cells that represents other group symmetries in action space. Building a human/animal-like reinforcement learning agents would solve sample efficiency problem and allow for greater generalisation by inferring those group symmetries from motor feedback.
 \end{itemize}
 
 \paragraph{Motivation}
@@ -245,17 +245,16 @@ Let $\boldsymbol{x}', \boldsymbol{x}$ be two binary vectors, then $\boldsymbol{x
 \[
 q(\boldsymbol{x}' \subset \boldsymbol{x}|y_j,c) = (\boldsymbol{x}W_j)^c
 \]
-Let $\alpha$ be the probability of halting the generation process. Then 
+Suppose that we run the generation process infinitely  $c=\infty$ with some probability $\beta$ of halting at any iteration. Then 
 \begin{gather*}
-q(\boldsymbol{x}' \subset \boldsymbol{x}|y_j,c<\infty) = q(\boldsymbol{x}' \subset \boldsymbol{x}|y_j) \\
-q(\boldsymbol{x}' \subset \boldsymbol{x}|y_j) = \alpha + (1-\alpha)\boldsymbol{x}W_j q(\boldsymbol{x}' \subset \boldsymbol{x}|y_j) \\
-q(\boldsymbol{x}' \subset \boldsymbol{x}|y_j)(1-(1-\alpha)\boldsymbol{x}W_j ) = \alpha \\
-q(\boldsymbol{x}' \subset \boldsymbol{x}|y_j) = \frac{\alpha}{1-(1-\alpha)\boldsymbol{x}W_j } \\
+q(\boldsymbol{x}' \subset \boldsymbol{x}|y_j,\beta) = \beta + (1-\beta)\boldsymbol{x}W_j q(\boldsymbol{x}' \subset \boldsymbol{x}|y_j,\beta) \\
+q(\boldsymbol{x}' \subset \boldsymbol{x}|y_j,\beta)(1-(1-\beta)\boldsymbol{x}W_j ) = \beta \\
+q(\boldsymbol{x}' \subset \boldsymbol{x}|y_j,\beta) = \frac{\beta}{1-(1-\beta)\boldsymbol{x}W_j } \\
 \end{gather*}
 \paragraph{Interpretations of  $\boldsymbol{x}W$ product}
 Let $W_h,W_j \in \mathbb{R}^n$ be two weight vectors corresponding to $y_h$ and $y_j$. If $\boldsymbol{x}W_h \ge \boldsymbol{x}W_j$ then the following $2$ inequalities hold
 \begin{gather*}
-q(\boldsymbol{x}' \subset \boldsymbol{x} |y_h) \ge q(\boldsymbol{x}' \subset \boldsymbol{x} |y_j) \\
+q(\boldsymbol{x}' \subset \boldsymbol{x} |y_h,\beta) \ge q(\boldsymbol{x}' \subset \boldsymbol{x} |y_j,\beta) \\
 \lVert \boldsymbol{x} - W_h \rVert_1 \le \lVert  \boldsymbol{x} - W_j \rVert_1
 \end{gather*}
 The first inequality follows easily from its definition. The third one is proved below.
@@ -277,6 +276,24 @@ The first inequality follows easily from its definition. The third one is proved
 	\lVert \boldsymbol{x} - W_h \rVert_1 \le \lVert  \boldsymbol{x} - W_j \rVert_1
 	\]
 \end{proof}
+
+\paragraph{Binary vector subsets and their overlap probabilities} 
+
+The number of all sparse binary vectors $\boldsymbol{x}$ of length $n$ and cardinality $\lVert\boldsymbol{x}\rVert_1$ is
+\[\binom{n}{\lVert\boldsymbol{x}\rVert_1}\]
+The $\ell_1$ norm induces a metric $\lVert\boldsymbol{x}-\boldsymbol{x}'\rVert_1$ on sparse binary vectors that measures how many bits differ in $\boldsymbol{x}$ and $\boldsymbol{x}'$. The inner product $\langle\boldsymbol{x},\boldsymbol{x}'\rangle$ measures number of overlapping $1$ bits. 
+Given a specific $\boldsymbol{x}$, the number of all possible vectors $\boldsymbol{x}'$ that overlap with it in exactly $b$ bits is 
+\[
+\Omega(b)=|\{x':\langle\boldsymbol{x},\boldsymbol{x}'\rangle=b\}|=\binom{\lVert\boldsymbol{x}\rVert_1}{b}\binom{n-\lVert\boldsymbol{x}\rVert_1}{\lVert\boldsymbol{x}'\rVert_1-b}
+\]
+Therefore the probability that randomly chosen $\boldsymbol{x}'$ overlaps with $\boldsymbol{x}$ in at least $b$ bits is
+\[p(\langle\boldsymbol{x},\boldsymbol{x}'\rangle\ge b )=\frac{\sum_{\dot{b}=b}^{\lVert\boldsymbol{x}'\rVert_1}\Omega(\dot{b})}{\binom{n}{\lVert\boldsymbol{x}\rVert_1}}\]
+The probability of random $\boldsymbol{x}'$ being a subset of $\boldsymbol{x}$ is
+\[p(\boldsymbol{x}'\subset\boldsymbol{x})=\frac{2^{\lVert\boldsymbol{x}\rVert_1}}{\binom{n}{\lVert\boldsymbol{x}\rVert_1}}\]
+Both of those probabilities decrease factorially quickly with length $n$. For very sparse vectors, the chance of accidental overlap is almost zero. This property can be used to build noise-tolerant networks and to implement pattern completion.
+
+
+
 
 \paragraph{Bits $x_i$ are mutually independent random variables} The \texttt{generate} function makes a certain implicit assumption. In each iteration, the next bit $x_i$ is randomly selected independently of the previous bits. As a result, all the bits are assumed to be mutually independent. 
 \[
@@ -341,6 +358,7 @@ The task of reducing $m$ has certain similarities to matrix compression by perfo
 q\big(\boldsymbol{x}|y_1\text{ or }y_2;\frac{W_1p(y_1) +W_2p(y_2)}{p(y_1)+p(y_2)}\big) 
 \]
 would hold only when $p(\boldsymbol{x},y_1)$ and $p(\boldsymbol{x},y_2)$ are colinear. If they are only approximately colinear, then the sum of $W_1$ and $W_2$ should still produce good approximation to $q(\boldsymbol{x}|y_1\text{ or }y_2)$. It looks like SVD, except that instead of truncating least significant eigenvalues, we cluster eigenvectors together by their similarity and then average them, producing $\mathbb{E}(\boldsymbol{x}|y_1\text{ or }y_2)$. The clustering algorithm implemented by ECC has some similarities to k-means.
+
 \paragraph{Similarities between ECC and k-means }
 The original \texttt{infer} algorithm implemented a form of online learning. Now let us suppose that we have some set of samples and we know the empirical distribution $\bar{p}(\boldsymbol{x})$. Define $C(y_j)$ as the cluster of all the $\boldsymbol{x}$ most similar to $W_j$ 
 \[
@@ -365,9 +383,50 @@ The difference between k-means and \texttt{infer} is the same as that between on
 	\label{fig:k_means}
 \end{figure} 
 
-\paragraph{Proof of convergence}
-The formal proof of convergence still remains elusive. It seems unlikely that any proof would exist for \texttt{infer}, but there might exist a way to prove k-means algorithm.
-The challenge lies in defining a loss function $\mathcal{L}(C(y_j)^{(t)},W^{(t)})$ that depend on cluster and weights. Then we might be able to show that loss always decreases over time 
+\paragraph{\texttt{infer} and \texttt{generate} define two different models of $q(\boldsymbol{x})$}
+We will now consider two models $q_g$ and $q_i$, first one according to \texttt{generate} and other defined by \texttt{infer}. The probability $q_g$ is modelled as before
+\[
+q_g(\boldsymbol{x}) = \sum_{j=1}^{m} q(\boldsymbol{x}|y_j)p(y_j)
+\]
+We know that \texttt{infer} function will assign each $\boldsymbol{x}$ only to its respective cluster $C(y_j)$. As a result the true joint probability (not the one modelled by \texttt{generate}) is
+\[
+q_i(\boldsymbol{x},y_j) = 0 \text{ when } \boldsymbol{x}\notin C(y_j)
+\]
+Therefore we can state $q_i$ as
+\[
+q_i(\boldsymbol{x}) = q(\boldsymbol{x}|y_k)p(y_k)\text{ where }\boldsymbol{x}\in C(y_k)
+\]
+Through learning, the two models should become approximately equal. In order to achieve such agreement, training  must increase $q(\boldsymbol{x}|y_k)$ and decrease all other $q(\boldsymbol{x}|y_j)$. 
+\begin{gather*}
+	q_g(\boldsymbol{x}) = 	\sum_{j=1}^{m} q(\boldsymbol{x}|y_j)p(y_j) \approx q(\boldsymbol{x}|y_k)p(y_k) = q_i(\boldsymbol{x}) \\
+	\sum_{j\ne k} q(\boldsymbol{x}|y_j)p(y_j) \approx 0 
+\end{gather*}
+Any algorithm that maximizes $\sum_{\boldsymbol{x}\in C(y_k)}q(\boldsymbol{x}|y_k)$ will automatically minimise $\sum_{\boldsymbol{x}\notin C(y_k)} q(\boldsymbol{x}|y_k)$  because probabilities sum up to $1$. If $\sum_{\boldsymbol{x}\notin C(y_j)} q(\boldsymbol{x}|y_j)$ decreases across all $y_j$ and $p(y_j)$ stay constant then the following sum decreases
+\[
+	\sum_{j} \sum_{\boldsymbol{x}\notin C(y_j)} q(\boldsymbol{x}|y_j) p(y_j) = \sum_{\boldsymbol{x}} \sum_{j\ne k}  q(\boldsymbol{x}|y_j) p(y_j) \text{ where }\boldsymbol{x}\in C(y_k)
+\]
+Therefore it can be seen that maximization of $\sum_{\boldsymbol{x}\in C(y_k)}q(\boldsymbol{x}|y_k)$ will push $q_g$ closer to $q_i$.  The maximal possible value is $1$.  The probabilities of each individual $q(\boldsymbol{x}|y_k)$ should be proportional to empirically sampled distribution $\bar{p}(\boldsymbol{x}|y_k)$
+\[
+q(\boldsymbol{x}|y_k) \approx \bar{p}(\boldsymbol{x}|y_k) = \frac{\bar{p}(\boldsymbol{x})}{\sum_{\boldsymbol{x}\in C(y_k)}\bar{p}(\boldsymbol{x})}
+\]
+
+
+\paragraph{Proof of convergence for k-means algorithm}
+The model $q_g$ will approximate $q_i$ through maximisation of $\sum_{\boldsymbol{x}\in C(y_k)}q(\boldsymbol{x}|y_k)$, but the conditional probabilities $q(\boldsymbol{x}|y_k)$ are parameterised with matrix $W$. This enforces mutual independence of bits. There might not exist any good way to maximise this sum in the general case. Therefore it's vital that all vectors within the same cluster $C(y_k)$ share lots of bits in common. 
+
+Let us also recall that the probability of accidental overlap $p(\langle\boldsymbol{x},\boldsymbol{x}'\rangle\ge b )$ is very low for sparse vectors.
+Clustering similar vectors together will enhance robustness of the model.
+
+
+
+Subset probability $q(\boldsymbol{x}' \subset \boldsymbol{x} |y_h,\alpha)$  is a good approximation of $q(\boldsymbol{x} |y_h)$.  The \texttt{infer} function 
+Let us define a loss function
+\[
+\mathcal{L} = q_i(\boldsymbol{x}|y_j)-q_g(\boldsymbol{x})
+\] 
+\[
+   \mathcal{L} = \sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C(y_j)} q_i(\boldsymbol{x}|y_j)-q_g(\boldsymbol{x})
+\] 
 \[\mathcal{L}(C(y_j)^{(t)},W^{(t)})\le \mathcal{L}(C(y_j)^{(t+1)},W^{(t+1)})\] 
 If loss is also bounded from below then it must converge. The monotonicity could be proved in two steps. First show that  
 \[\mathcal{L}(C(y_j)^{(t)},W^{(t)})\le \mathcal{L}(C(y_j)^{(t)},W^{(t+1)})\] 
@@ -646,7 +705,7 @@ We empirically collected statistics of activation pairs $p(y_h^{(t+1)}|y_j^{(t)}
 \begin{figure}[!htbp]
 	\centering
 	\includegraphics[width=13.8cm]{recurrent_connections}
-	\caption{Recurrent receptive fields $p(\boldsymbol{y}^{(t)}|y_j^{(t+1)})$ of 40 neurons within the same column. }
+	\caption{Recurrent receptive fields $p(\boldsymbol{y}^{(t)}|y_j^{(t+1)})$ of 40 neurons within the same column. Warmer colours mean higher values.}
 	\label{fig:recurrent_connections}
 \end{figure} 
  
@@ -705,23 +764,58 @@ Every group element $g_{\boldsymbol{x}}$ is represented as a set of neurons (bit
 
 Learning parametric groups has many analogies to inductive grammatical inference (learning finite state automata). We could represent any group using its Cayley graph and then try to minimise it by merging certain group elements with equivalence relations. The goal would be to find the minimal quotient group such that its actions on signals $\boldsymbol{x}$ are preserved (consistent with the observed trajectory). 
 
+Consider a graph with $\omega$ vertices and an agent walking on it. Knowing the exact vertex where the agent is currently located, is equivalent to $\log_2 \omega$ bits of information. Anybody who ever attempted to model complex real-world systems using state graphs, would promptly notice that the number of required vertices $\omega$ is very large. The states representing real world may depend on many different latent variables $\boldsymbol{z}$ that by themselves carry $\lVert \boldsymbol{z} \rVert_1$ bits of information. Representing all possible configurations of those latent variables would exponentially require $\omega=2^{\lVert \boldsymbol{z} \rVert_1}$ states in the graph. Information carried by each state would be $\log_2 \omega=\lVert \boldsymbol{z} \rVert_1$ bits.
+
 
 In classical reinforcement learning, the agent occupies a specific state in a Markov decision process (MDP). It is assumed that the agent knows exactly where it is at any point in time. Deep reinforcement learning generalises MDP by working with partially observable states. Such agents do not know the state and can only see certain representations $\boldsymbol{x}$ of it instead (like images).
 
-We assume that the environment is an infinite group $\mathcal{G}_*$ whose elements $g_s$ are the states. Every $g_s$ produces certain observation $\mathcal{X}(g_s)=\boldsymbol{x}$. Agent acts on $\boldsymbol{x}$ with group-generating element $g_a\in \mathcal{A}$. The result of action is $g_a.\mathcal{X}(g_s)=\mathcal{X}(g_ag_s)$. 
+Here we assume that the environment is a (very large or infinite) group $\mathcal{G}_*$ whose elements $g_{\boldsymbol{z}}$ are the states. Every state carries $\boldsymbol{z}$ bits of information. There exists a projection  $\mathcal{X}(g_{\boldsymbol{z}})=\boldsymbol{x}$ that produces observations of any given state. The information carried by $\boldsymbol{x}$ may be less than that of $\boldsymbol{z}$ (agent will have to infer missing bits from the trajectory). Agent acts on signal $\boldsymbol{x}$ with group-generating element $g_a\in \mathcal{A}$. The result of action is $g_a.\mathcal{X}(g_{\boldsymbol{z}})=\mathcal{X}(g_ag_{\boldsymbol{z}})$. 
 
-The input to first layer in ECC network is the signal $g_{\boldsymbol{x}}$, while its output $g_{\boldsymbol{y}}\in\mathcal{G}_{\theta}$ is an approximation of $g_s\in\mathcal{G}_{*}$. 
+The input to first layer in ECC network is the signal $\boldsymbol{x}$, while its output $g_{\boldsymbol{y}}\in\mathcal{G}_{\theta}$ is an approximation of $g_{\boldsymbol{z}}\in\mathcal{G}_{*}$. 
+
+\paragraph{Inductive inference of groups}
+
+It is possible for two different group elements $g_{\boldsymbol{z}}\ne g_{\boldsymbol{z}'}$ to produce the same observation $\mathcal{X}(g_{\boldsymbol{z}})=\mathcal{X}(g_{\boldsymbol{z}'})$, but assume that the probability of it is low. We first make certain simplification and assume that $\mathcal{X}$ function is deterministic. In the latter paragraphs we will generalise our conclusions to probabilistic and noisy observations.
+
+Having sampled a trajectory
+\[\boldsymbol{x}_1,g_1,\boldsymbol{x}_2,g_2,\boldsymbol{x}_3,g_3...\boldsymbol{x}_T\] 
+we may attempt to infer the group's Cayley graph by greedily merging those observations $\boldsymbol{x}$ that are equal. This approach is similar to the RPNI (regular positive negative inference) algorithm used for inference of finite state automata (FSA). Any Cayley graph could be interpreted as FSA, while the generator $\mathcal{A}$ is analogous to the alphabet of a formal language. In our case, we assume that every state produces observations, which could be interpreted as finite state Moore machine. 
+
+The inference algorithm is as follows. For every observation $\boldsymbol{x}$ in trajectory, let us create a corresponding vertex $g_{\boldsymbol{x}}$. Initialise the Cayley graph $\mathcal{G}_{\theta}$ so that every $g_{\boldsymbol{x}_t}$ and $g_{\boldsymbol{x}_{t+1}}$ is connected with an edge. Label the edges accordingly with their respective actions $g_{t}\in\mathcal{A}$. As a result, the initial  $\mathcal{G}_{\theta}$ graph will be a path. Then execute the following procedure
+\begin{lstlisting}
+for $t$ from 1 to $T$:
+    for $t'$ from 1 to $t$:
+       if $\boldsymbol{x}_t=\boldsymbol{x}_{t'}$:
+           $\mathcal{G}_{\theta}'$  = copy of $\mathcal{G}_{\theta}$ 
+           merge $g_{\boldsymbol{x}_t}$ with $g_{\boldsymbol{x}_{t'}}$ in $\mathcal{G}_{\theta}'$
+           if cascade($\mathcal{G}_{\theta}'$):
+                $\mathcal{G}_{\theta}$  = $\mathcal{G}_{\theta}'$   // update Caley graph  
+\end{lstlisting}
+The cascade procedure will attempt to iteratively merge all of the edges that have the same source vertex and are both labelled with the same action $g_{t}\in\mathcal{A}$. Before merging any two edges, their destination vertices are checked for ``compatibility''. They must produce equal observations $\boldsymbol{x}$. Such equality needs to be ensured because we assumed $\mathcal{X}$ to be deterministic. If the cascade attempt to merge two incompatible edges, then the procedure terminates with output $0$. If the iteration ends (there are no more candidate edges to merge), then the output is $1$. All merging operations are performed ``in-place'' and the graph  $\mathcal{G}_{\theta}'$ is mutated.
+
+It can be shown that such procedure will always identify the correct Cayley graph in the limit as trajectory length $T$ approaches infinity (proof is the same as for Moore-RPNI algorithm).
+
+
+
 
 
 \paragraph{Group manifolds}
 
-We can define a distance metric $d(g_1,g_2)$ on $\mathcal{G}$ generated by $\mathcal{A}$ as the minimum length of word $g_3$ such that $g_3g_1=g_2$.
+
+Define a distance metric $d_L(g_1,g_2)$ on $\mathcal{G}$ generated by $\mathcal{A}$ as the minimum length of word $g_3$ such that $g_3g_1=g_2$. The $L$ in $d_L(g_1,g_2)$ stands for multiplying $g_3$ on the left side of $g_1$ (group elements  need not commute). 
 We can use such metric to induce topology of open balls on $\mathcal{G}$.
-(If $\mathcal{G}$ is also differentiable then it's a Lie group, but we're not concerned with this here) .
+%(If $\mathcal{G}$ is also differentiable then it's a Lie group, but we're not concerned with this here).
 
-Within the open ball, a group might look different than elsewhere. For example movement of an ant inside a box might look like a group of two-dimensional translations, until it hits a wall. We will soon use the open balls to measure how many steps can be taken in an arbitrary direction, before the ant is stopped by a wall.
+Within the open ball, a group might look different than elsewhere. For example movement of an ant inside a box might look like a group of two-dimensional translations, until it hits a wall. 
 
 
+
+The latent group $\mathcal{G}_{*}$ might be large and complex. Learning can be made more efficient if it works gradually at different scales. We can slowly build up coarser quotient groups in successive layers.
+
+\paragraph{ECC networks are a parallel algorithm for group inference from noisy observations}
+The original RPNI algorithm runs after sampling a full trajectory. If the environment provides an infinite stream of observations, the learning needs to be continuous and online.  
+
+We can create several graphs $\mathcal{G}$ 
 
 
 \paragraph{Learning groups and cosets}
@@ -818,9 +912,9 @@ Both of the problems are solved by introducing more inhibitory neurons and allow
 
 \section{ECC are spiking networks}
 
-The ECC can be extended to work with time series, model sequential data, detect movement and distance of objects. Let $\boldsymbol{x}^{(t)}$ and $\boldsymbol{y}^{(t)}$ be the input signal and states of neurons at time step $t$ respectively. We can concatenate several such vectors $\boldsymbol{x}^{(t-b)}\cdot \boldsymbol{x}^{(t-b+1) }\cdot ...\cdot\boldsymbol{x}^{(t)}=\boldsymbol{\hat{x}}^{(t)}$ up to $b$ steps from the past. Analogically for $\boldsymbol{\hat{y}}^{(t)}$. Now the weight matrices $W$ can span not only neurons but also their past states. The connections are now made not only across space but also time. The size of $W$ is given by $bnm$ where $n$ and $m$ is the number of input $\boldsymbol{x}$ and hidden $\boldsymbol{y}$ neurons respectively. The memory complexity is therefore cubic. There is a certain heuristic that can be exploited in order to obtain a quadratic complexity. The natural environment is time-consistent, meaning that usually $\boldsymbol{x}$ only changes a little between time steps. When the agent is idle, it may look in a specific direction for prolonged period of time and always observe the same $\boldsymbol{x}$. Therefore we could agree to only make one connection to a specific point in time per input-output pair. Hence the matrix $W$ is not a Cartesian product $[t-b,t] \times \boldsymbol{x} \times \boldsymbol{y} \rightarrow [0,1]$  but rather a function $\boldsymbol{x} \times \boldsymbol{y} \rightarrow [t-b,t] \times [t-b,t] \rightarrow [0,1]$ where $[t-b,t] \times [t-b,t]$ are the beginning and end of the time-window (relative to current time $t$).
+The ECC can be extended to work with time series, model sequential data, detect movement and distance of objects. Let $\boldsymbol{x}^{(t)}$ and $\boldsymbol{y}^{(t)}$ be the input signal and states of neurons at time step $t$ respectively. We can concatenate several such vectors $\boldsymbol{x}^{(t-b)}\cdot \boldsymbol{x}^{(t-b+1) }\cdot ...\cdot\boldsymbol{x}^{(t)}=\boldsymbol{\hat{x}}^{(t)}$ up to $b$ steps from the past. Analogically for $\boldsymbol{\hat{y}}^{(t)}$. Now the weight matrices $W$ can span not only neurons but also their past states. The connections are now made not only across space but also time. The size of $W$ is given by $bnm$ where $n$ and $m$ is the number of input $\boldsymbol{x}$ and hidden $\boldsymbol{y}$ neurons respectively. The memory complexity is therefore cubic. There is a certain heuristic that can be exploited in order to obtain a quadratic complexity. The natural environment is time-consistent, meaning that usually $\boldsymbol{x}$ only changes a little between time steps. When the agent is idle, it may look in a specific direction for prolonged period of time and always observe the same $\boldsymbol{x}$. Therefore we could agree to only make one connection to a specific point in time per input-output pair. Hence the matrix $W$ is not a Cartesian product $[t-b,t] \times \boldsymbol{x} \times \boldsymbol{y} \rightarrow [0,1]$  but rather a function $\boldsymbol{x} \times \boldsymbol{y} \rightarrow [t-b,t] \times [t-b,t] \times [0,1]$ where $[t-b,t] \times [t-b,t]$ are the beginning and end of the time-window (relative to current time $t$).
 
-In the case of continuous time, primitive distributions must be represented using a different data structure than a matrix. The dendrites of biological neurons carry their information at different speeds. The faster dendrites connect to recent past, whereas slower ones detect signal from to more distant past. The action potential doesn't vanish instantly. A plateau potential may linger for a certain period of time, which means that the neuronal connections can be tuned to a time-interval of some specific length. The neurons tend to fire in spike trains of specific frequency. Two subsequent spikes coming from the same input are likely correlated and do not carry additional information, hence it's pointless to have multiple connections to the same input tuned to distinct times. This again allows for reducing the complexity from cubic to quadratic. Hence the optimal data structure for representing continuous primitive distributions is a function $\boldsymbol{x} \times \boldsymbol{y} \rightarrow \mathbb{R} \times \mathbb{R} \rightarrow [0,1]$ where $\mathbb{R} \times \mathbb{R}$ represents beginning and end of time interval.
+In the case of continuous time, primitive distributions must be represented using a different data structure than a matrix. The dendrites of biological neurons carry their information at different speeds. The faster dendrites connect to recent past, whereas slower ones detect signal from to more distant past. The action potential doesn't vanish instantly. A plateau potential may linger for a certain period of time, which means that the neuronal connections can be tuned to a time-interval of some specific length. The neurons tend to fire in spike trains of specific frequency. Two subsequent spikes coming from the same input are likely correlated and do not carry additional information, hence it's pointless to have multiple connections to the same input tuned to distinct times. This again allows for reducing the complexity from cubic to quadratic. Hence the optimal data structure for representing continuous primitive distributions is a function $\boldsymbol{x} \times \boldsymbol{y} \rightarrow \mathbb{R} \times \mathbb{R} \times [0,1]$ where $\mathbb{R} \times \mathbb{R}$ represents beginning and end of time interval.
 
 The standard ECC learning algorithm can be used to train $W$ matrices of cubic complexity. When we used the heuristic quadratic $W$, then the spike-time-dependent plasticity emerges as the optimal learning method. If the input spike comes too early, we move the time window a little to the past. If it comes too late, we move it a notch to the future. If the variance of relative spike time is high, then we stretch the time window to be longer. If the input arrives at a very predictable time, then we can narrow down the window size. 
 
