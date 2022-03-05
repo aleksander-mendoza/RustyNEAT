@@ -20,6 +20,7 @@
 \usepackage{enumitem}
 \input{style.tikzstyles}
 \DeclareMathOperator*{\argmax}{argmax}
+\DeclareMathOperator*{\argmin}{argmin}
 \newtheorem{definition}{Definition}
 \newtheorem{theorem}{Theorem}[section]
 \newtheorem{corollary}{Corollary}[theorem]
@@ -718,6 +719,44 @@ In the benchmarks from figure \ref{fig:benchmarks}, the layers with $d>1$ always
 If we also add recurrent connections going from higher layers back to lower, then such feedback signal could be used to train the lower layer activations. Such connectivity pattern will lead to self-organisation and reinforcement of predictable activations.
 
 The motor feedback is no longer necessary but it could be possible to use it in combination with voting and recurrent feedback.
+
+\section{Alternative models}
+
+There exist several possible modifications. The columns $W_j$ of weight matrix must sum up to $1$. In other words the $\ell_1$ norm is $\lVert W_j \rVert_1=1$.
+What would happen if we used $\ell_2$ norm instead?
+
+Then all columns of $W$ matrix are unit vectors. The inner product $\boldsymbol{x}W_j$ measures cosine similarity 
+\[
+\boldsymbol{x}W_j = \lVert \boldsymbol{x} \rVert_2 \lVert W_j \rVert_2 \cos \theta = \lVert \boldsymbol{x} \rVert_2 \cos \theta 
+\]
+The inequality $\boldsymbol{x}W_h \ge \boldsymbol{x}W_j$ implies that angle between $\boldsymbol{x}$ and $W_h$ is smaller than that between $\boldsymbol{x}$ and $W_j$. 
+\begin{gather*}
+	d(\boldsymbol{x},W_j )= \arccos(\frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_2}W_j)\\
+\boldsymbol{x}W_h \ge \boldsymbol{x}W_j \implies d(\boldsymbol{x},W_h) \le d(\boldsymbol{x},W_j)
+\end{gather*}
+If we imagine $W_j$ to be a point on n-dimensional sphere $S^n$, then $\frac{\boldsymbol{x}W_j}{\lVert \boldsymbol{x} \rVert_2}$ can be used to measure geodesic distance between $\boldsymbol{x}$ and $W_j$. Such ECC networks could be reformulated as a k-means algorithm that operates on topology of a sphere, rather than Cartesian coordinates. By taking $\argmax(\boldsymbol{x}W)$ we select the point $W_j$ that lies closest to  $\frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_2}$.
+Each neuron $y_j$ represents a cluster $C(y_j)$ of all the points $\boldsymbol{x}$ whose geodesic distance is closest to $W_j$. The centroid $\mu(y_j)$ of cluster $C(y_j)$ is defined as Karcher mean
+\begin{gather*}
+C(y_j) = \{\boldsymbol{x}:\argmax(\boldsymbol{x}W)=j\} \\
+\mu(y_j) = \argmin_{W\in S^n} \sum_{\boldsymbol{x}\in C(y_j) } d(\boldsymbol{x},W)^2 \bar{p}(\boldsymbol{x}|y_j) = \argmin_{W\in S^n} \mathbb{E}_{\bar{p}}\big(d(\boldsymbol{x},W)^2\big|y_j\big)
+\end{gather*}
+In the general case the centroid $\mu(y_j)$ may not be unique. For example the Karcher mean of two antipodal points $\boldsymbol{x}=-\boldsymbol{x}'$, could be any point on the equator. In the specific case of ECC networks, all of the inputs $\boldsymbol{x}$ are binary vectors $\{0,1\}^n$, hence we only operate on the positive fragment of a sphere. Here the mean $\mu(y_j)$ is always unique and it coincides with the normalized arithmetic mean (one that uses euclidean distance instead of geodesic).
+\[
+\mu(y_j) = \frac{}
+\]
+
+
+
+Figure \ref{fig:benchmarks_l2} presents benchmarks that compares MNIST accuracy of networks trained with $\ell_1$ and $\ell_2$ norms.
+
+
+\begin{figure}[!htbp]
+	\centering
+	\includegraphics[width=13.8cm]{benchmarks_l2}
+	\caption{Comparison of benchmarks using $\ell_1$ (grey) and $\ell_2$ (white) metrics.}
+	\label{fig:benchmarks_l2}
+\end{figure}
+
  
 \section{Reinforcement learning and control}
 

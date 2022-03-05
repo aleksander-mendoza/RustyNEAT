@@ -18,6 +18,9 @@ from torch.utils.data import DataLoader
 fig, axs = None, None
 
 MNIST, LABELS = torch.load('htm/data/mnist.pt')
+SAMPLES = 6000
+DIR = 'predictive_coding_stacked8/'+str(SAMPLES)
+MNIST, LABELS = MNIST[:SAMPLES], LABELS[:SAMPLES]
 
 
 def visualise_connection_heatmap(in_w, in_h, ecc_net, out_w, out_h, pause=None):
@@ -121,7 +124,7 @@ class MachineShape:
             return self.code_name(len(self)-1)
 
     def save_file(self, idx):
-        return "predictive_coding_stacked8/" + self.code_name(idx)
+        return DIR+"/" + self.code_name(idx)
 
     def kernel(self, idx):
         return [self.kernels[idx], self.kernels[idx]]
@@ -319,7 +322,7 @@ class FullColumnMachine:
                 def __getitem__(self, idx):
                     return self.imgs.to_f32_numpy(idx), self.lbls[idx]
 
-            for split in [0.1, 0.8]:  # 0.2, 0.5, 0.9
+            for split in [0.1, 0.2, 0.5, 0.8, 0.9]:  #
                 train_len = int(len(MNIST) * split)
                 eval_len = len(MNIST) - train_len
                 train_data = out_mnist.mnist.subdataset(0, train_len)
@@ -454,12 +457,12 @@ def run_experiments():
         # (1, [e(49, 6), e(100, 6), e(144, 6, k=3), e(256, 6, k=4), e(256, 6, k=4)]),
         # (1, [e(49, 6), e(100, 6), e(144, 6), e(256, 6, k=4), e(256, 6, k=4)]),
         # (1, [e(49, 6), e(100, 6), e(144, 6), e(256, 6), e(256, 6, k=4)]),
-        (1, [e(100, 28)]),
-        (1, [e(256, 28)]),
-        (1, [e(400, 28)]),
-        (1, [e(6, 6), e(6, 6), e(6, 6), e(6, 6), e(6, 6)]),
-        (1, [e(8, 6), e(2 * 8, 6), e(3 * 8, 6), e(4 * 8, 6), e(4 * 8, 6)]),
-        (1, [e(8, 6), e(2 * 8, 6), e(3 * 8, 6), e(4 * 8, 6), e(5 * 8, 6)]),
+        #    (1, [e(100, 28)]),
+        #    (1, [e(256, 28)]),
+        #    (1, [e(400, 28)]),
+        #    (1, [e(6, 6), e(6, 6), e(6, 6), e(6, 6), e(6, 6)]),
+        #    (1, [e(8, 6), e(2 * 8, 6), e(3 * 8, 6), e(4 * 8, 6), e(4 * 8, 6)]),
+        #    (1, [e(8, 6), e(2 * 8, 6), e(3 * 8, 6), e(4 * 8, 6), e(5 * 8, 6)]),
         # (1, [e(8, 6), e(2 * 8, 3), e(3 * 8, 3), e(4 * 8, 3), e(4 * 8, 3), e(4 * 8, 3)]),
         # (1, [e(16, 6), e(2 * 16, 3), e(3 * 16, 3), e(4 * 16, 3), e(4 * 16, 3), e(4 * 16, 3)]),
         # (1, [e(16, 6), e(2 * 16, 6), e(3 * 16, 6), e(4 * 16, 6), e(4 * 16, 6)]),
@@ -469,8 +472,9 @@ def run_experiments():
         # (1, [i49, c9(3), e144, c9(5), e144, c16(7), e200, c16(10), e200, c20(7), e200, c20(3)]),
         # (1, [i49, c9(3), e144, c9(5), e144, c16(7), e200, c20(10), e256, c25(7), e200, c20(3)]),
     ]
-    entropy_maximisation=False
-    metric_l2=True
+    overwrite_benchmarks=False
+    entropy_maximisation=True
+    metric_l2=False
     for experiment in experiments:
         first_channels, layers = experiment
         kernels, strides, channels, drifts, ks = [], [], [first_channels], [], []
@@ -486,23 +490,23 @@ def run_experiments():
                              entropy_maximisation=entropy_maximisation)
             code_name = s.save_file(len(kernels))
             save_file = code_name + " data.pickle"
-            if not os.path.exists(save_file):
+            if overwrite_benchmarks or not os.path.exists(save_file):
                 w, h = factorizations[channel]
                 m = SingleColumnMachine(s, w, h, threshold=threshold)
                 print(save_file)
                 m.train(save=True, plot=True, snapshots_per_sample=snapshots_per_sample)
                 m = FullColumnMachine(s)
                 print(save_file)
-                m.eval_with_naive_bayes()
+                m.eval_with_naive_bayes(overwrite_benchmarks=overwrite_benchmarks)
                 print(save_file)
-                m.eval_with_classifier_head()
+                m.eval_with_classifier_head(overwrite_benchmarks=overwrite_benchmarks)
                 print(save_file)
-                m.eval_with_naive_bayes(min_deviation_from_mean=0.01)
+                m.eval_with_naive_bayes(min_deviation_from_mean=0.01,overwrite_benchmarks=overwrite_benchmarks)
                 print(save_file)
 
 
 def parse_benchmarks(file_name):
-    with open('predictive_coding_stacked8/' + file_name, "r") as f:
+    with open(DIR+'/' + file_name, "r") as f:
         train_accuracy8 = 0
         train_accuracy1 = 0
         eval_accuracy8 = 0
@@ -641,7 +645,7 @@ class ExperimentDB:
 
     def __init__(self):
         s = " accuracy2.txt"
-        self.experiments = [e[:-len(s)] for e in os.listdir('predictive_coding_stacked8/') if e.endswith(s)]
+        self.experiments = [e[:-len(s)] for e in os.listdir(DIR+'/') if e.endswith(s)]
         self.experiment_data = {n: ExperimentData(n) for n in self.experiments}
         for ex in self.experiment_data.values():
             s:MachineShape = ex.shape

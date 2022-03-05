@@ -2,17 +2,17 @@
 \contentsline {paragraph}{How to read this paper}{2}{}%
 \contentsline {paragraph}{Motivation}{3}{}%
 \contentsline {paragraph}{Introductory example}{4}{}%
-\contentsline {section}{\numberline {2}Network of exclusive coincidence classes}{5}{}%
-\contentsline {section}{\numberline {3}Fundamental theory}{7}{}%
-\contentsline {paragraph}{ECC networks and Bayesian inference}{7}{}%
+\contentsline {section}{\numberline {2}Network of exclusive coincidence classes}{6}{}%
+\contentsline {section}{\numberline {3}Fundamental theory}{8}{}%
+\contentsline {paragraph}{ECC networks and Bayesian inference}{8}{}%
 \contentsline {paragraph}{Interpretations of $W$ matrix}{8}{}%
 \contentsline {paragraph}{Models of $q(\boldsymbol {x}|y_j)$ distribution}{9}{}%
 \contentsline {paragraph}{Interpretations of $\boldsymbol {x}W$ product}{10}{}%
 \contentsline {paragraph}{Binary vector subsets and their overlap probabilities}{11}{}%
 \contentsline {paragraph}{Bits $x_i$ are mutually independent random variables}{11}{}%
 \contentsline {paragraph}{Maximum likelihood estimation of W}{12}{}%
-\contentsline {paragraph}{Similarities between ECC and SVD}{12}{}%
-\contentsline {paragraph}{Similarities between ECC and k-means }{13}{}%
+\contentsline {paragraph}{Similarities between ECC and SVD}{13}{}%
+\contentsline {paragraph}{Similarities between ECC and k-means }{14}{}%
 \contentsline {paragraph}{\texttt {infer} and \texttt {generate} define two different models of $q(\boldsymbol {x})$}{14}{}%
 \contentsline {paragraph}{Proof of convergence for k-means algorithm}{16}{}%
 \contentsline {section}{\numberline {4}Convolutional networks}{17}{}%
@@ -31,23 +31,24 @@
 \contentsline {paragraph}{Deeper layers are less sensitive to small changes}{29}{}%
 \contentsline {paragraph}{Recurrent connections within columns}{29}{}%
 \contentsline {paragraph}{Voting and recurrent connections between layers}{29}{}%
-\contentsline {section}{\numberline {6}Reinforcement learning and control}{30}{}%
-\contentsline {paragraph}{ECC can't learn value functions}{30}{}%
-\contentsline {paragraph}{Geometric deep learning theory}{31}{}%
-\contentsline {paragraph}{Reinforcement learning sample inefficiency}{31}{}%
-\contentsline {paragraph}{Inference of groups from actions and observations}{32}{}%
-\contentsline {paragraph}{Parametric groups}{33}{}%
-\contentsline {paragraph}{Inductive inference of groups}{34}{}%
-\contentsline {paragraph}{ECC networks are a parallel algorithm for group inference from noisy observations}{35}{}%
-\contentsline {paragraph}{Group manifolds}{35}{}%
-\contentsline {paragraph}{Learning groups and cosets}{35}{}%
-\contentsline {paragraph}{Reducing reward maximisation problem to a search problem}{36}{}%
-\contentsline {paragraph}{Supervised vs unsupervised (This paragraph is mostly work-in-progress)}{37}{}%
-\contentsline {section}{\numberline {7}Optimisations and efficiency benchmarks}{38}{}%
-\contentsline {paragraph}{Optimisations}{38}{}%
-\contentsline {paragraph}{Benchmarks}{39}{}%
-\contentsline {section}{\numberline {8}Inhibitory plasticity}{39}{}%
-\contentsline {paragraph}{Problems of ECC networks}{39}{}%
-\contentsline {paragraph}{Plastic inhibitory neurons}{40}{}%
-\contentsline {section}{\numberline {9}ECC are spiking networks}{40}{}%
-\contentsline {section}{\numberline {10}Evolving ECC networks}{42}{}%
+\contentsline {section}{\numberline {6}Alternative models}{30}{}%
+\contentsline {section}{\numberline {7}Reinforcement learning and control}{31}{}%
+\contentsline {paragraph}{ECC can't learn value functions}{31}{}%
+\contentsline {paragraph}{Geometric deep learning theory}{33}{}%
+\contentsline {paragraph}{Reinforcement learning sample inefficiency}{33}{}%
+\contentsline {paragraph}{Inference of groups from actions and observations}{34}{}%
+\contentsline {paragraph}{Parametric groups}{35}{}%
+\contentsline {paragraph}{Inductive inference of groups}{36}{}%
+\contentsline {paragraph}{Group manifolds}{37}{}%
+\contentsline {paragraph}{ECC networks are a parallel algorithm for group inference from noisy observations}{37}{}%
+\contentsline {paragraph}{Learning groups and cosets}{37}{}%
+\contentsline {paragraph}{Reducing reward maximisation problem to a search problem}{38}{}%
+\contentsline {paragraph}{Supervised vs unsupervised (This paragraph is mostly work-in-progress)}{39}{}%
+\contentsline {section}{\numberline {8}Optimisations and efficiency benchmarks}{40}{}%
+\contentsline {paragraph}{Optimisations}{40}{}%
+\contentsline {paragraph}{Benchmarks}{41}{}%
+\contentsline {section}{\numberline {9}Inhibitory plasticity}{41}{}%
+\contentsline {paragraph}{Problems of ECC networks}{41}{}%
+\contentsline {paragraph}{Plastic inhibitory neurons}{42}{}%
+\contentsline {section}{\numberline {10}ECC are spiking networks}{42}{}%
+\contentsline {section}{\numberline {11}Evolving ECC networks}{44}{}%
