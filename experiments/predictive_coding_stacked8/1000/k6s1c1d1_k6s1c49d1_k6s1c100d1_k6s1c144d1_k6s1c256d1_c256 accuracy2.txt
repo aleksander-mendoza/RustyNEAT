@@ -1,0 +1,1 @@
+split=0.9, train_len=54000, eval_len=6000, epoch=3, train_accuracy=0.6588703703703703, eval_accuracy=0.6536666666666666

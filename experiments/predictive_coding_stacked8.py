@@ -18,9 +18,8 @@ from torch.utils.data import DataLoader
 fig, axs = None, None
 
 MNIST, LABELS = torch.load('htm/data/mnist.pt')
-SAMPLES = 6000
+SAMPLES = 20
 DIR = 'predictive_coding_stacked8/'+str(SAMPLES)
-MNIST, LABELS = MNIST[:SAMPLES], LABELS[:SAMPLES]
 
 
 def visualise_connection_heatmap(in_w, in_h, ecc_net, out_w, out_h, pause=None):
@@ -233,11 +232,12 @@ class SingleColumnMachine:
         test_patches = params['test_patches']
         mnist = Mnist(self.machine_shape, idx)
         mnist.load()
+        mnist.mnist = mnist.mnist.subdataset(0,SAMPLES)
         compound_stride, compound_kernel = self.machine_shape.composed_conv(idx)
         compound_stride, compound_kernel = compound_stride[:2], compound_kernel[:2]
         test_patch_indices = mnist.mnist.gen_rand_conv_subregion_indices_with_ecc(layer, test_patches)
         test_input_patches = mnist.mnist.conv_subregion_indices_with_ecc(layer, test_patch_indices)
-        test_img_patches = SDR_MNIST.mnist.conv_subregion_indices_with_ker(compound_kernel, compound_stride,
+        test_img_patches = SDR_MNIST.mnist.subdataset(0,SAMPLES).conv_subregion_indices_with_ker(compound_kernel, compound_stride,
                                                                            test_patch_indices)
         print("PATCH_SIZE=", test_img_patches.shape)
         all_missed = []
@@ -309,7 +309,10 @@ class FullColumnMachine:
             in_mnist.load()
             out_mnist.mnist = in_mnist.mnist.batch_infer(layer)
             out_mnist.save_mnist()
-        if not os.path.exists(benchmarks_save) or overwrite_benchmarks:
+        if not os.path.exists(benchmarks_save) or overwrite_benchmarks is not False:
+            if overwrite_benchmarks is False:
+                overwrite_benchmarks = 'w'
+            assert overwrite_benchmarks == 'w' or overwrite_benchmarks == 'a'
 
             class D(torch.utils.data.Dataset):
                 def __init__(self, imgs, lbls):
@@ -367,7 +370,7 @@ class FullColumnMachine:
                         ", epoch=" + str(epoch) + \
                         ", train_accuracy=" + str(train_accuracy / train_total) + \
                         ", eval_accuracy=" + str(eval_accuracy / eval_total)
-                    with open(benchmarks_save, 'a+') as f:
+                    with open(benchmarks_save, overwrite_benchmarks+'+') as f:
                         print(s, file=f)
                     print(s)
 
@@ -385,8 +388,11 @@ class FullColumnMachine:
             in_mnist.load()
             out_mnist.mnist = in_mnist.mnist.batch_infer(layer)
             out_mnist.save_mnist()
-        if not os.path.exists(benchmarks_save) or overwrite_benchmarks:
-            with open(benchmarks_save, 'a+') as f:
+        if not os.path.exists(benchmarks_save) or overwrite_benchmarks is not False:
+            if overwrite_benchmarks is False:
+                overwrite_benchmarks = 'w'
+            assert overwrite_benchmarks == 'w' or overwrite_benchmarks == 'a'
+            with open(benchmarks_save, overwrite_benchmarks+'+') as f:
                 for split in [0.1, 0.2, 0.5, 0.8, 0.9]:
                     train_len = int(len(MNIST) * split)
                     eval_len = len(MNIST) - train_len
@@ -473,6 +479,7 @@ def run_experiments():
         # (1, [i49, c9(3), e144, c9(5), e144, c16(7), e200, c20(10), e256, c25(7), e200, c20(3)]),
     ]
     overwrite_benchmarks=False
+    overwrite_data=False
     entropy_maximisation=True
     metric_l2=False
     for experiment in experiments:
@@ -490,18 +497,20 @@ def run_experiments():
                              entropy_maximisation=entropy_maximisation)
             code_name = s.save_file(len(kernels))
             save_file = code_name + " data.pickle"
-            if overwrite_benchmarks or not os.path.exists(save_file):
+            if overwrite_benchmarks or overwrite_data or not os.path.exists(save_file):
                 w, h = factorizations[channel]
                 m = SingleColumnMachine(s, w, h, threshold=threshold)
                 print(save_file)
                 m.train(save=True, plot=True, snapshots_per_sample=snapshots_per_sample)
                 m = FullColumnMachine(s)
                 print(save_file)
-                m.eval_with_naive_bayes(overwrite_benchmarks=overwrite_benchmarks)
+                m.eval_with_naive_bayes(overwrite_data=overwrite_data,
+                                        overwrite_benchmarks=overwrite_benchmarks)
                 print(save_file)
                 m.eval_with_classifier_head(overwrite_benchmarks=overwrite_benchmarks)
                 print(save_file)
-                m.eval_with_naive_bayes(min_deviation_from_mean=0.01,overwrite_benchmarks=overwrite_benchmarks)
+                m.eval_with_naive_bayes(min_deviation_from_mean=0.01,
+                                        overwrite_benchmarks=overwrite_benchmarks)
                 print(save_file)
 
 
