@@ -331,35 +331,6 @@ Because individual bits $q(x_i|y_j)$ are independent, we can efficiently infer t
 \[
 w_{ij}^* = \argmax_{w_{ij}}q(X|y_j;w_{ij}) = \frac{\mathbb{E}_X(x_i|y_j)}{c}
 \]
-\paragraph{Similarities between ECC and SVD}
-
-The distribution $q(\boldsymbol{x})$ is modelled as a sum
-\[
-q(\boldsymbol{x}) = \sum_{j=1}^{m}q(\boldsymbol{x}|y_j)p(y_j)  = \sum_{j=1}^{m}\big(\prod_{i=1}^n q(x_i|y_j)\big)p(y_j) 
-\]
-Such factorization is motivated by the assumption that the external world has many latent causes $y_j$, and every one of them produces noisy observations $x_i$. The real world could potentially be approximated using trillions of latent causes, each one corresponding to some state of the world and objects in it. 
-
-Many of the latent causes will produce similar or nearly identical observations. Could we exploit those similarities and compress our model (so that $m$ is as small as possible)? 
-
-One way to reduce the number of $y$'s is by adding two (or more) of them as follows
-\[
-q(\boldsymbol{x}|y_1) p(y_1)+q(\boldsymbol{x}|y_2) p(y_2) = 
-q(\boldsymbol{x}|y_1\text{ or }y_2) (p(y_1)+p(y_2))
-\]
-but storing $q(\boldsymbol{x}|y_1\text{ or }y_2)$ directly is impossible, because $W$ can only be used to represent mutually independent bits $x_i$. 
-\begin{gather*}
-q(x_i|y_1) p(y_1)+q(x_i|y_2) p(y_2) = c(w_{i1}p(y_1) +w_{i2}p(y_2))  \\
-q(\boldsymbol{x}|y_1) p(y_1)+q(\boldsymbol{x}|y_2) p(y_2) \ne c(W_1p(y_1) +W_2p(y_2)) 
-\end{gather*}
-\underline{Hypothesis:} Perhaps there might be some way to reformulate certain aspects of linear algebra in a space of probability distributions 
-\[p(\boldsymbol{x})\in \mathbb{R}^{2^n} \text{ such that } \lVert p(\boldsymbol{x}) \rVert_1=1\]
-The task of reducing $m$ has certain similarities to matrix compression by performing SVD and truncating least significant eigenvalues. The receptive fields $p(\boldsymbol{x}|y_j)$ learned by neurons could be thought of as ``eigendistributions'' because they play analogical role to eigenvectors, i.e. every $p(\boldsymbol{x})$ is (approximately) a linear combination of eigendistributions $p(\boldsymbol{x}|y_j)$. The equality 
-\[
-\frac{q(\boldsymbol{x}|y_1;W_1) p(y_1)+q(\boldsymbol{x}|y_2;W_2) p(y_2)}{p(y_1)+p(y_2)} = 
-q\big(\boldsymbol{x}|y_1\text{ or }y_2;\frac{W_1p(y_1) +W_2p(y_2)}{p(y_1)+p(y_2)}\big) 
-\]
-would hold only when $p(\boldsymbol{x},y_1)$ and $p(\boldsymbol{x},y_2)$ are colinear. If they are only approximately colinear, then the sum of $W_1$ and $W_2$ should still produce good approximation to $q(\boldsymbol{x}|y_1\text{ or }y_2)$. It looks like SVD, except that instead of truncating least significant eigenvalues, we cluster eigenvectors together by their similarity and then average them, producing $\mathbb{E}(\boldsymbol{x}|y_1\text{ or }y_2)$. The clustering algorithm implemented by ECC has some similarities to k-means.
-
 \paragraph{Similarities between ECC and k-means }
 The original \texttt{infer} algorithm implemented a form of online learning. Now let us suppose that we have some set of samples and we know the empirical distribution $\bar{p}(\boldsymbol{x})$. Define $C(y_j)$ as the cluster of all the $\boldsymbol{x}$ most similar to $W_j$ 
 \[
@@ -411,37 +382,6 @@ Therefore it can be seen that maximization of $\sum_{\boldsymbol{x}\in C(y_k)}q(
 q(\boldsymbol{x}|y_k) \approx \bar{p}(\boldsymbol{x}|y_k) = \frac{\bar{p}(\boldsymbol{x})}{\sum_{\boldsymbol{x}\in C(y_k)}\bar{p}(\boldsymbol{x})}
 \]
 
-
-\paragraph{Proof of convergence for k-means algorithm}
-The model $q_g$ will approximate $q_i$ through maximisation of $\sum_{\boldsymbol{x}\in C(y_k)}q(\boldsymbol{x}|y_k)$, but the conditional probabilities $q(\boldsymbol{x}|y_k)$ are parameterised with matrix $W$. This enforces mutual independence of bits. There might not exist any good way to maximise this sum in the general case. Therefore it's vital that all vectors within the same cluster $C(y_k)$ share lots of bits in common. 
-
-Let us also recall that the probability of accidental overlap $p(\langle\boldsymbol{x},\boldsymbol{x}'\rangle\ge b )$ is very low for sparse vectors.
-Clustering similar vectors together will enhance robustness of the model.
-
-
-
-Subset probability $q(\boldsymbol{x}' \subset \boldsymbol{x} |y_h,\alpha)$  is a good approximation of $q(\boldsymbol{x} |y_h)$.  The \texttt{infer} function 
-Let us define a loss function
-\[
-\mathcal{L} = q_i(\boldsymbol{x}|y_j)-q_g(\boldsymbol{x})
-\] 
-\[
-   \mathcal{L} = \sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C(y_j)} q_i(\boldsymbol{x}|y_j)-q_g(\boldsymbol{x})
-\] 
-\[\mathcal{L}(C(y_j)^{(t)},W^{(t)})\le \mathcal{L}(C(y_j)^{(t+1)},W^{(t+1)})\] 
-If loss is also bounded from below then it must converge. The monotonicity could be proved in two steps. First show that  
-\[\mathcal{L}(C(y_j)^{(t)},W^{(t)})\le \mathcal{L}(C(y_j)^{(t)},W^{(t+1)})\] 
-and then  
-\[\mathcal{L}(C(y_j)^{(t)},W^{(t+1)})\le \mathcal{L}(C(y_j)^{(t+1)},W^{(t+1)})\] 
-I have already tried this with many different loss functions such as
-\begin{gather*}
-\mathcal{L} = \sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C(y_j)} \lVert  W_j - \boldsymbol{x}\rVert_1 \bar{p}(\boldsymbol{x}) \\
-\mathcal{L} = \sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C(y_j)} \lVert  W_j - \boldsymbol{x}\rVert_2 \bar{p}(\boldsymbol{x}) \\
-\mathcal{L} = -\sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C(y_j)} \boldsymbol{x}W_j  \bar{p}(\boldsymbol{x}) \\
-\mathcal{L} = \sum_{j=1}^{m} D_{KL}(\bar{p}(\boldsymbol{x}|y_j)||q(\boldsymbol{x}|y_j))\\
-\mathcal{L} =  -\sum_{j=1}^{m} \sum_{\boldsymbol{x}\in C(y_j)} q(\boldsymbol{x}'\subset \boldsymbol{x}|y_j)
-\end{gather*}
-and other variations thereof, but no luck so far. Empirically it looks like something must be converging, though.
 
 \section{Convolutional networks}
 
@@ -679,6 +619,16 @@ Figure \ref{fig:benchmarks_votes} provides further details on the few architectu
 	\label{fig:benchmarks_votes}
 \end{figure} 
 
+Figure \ref{fig:lin_reg_over_sample_size} shows how the accuracy changes as the number of training samples varies.
+
+
+\begin{figure}[!htbp]
+	\centering
+	\includegraphics[width=13.8cm]{lin_reg_over_sample_size}
+	\caption{}
+	\label{fig:lin_reg_over_sample_size}
+\end{figure} 
+
 \paragraph{Multiple bits per column} The topology of convolutional ECC networks can be extended to allow for more than 1 bit to appear in a single column. The only difference is that now there are several inhibitory neurons. The column is then divided into a few non-overlapping subpopulations such that all of the excitatory neurons within the same subpopulation are mutually exclusive (inhibited by the same neuron). The architecture marked previously in green, has layers with as many as 256 channels. This results in $0.03\%$ sparsity, which is much lower than the estimated $2\%-5\%$ in the real brain. By subdividing the columns the sparsity percentage can be raised. For example by subdividing a column with 100 channels into 4 subpopulations, the resulting sparsity is $\frac{1}{100/4}=\frac{1}{20}=5\%$. Figure \ref{fig:benchmarks_k} shows that the accuracy decreases. This is expected because now we are modelling $q(\boldsymbol{x}|y_j)$ with fewer coincidence classes $m$ allowing us for ``less resolution''. The surprising observations is that the decrease is very small and almost negligible (difference of around 1\%-2\%). That's because now  we are modelling $q(\boldsymbol{x}|y_{j_1},y_{j_2}...,y_{j_Y})$ using a product of  $q(\boldsymbol{x}|y_{j_1},y_{j_2}...,y_{j_Y})=q(\boldsymbol{x}|y_{j_1})q(\boldsymbol{x}|y_{j_2})...q(\boldsymbol{x}|y_{j_Y})$. 
 
 \begin{figure}[!htbp]
@@ -720,43 +670,125 @@ If we also add recurrent connections going from higher layers back to lower, the
 
 The motor feedback is no longer necessary but it could be possible to use it in combination with voting and recurrent feedback.
 
-\section{Alternative models}
+\section{Using $\ell_2$ norm instead of $\ell_1$}
 
-There exist several possible modifications. The columns $W_j$ of weight matrix must sum up to $1$. In other words the $\ell_1$ norm is $\lVert W_j \rVert_1=1$.
+There exist several possible modifications of ECC networks. The columns $W_j$ of weight matrix must sum up to $1$. In other words the $\ell_1$ norm is $\lVert W_j \rVert_1=1$.
 What would happen if we used $\ell_2$ norm instead?
 
-Then all columns of $W$ matrix are unit vectors. The inner product $\boldsymbol{x}W_j$ measures cosine similarity 
+
+\paragraph{Interpretation of $\boldsymbol{x}W$}
+Under $\ell_2$ norm, all columns of $W$ matrix are unit vectors. The inner product $\boldsymbol{x}W_j$ measures cosine similarity 
 \[
 \boldsymbol{x}W_j = \lVert \boldsymbol{x} \rVert_2 \lVert W_j \rVert_2 \cos \theta = \lVert \boldsymbol{x} \rVert_2 \cos \theta 
 \]
-The inequality $\boldsymbol{x}W_h \ge \boldsymbol{x}W_j$ implies that angle between $\boldsymbol{x}$ and $W_h$ is smaller than that between $\boldsymbol{x}$ and $W_j$. 
+We can define angular distance metric $d$
+\[
+d(\boldsymbol{x},W_j )= \arccos\big(\frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_2}W_j\big)
+\]
+The inequality $\boldsymbol{x}W_h \ge \boldsymbol{x}W_j$ implies that the angle between $\boldsymbol{x}$ and $W_h$ is smaller than that between $\boldsymbol{x}$ and $W_j$. 
 \begin{gather*}
-	d(\boldsymbol{x},W_j )= \arccos(\frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_2}W_j)\\
 \boldsymbol{x}W_h \ge \boldsymbol{x}W_j \implies d(\boldsymbol{x},W_h) \le d(\boldsymbol{x},W_j)
 \end{gather*}
-If we imagine $W_j$ to be a point on n-dimensional sphere $S^n$, then $\frac{\boldsymbol{x}W_j}{\lVert \boldsymbol{x} \rVert_2}$ can be used to measure geodesic distance between $\boldsymbol{x}$ and $W_j$. Such ECC networks could be reformulated as a k-means algorithm that operates on topology of a sphere, rather than Cartesian coordinates. By taking $\argmax(\boldsymbol{x}W)$ we select the point $W_j$ that lies closest to  $\frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_2}$.
-Each neuron $y_j$ represents a cluster $C(y_j)$ of all the points $\boldsymbol{x}$ whose geodesic distance is closest to $W_j$. The centroid $\mu(y_j)$ of cluster $C(y_j)$ is defined as Karcher mean
-\begin{gather*}
-C(y_j) = \{\boldsymbol{x}:\argmax(\boldsymbol{x}W)=j\} \\
-\mu(y_j) = \argmin_{W\in S^n} \sum_{\boldsymbol{x}\in C(y_j) } d(\boldsymbol{x},W)^2 \bar{p}(\boldsymbol{x}|y_j) = \argmin_{W\in S^n} \mathbb{E}_{\bar{p}}\big(d(\boldsymbol{x},W)^2\big|y_j\big)
-\end{gather*}
-In the general case the centroid $\mu(y_j)$ may not be unique. For example the Karcher mean of two antipodal points $\boldsymbol{x}=-\boldsymbol{x}'$, could be any point on the equator. In the specific case of ECC networks, all of the inputs $\boldsymbol{x}$ are binary vectors $\{0,1\}^n$, hence we only operate on the positive fragment of a sphere. Here the mean $\mu(y_j)$ is always unique and it coincides with the normalized arithmetic mean (one that uses euclidean distance instead of geodesic).
+
+
+
+\paragraph{Expected value $\mathbb{E}_{\bar{p}}(\boldsymbol{x}|y_j)$ maximises $\boldsymbol{x}W_j$} 
+
+We wish to maximise the expected value of $\boldsymbol{x}W_j$ 
 \[
-\mu(y_j) = \frac{}
+\sum_{\boldsymbol{x}\in C(y_j)} \boldsymbol{x} W_j \bar{p}(\boldsymbol{x}|y_j)
+\]
+sampled according to some distribution $\bar{p}(\boldsymbol{x}|y_j)$ from a given set $\boldsymbol{x}\in C(y_j)$.  To find the optimal $W_j$, we can use the method of Lagrange multipliers
+\[
+L(W_j,\lambda) = \sum_{\boldsymbol{x}\in C(y_j)} \boldsymbol{x} W_j p(\boldsymbol{x}|y_j) + \lambda(1- W_j^{T}W_j )
+\]
+The term $\lambda(1- W_j^{T}W_j)$ will be $0$ only when $W_j$ is a unit vector.
+We can take the derivatives 
+\begin{gather*}
+	\frac{d L}{d w_{ij}} = \sum_{\boldsymbol{x}\in C(y_j)} x_i p(\boldsymbol{x}|y_j) - 2\lambda w_{ij} \\
+	\frac{d L}{d \lambda} = 1 - W_j^{T}W_j
+\end{gather*}
+and solve for $\frac{d L}{d w_{ij}}=0$
+\[
+W_j = \frac{1}{2\lambda }\sum_{\boldsymbol{x}\in C(y_j)} \boldsymbol{x} p(\boldsymbol{x}|y_j)  = \frac{1}{2\lambda } \mathbb{E}_{\bar{p}}(\boldsymbol{x}|y_j)
+\]
+By taking the second derivative we can show that this is indeed a local maximum.
+The problem is convex (there is only one extremum), because all observations are binary vectors (Frechet mean on $S^{n-1}$ unit sphere is unique if all points lie on the same hemisphere) and the expected value $\mathbb{E}_{\bar{p}}(\boldsymbol{x}|y_j)$ will never be a zero vector.
+
+It should be noted that such expected value will be skewed more towards the $\boldsymbol{x}$ with greater cardinality. To avoid any biases, it is necessary to normalise the vectors 
+\[
+\sum_{\boldsymbol{x}\in C(y_j)} \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_2} W_j \bar{p}(\boldsymbol{x}|y_j)
 \]
 
 
 
-Figure \ref{fig:benchmarks_l2} presents benchmarks that compares MNIST accuracy of networks trained with $\ell_1$ and $\ell_2$ norms.
+\paragraph{Proof of convergence for k-means algorithm}
+Every hidden node $y_j$ defines a cluster
+\[
+C(y_j) = \{\boldsymbol{x} : j=\argmax(\boldsymbol{x}W)\}
+\]
+The mean of the cluster is defined as
+\[
+\mu(y_j) = \sum_{\boldsymbol{x}\in C(y_j)} \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_2} W_j \bar{p}(\boldsymbol{x}|y_j)
+\]
+K-means algorithm works iteratively by collecting $C^{(t)}(y_j)$ at time-step $t$ for all $y_j$, then computing its mean $\mu^{(t)}(y_j)$ and assigning it as a new value for weight matrix
+\[
+W_j^{(t+1)} = \frac{\mu^{(t)}(y_j)}{\lVert \mu^{(t)}(y_j) \rVert_2}
+\]
+The updated weights are then used to obtain new clustering $C^{(t+1)}(y_j)$. This process loops until $C^{(t)}(y_j)=C^{(t+1)}(y_j)$ for all $y_j$. 
 
+To show that convergence is guaranteed let us define a fitness function
+\[
+\mathcal{L}^{(t)} = \sum_{j=1}^m \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_2} W_j^{(t)} \bar{p}(\boldsymbol{x})
+\] 
+This function is bounded from above by $1$. We can show that it is monotonously non-decreasing. The proof is done in two steps. First we show inequality when $W_j^{(t)}$  is replaced by $W_j^{(t+1)}$
+\[\mathcal{L}^{(t)}= \sum_{j=1}^m \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_2} W_j^{(t)} \bar{p}(\boldsymbol{x}) \le \sum_{j=1}^m \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_2} W_j^{(t+1)} \bar{p}(\boldsymbol{x})\] 
+Second we show monotonicity when $C^{(t)}$ is updated to $C^{(t+1)}$
+\[\sum_{j=1}^m \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_2} W_j^{(t+1)} \bar{p}(\boldsymbol{x}) \le \sum_{j=1}^m \sum_{\boldsymbol{x}\in C^{(t+1)}(y_j)} \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_2} W_j^{(t+1)} \bar{p}(\boldsymbol{x})=\mathcal{L}^{(t+1)}\] 
+The first inequality can be rewritten as 
+\[\sum_{j=1}^m \bar{p}(y_j)  \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_2} W_j^{(t)} \bar{p}(\boldsymbol{x}|y_j) \le \sum_{j=1}^m \bar{p}(y_j) \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_2} \mu^{(t)}(y_j) \bar{p}(\boldsymbol{x}|y_j)\] 
+which has already been proved to hold in one of our previous paragraphs.
+The second inequality holds, because the two clusters $C^{(t)}(y_j)$ and  $C^{(t+1)}(y_j)$ will differ only when there exists some $\boldsymbol{x}\in C^{(t)}(y_j)$ such that there is some other $y_h$ for which $\boldsymbol{x}W_h \ge \boldsymbol{x} W_j$. This implies that the total sum over all clusters cannot decrease.
 
+\paragraph{Similarities between ECC and SVD}
+
+The distribution $q(\boldsymbol{x})$ is modelled as a sum
+\[
+q(\boldsymbol{x}) = \sum_{j=1}^{m}q(\boldsymbol{x}|y_j)p(y_j)  = \sum_{j=1}^{m}\big(\prod_{i=1}^n q(x_i|y_j)\big)p(y_j) 
+\]
+Such factorization is motivated by the assumption that the external world has many latent causes $y_j$, and every one of them produces noisy observations $x_i$. The real world could potentially be approximated using trillions of latent causes, each one corresponding to some state of the world and objects in it. 
+
+Many of the latent causes will produce similar or nearly identical observations. Could we exploit those similarities and compress our model (so that $m$ is as small as possible)? 
+
+One way to reduce the number of $y$'s is by adding two (or more) of them as follows
+\[
+q(\boldsymbol{x}|y_1) p(y_1)+q(\boldsymbol{x}|y_2) p(y_2) = 
+q(\boldsymbol{x}|y_1\text{ or }y_2) (p(y_1)+p(y_2))
+\]
+but storing $q(\boldsymbol{x}|y_1\text{ or }y_2)$ directly is impossible, because $W$ can only be used to represent mutually independent bits $x_i$. 
+\begin{gather*}
+	q(x_i|y_1) p(y_1)+q(x_i|y_2) p(y_2) = c(w_{i1}p(y_1) +w_{i2}p(y_2))  \\
+	q(\boldsymbol{x}|y_1) p(y_1)+q(\boldsymbol{x}|y_2) p(y_2) \ne c(W_1p(y_1) +W_2p(y_2)) 
+\end{gather*}
+\underline{Hypothesis:} Perhaps there might be some way to reformulate certain aspects of linear algebra in a space of probability distributions 
+\[p(\boldsymbol{x})\in \mathbb{R}^{2^n} \text{ such that } \lVert p(\boldsymbol{x}) \rVert_1=1\]
+The task of reducing $m$ has certain similarities to matrix compression by performing SVD and truncating least significant eigenvalues. The receptive fields $p(\boldsymbol{x}|y_j)$ learned by neurons could be thought of as ``eigendistributions'' because they play analogical role to eigenvectors, i.e. every $p(\boldsymbol{x})$ is (approximately) a linear combination of eigendistributions $p(\boldsymbol{x}|y_j)$. The equality 
+\[
+\frac{q(\boldsymbol{x}|y_1;W_1) p(y_1)+q(\boldsymbol{x}|y_2;W_2) p(y_2)}{p(y_1)+p(y_2)} = 
+q\big(\boldsymbol{x}|y_1\text{ or }y_2;\frac{W_1p(y_1) +W_2p(y_2)}{p(y_1)+p(y_2)}\big) 
+\]
+would hold only when $p(\boldsymbol{x},y_1)$ and $p(\boldsymbol{x},y_2)$ are colinear. If they are only approximately colinear, then the sum of $W_1$ and $W_2$ should still produce good approximation to $q(\boldsymbol{x}|y_1\text{ or }y_2)$. It looks like SVD, except that instead of truncating least significant eigenvalues, we cluster eigenvectors together by their similarity and then average them, producing $\mathbb{E}(\boldsymbol{x}|y_1\text{ or }y_2)$. The clustering algorithm implemented by ECC has some similarities to k-means.
+
+\paragraph{Benchmark comparison}
+Figure \ref{fig:benchmarks_l2} presents benchmarks that compares MNIST accuracy of networks trained with $\ell_1$ and $\ell_2$ norms. 
 \begin{figure}[!htbp]
 	\centering
 	\includegraphics[width=13.8cm]{benchmarks_l2}
 	\caption{Comparison of benchmarks using $\ell_1$ (grey) and $\ell_2$ (white) metrics.}
 	\label{fig:benchmarks_l2}
 \end{figure}
-
+The results are not significantly different. In some rows $\ell_1$ slightly outperforms $\ell_2$, whereas in others the opposite holds. The only difference is that formal proof  of convergence exists for $\ell_2$, while the same cannot be said about $\ell_1$.
+Both metrics seem to converge in empirical benchmarks nonetheless. This result suggests that the exact normalisation strategy is not important, as long as the weights are constrained in some way. It should be sufficient for biological neurons to only perform some approximation of this process. 
  
 \section{Reinforcement learning and control}
 

@@ -1,0 +1,7 @@
+samples=20, train=0.9500, test=0.4033
+samples=100, train=0.9900, test=0.5800
+samples=1000, train=1., test=0.8982
+samples=6000, train=0.9977, test=0.9547
+samples=12000, train=0.9924, test=0.9580
+samples=30000, train=0.9841, test=0.9647
+samples=40000, train=0.9948, test=0.9758

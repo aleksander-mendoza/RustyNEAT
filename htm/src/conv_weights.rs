@@ -20,6 +20,7 @@ pub struct ConvWeights<D: DenseWeight, M: ?Sized + Metric<D>> {
     w: Vec<D>,
     shape: ConvShape,
     pub plasticity: D,
+    #[serde(skip_serializing, default)]
     _d: PhantomData<M>,
 }
 

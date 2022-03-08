@@ -16,3 +16,15 @@ split=0.8, train_len=48000, eval_len=12000, epoch=0, train_accuracy=0.8313125, e
 split=0.8, train_len=48000, eval_len=12000, epoch=1, train_accuracy=0.9101666666666667, eval_accuracy=0.9006666666666666
 split=0.8, train_len=48000, eval_len=12000, epoch=2, train_accuracy=0.9362708333333334, eval_accuracy=0.9069166666666667
 split=0.8, train_len=48000, eval_len=12000, epoch=3, train_accuracy=0.95175, eval_accuracy=0.9078333333333334
+split=20, train_len=20, eval_len=59980, epoch=0, train_accuracy=0.1, eval_accuracy=0.15016672224074692
+split=20, train_len=20, eval_len=59980, epoch=1, train_accuracy=0.95, eval_accuracy=0.1865288429476492
+split=20, train_len=20, eval_len=59980, epoch=2, train_accuracy=1.0, eval_accuracy=0.21068689563187729
+split=20, train_len=20, eval_len=59980, epoch=3, train_accuracy=1.0, eval_accuracy=0.23059353117705902
+split=100, train_len=100, eval_len=59900, epoch=0, train_accuracy=0.18, eval_accuracy=0.30974958263772956
+split=100, train_len=100, eval_len=59900, epoch=1, train_accuracy=1.0, eval_accuracy=0.40649415692821367
+split=100, train_len=100, eval_len=59900, epoch=2, train_accuracy=1.0, eval_accuracy=0.44357262103505846
+split=100, train_len=100, eval_len=59900, epoch=3, train_accuracy=1.0, eval_accuracy=0.4603505843071786
+split=1000, train_len=1000, eval_len=59000, epoch=0, train_accuracy=0.521, eval_accuracy=0.6407118644067796
+split=1000, train_len=1000, eval_len=59000, epoch=1, train_accuracy=0.919, eval_accuracy=0.6697796610169492
+split=1000, train_len=1000, eval_len=59000, epoch=2, train_accuracy=0.948, eval_accuracy=0.6760338983050848
+split=1000, train_len=1000, eval_len=59000, epoch=3, train_accuracy=0.959, eval_accuracy=0.6791525423728814

@@ -11,44 +11,47 @@
 \contentsline {paragraph}{Binary vector subsets and their overlap probabilities}{11}{}%
 \contentsline {paragraph}{Bits $x_i$ are mutually independent random variables}{11}{}%
 \contentsline {paragraph}{Maximum likelihood estimation of W}{12}{}%
-\contentsline {paragraph}{Similarities between ECC and SVD}{13}{}%
-\contentsline {paragraph}{Similarities between ECC and k-means }{14}{}%
-\contentsline {paragraph}{\texttt {infer} and \texttt {generate} define two different models of $q(\boldsymbol {x})$}{14}{}%
-\contentsline {paragraph}{Proof of convergence for k-means algorithm}{16}{}%
-\contentsline {section}{\numberline {4}Convolutional networks}{17}{}%
-\contentsline {paragraph}{Convolutional topology and topological receptive fields}{17}{}%
-\contentsline {paragraph}{Translation invariance and column isomorphism}{18}{}%
-\contentsline {paragraph}{Multilayer networks}{19}{}%
-\contentsline {paragraph}{Probability $q(\boldsymbol {x})$ is relative}{20}{}%
-\contentsline {paragraph}{Training and its results}{20}{}%
-\contentsline {paragraph}{Universal approximation}{20}{}%
-\contentsline {paragraph}{Problem with distinguishing bit subsets}{24}{}%
-\contentsline {section}{\numberline {5}Motor feedback}{24}{}%
-\contentsline {paragraph}{View translation/random eye movement}{24}{}%
-\contentsline {paragraph}{Benchmarks}{25}{}%
-\contentsline {paragraph}{Multiple bits per column}{27}{}%
+\contentsline {paragraph}{Similarities between ECC and k-means }{13}{}%
+\contentsline {paragraph}{\texttt {infer} and \texttt {generate} define two different models of $q(\boldsymbol {x})$}{13}{}%
+\contentsline {section}{\numberline {4}Convolutional networks}{15}{}%
+\contentsline {paragraph}{Convolutional topology and topological receptive fields}{15}{}%
+\contentsline {paragraph}{Translation invariance and column isomorphism}{16}{}%
+\contentsline {paragraph}{Multilayer networks}{17}{}%
+\contentsline {paragraph}{Probability $q(\boldsymbol {x})$ is relative}{17}{}%
+\contentsline {paragraph}{Training and its results}{18}{}%
+\contentsline {paragraph}{Universal approximation}{18}{}%
+\contentsline {paragraph}{Problem with distinguishing bit subsets}{22}{}%
+\contentsline {section}{\numberline {5}Motor feedback}{22}{}%
+\contentsline {paragraph}{View translation/random eye movement}{22}{}%
+\contentsline {paragraph}{Benchmarks}{24}{}%
+\contentsline {paragraph}{Multiple bits per column}{24}{}%
 \contentsline {paragraph}{Sparse connections (dropout)}{28}{}%
 \contentsline {paragraph}{Deeper layers are less sensitive to small changes}{29}{}%
 \contentsline {paragraph}{Recurrent connections within columns}{29}{}%
 \contentsline {paragraph}{Voting and recurrent connections between layers}{29}{}%
-\contentsline {section}{\numberline {6}Alternative models}{30}{}%
-\contentsline {section}{\numberline {7}Reinforcement learning and control}{31}{}%
-\contentsline {paragraph}{ECC can't learn value functions}{31}{}%
-\contentsline {paragraph}{Geometric deep learning theory}{33}{}%
-\contentsline {paragraph}{Reinforcement learning sample inefficiency}{33}{}%
-\contentsline {paragraph}{Inference of groups from actions and observations}{34}{}%
-\contentsline {paragraph}{Parametric groups}{35}{}%
-\contentsline {paragraph}{Inductive inference of groups}{36}{}%
-\contentsline {paragraph}{Group manifolds}{37}{}%
-\contentsline {paragraph}{ECC networks are a parallel algorithm for group inference from noisy observations}{37}{}%
-\contentsline {paragraph}{Learning groups and cosets}{37}{}%
-\contentsline {paragraph}{Reducing reward maximisation problem to a search problem}{38}{}%
-\contentsline {paragraph}{Supervised vs unsupervised (This paragraph is mostly work-in-progress)}{39}{}%
-\contentsline {section}{\numberline {8}Optimisations and efficiency benchmarks}{40}{}%
-\contentsline {paragraph}{Optimisations}{40}{}%
-\contentsline {paragraph}{Benchmarks}{41}{}%
-\contentsline {section}{\numberline {9}Inhibitory plasticity}{41}{}%
-\contentsline {paragraph}{Problems of ECC networks}{41}{}%
-\contentsline {paragraph}{Plastic inhibitory neurons}{42}{}%
-\contentsline {section}{\numberline {10}ECC are spiking networks}{42}{}%
-\contentsline {section}{\numberline {11}Evolving ECC networks}{44}{}%
+\contentsline {section}{\numberline {6}Using $\ell _2$ norm instead of $\ell _1$}{30}{}%
+\contentsline {paragraph}{Interpretation of $\boldsymbol {x}W$}{31}{}%
+\contentsline {paragraph}{Expected value $\mathbb {E}_{\bar {p}}(\boldsymbol {x}|y_j)$ maximises $\boldsymbol {x}W_j$}{31}{}%
+\contentsline {paragraph}{Proof of convergence for k-means algorithm}{32}{}%
+\contentsline {paragraph}{Similarities between ECC and SVD}{33}{}%
+\contentsline {paragraph}{Benchmark comparison}{34}{}%
+\contentsline {section}{\numberline {7}Reinforcement learning and control}{34}{}%
+\contentsline {paragraph}{ECC can't learn value functions}{34}{}%
+\contentsline {paragraph}{Geometric deep learning theory}{36}{}%
+\contentsline {paragraph}{Reinforcement learning sample inefficiency}{36}{}%
+\contentsline {paragraph}{Inference of groups from actions and observations}{37}{}%
+\contentsline {paragraph}{Parametric groups}{38}{}%
+\contentsline {paragraph}{Inductive inference of groups}{39}{}%
+\contentsline {paragraph}{Group manifolds}{40}{}%
+\contentsline {paragraph}{ECC networks are a parallel algorithm for group inference from noisy observations}{40}{}%
+\contentsline {paragraph}{Learning groups and cosets}{40}{}%
+\contentsline {paragraph}{Reducing reward maximisation problem to a search problem}{41}{}%
+\contentsline {paragraph}{Supervised vs unsupervised (This paragraph is mostly work-in-progress)}{42}{}%
+\contentsline {section}{\numberline {8}Optimisations and efficiency benchmarks}{43}{}%
+\contentsline {paragraph}{Optimisations}{43}{}%
+\contentsline {paragraph}{Benchmarks}{44}{}%
+\contentsline {section}{\numberline {9}Inhibitory plasticity}{44}{}%
+\contentsline {paragraph}{Problems of ECC networks}{44}{}%
+\contentsline {paragraph}{Plastic inhibitory neurons}{45}{}%
+\contentsline {section}{\numberline {10}ECC are spiking networks}{45}{}%
+\contentsline {section}{\numberline {11}Evolving ECC networks}{47}{}%

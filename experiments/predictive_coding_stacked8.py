@@ -18,8 +18,8 @@ from torch.utils.data import DataLoader
 fig, axs = None, None
 
 MNIST, LABELS = torch.load('htm/data/mnist.pt')
-SAMPLES = 20
-DIR = 'predictive_coding_stacked8/'+str(SAMPLES)
+SAMPLES = 60000
+DIR = 'predictive_coding_stacked8/' + str(SAMPLES)
 
 
 def visualise_connection_heatmap(in_w, in_h, ecc_net, out_w, out_h, pause=None):
@@ -117,13 +117,13 @@ class MachineShape:
         return prefix + path + "c" + str(self.channels[idx])
 
     def parent_code_name(self):
-        if len(self)==0:
+        if len(self) == 0:
             return None
         else:
-            return self.code_name(len(self)-1)
+            return self.code_name(len(self) - 1)
 
     def save_file(self, idx):
-        return DIR+"/" + self.code_name(idx)
+        return DIR + "/" + self.code_name(idx)
 
     def kernel(self, idx):
         return [self.kernels[idx], self.kernels[idx]]
@@ -191,11 +191,11 @@ class SingleColumnMachine:
         if top is None:
             clazz = self.machine_shape.dense_type()
             l = clazz([1, 1],
-                                kernel=self.machine_shape.kernel(-1),
-                                stride=self.machine_shape.stride(-1),
-                                in_channels=self.machine_shape.channels[-2],
-                                out_channels=self.machine_shape.channels[-1],
-                                k=self.machine_shape.k[-1])
+                      kernel=self.machine_shape.kernel(-1),
+                      stride=self.machine_shape.stride(-1),
+                      in_channels=self.machine_shape.channels[-2],
+                      out_channels=self.machine_shape.channels[-1],
+                      k=self.machine_shape.k[-1])
             prev_k = self.machine_shape.k[-2] if len(self.machine_shape.k) > 1 else 1
             if self.threshold == 'in':
                 l.threshold = prev_k / l.in_channels
@@ -232,13 +232,14 @@ class SingleColumnMachine:
         test_patches = params['test_patches']
         mnist = Mnist(self.machine_shape, idx)
         mnist.load()
-        mnist.mnist = mnist.mnist.subdataset(0,SAMPLES)
+        mnist.mnist = mnist.mnist.subdataset(0, SAMPLES)
         compound_stride, compound_kernel = self.machine_shape.composed_conv(idx)
         compound_stride, compound_kernel = compound_stride[:2], compound_kernel[:2]
         test_patch_indices = mnist.mnist.gen_rand_conv_subregion_indices_with_ecc(layer, test_patches)
         test_input_patches = mnist.mnist.conv_subregion_indices_with_ecc(layer, test_patch_indices)
-        test_img_patches = SDR_MNIST.mnist.subdataset(0,SAMPLES).conv_subregion_indices_with_ker(compound_kernel, compound_stride,
-                                                                           test_patch_indices)
+        test_img_patches = SDR_MNIST.mnist.subdataset(0, SAMPLES).conv_subregion_indices_with_ker(compound_kernel,
+                                                                                                  compound_stride,
+                                                                                                  test_patch_indices)
         print("PATCH_SIZE=", test_img_patches.shape)
         all_missed = []
         all_total_sum = []
@@ -309,10 +310,7 @@ class FullColumnMachine:
             in_mnist.load()
             out_mnist.mnist = in_mnist.mnist.batch_infer(layer)
             out_mnist.save_mnist()
-        if not os.path.exists(benchmarks_save) or overwrite_benchmarks is not False:
-            if overwrite_benchmarks is False:
-                overwrite_benchmarks = 'w'
-            assert overwrite_benchmarks == 'w' or overwrite_benchmarks == 'a'
+        if not os.path.exists(benchmarks_save) or overwrite_benchmarks:
 
             class D(torch.utils.data.Dataset):
                 def __init__(self, imgs, lbls):
@@ -325,8 +323,11 @@ class FullColumnMachine:
                 def __getitem__(self, idx):
                     return self.imgs.to_f32_numpy(idx), self.lbls[idx]
 
-            for split in [0.1, 0.2, 0.5, 0.8, 0.9]:  #
-                train_len = int(len(MNIST) * split)
+            for split in [20, 100, 1000]: # [0.1, 0.2, 0.5, 0.8, 0.9]:  #
+                if type(split) is float:
+                    train_len = int(len(MNIST) * split)
+                else:
+                    train_len = split
                 eval_len = len(MNIST) - train_len
                 train_data = out_mnist.mnist.subdataset(0, train_len)
                 eval_data = out_mnist.mnist.subdataset(train_len)
@@ -370,7 +371,7 @@ class FullColumnMachine:
                         ", epoch=" + str(epoch) + \
                         ", train_accuracy=" + str(train_accuracy / train_total) + \
                         ", eval_accuracy=" + str(eval_accuracy / eval_total)
-                    with open(benchmarks_save, overwrite_benchmarks+'+') as f:
+                    with open(benchmarks_save, 'a+') as f:
                         print(s, file=f)
                     print(s)
 
@@ -392,7 +393,7 @@ class FullColumnMachine:
             if overwrite_benchmarks is False:
                 overwrite_benchmarks = 'w'
             assert overwrite_benchmarks == 'w' or overwrite_benchmarks == 'a'
-            with open(benchmarks_save, overwrite_benchmarks+'+') as f:
+            with open(benchmarks_save, overwrite_benchmarks + '+') as f:
                 for split in [0.1, 0.2, 0.5, 0.8, 0.9]:
                     train_len = int(len(MNIST) * split)
                     eval_len = len(MNIST) - train_len
@@ -478,10 +479,10 @@ def run_experiments():
         # (1, [i49, c9(3), e144, c9(5), e144, c16(7), e200, c16(10), e200, c20(7), e200, c20(3)]),
         # (1, [i49, c9(3), e144, c9(5), e144, c16(7), e200, c20(10), e256, c25(7), e200, c20(3)]),
     ]
-    overwrite_benchmarks=False
-    overwrite_data=False
-    entropy_maximisation=True
-    metric_l2=False
+    overwrite_benchmarks = True
+    overwrite_data = False
+    entropy_maximisation = True
+    metric_l2 = False
     for experiment in experiments:
         first_channels, layers = experiment
         kernels, strides, channels, drifts, ks = [], [], [first_channels], [], []
@@ -499,39 +500,37 @@ def run_experiments():
             save_file = code_name + " data.pickle"
             if overwrite_benchmarks or overwrite_data or not os.path.exists(save_file):
                 w, h = factorizations[channel]
-                m = SingleColumnMachine(s, w, h, threshold=threshold)
-                print(save_file)
-                m.train(save=True, plot=True, snapshots_per_sample=snapshots_per_sample)
+                # m = SingleColumnMachine(s, w, h, threshold=threshold)
+                # print(save_file)
+                # m.train(save=True, plot=True, snapshots_per_sample=snapshots_per_sample)
                 m = FullColumnMachine(s)
-                print(save_file)
-                m.eval_with_naive_bayes(overwrite_data=overwrite_data,
-                                        overwrite_benchmarks=overwrite_benchmarks)
+                # print(save_file)
+                # m.eval_with_naive_bayes(overwrite_data=overwrite_data,
+                #                         overwrite_benchmarks=overwrite_benchmarks)
                 print(save_file)
                 m.eval_with_classifier_head(overwrite_benchmarks=overwrite_benchmarks)
-                print(save_file)
-                m.eval_with_naive_bayes(min_deviation_from_mean=0.01,
-                                        overwrite_benchmarks=overwrite_benchmarks)
+                # print(save_file)
+                # m.eval_with_naive_bayes(min_deviation_from_mean=0.01,
+                #                         overwrite_benchmarks=overwrite_benchmarks)
                 print(save_file)
 
 
-def parse_benchmarks(file_name):
-    with open(DIR+'/' + file_name, "r") as f:
-        train_accuracy8 = 0
-        train_accuracy1 = 0
-        eval_accuracy8 = 0
-        eval_accuracy1 = 0
+def parse_benchmarks(file_name, splits=[0.1, 0.8]):
+    if not file_name.startswith('predictive_coding_stacked8/'):
+        file_name = DIR + '/' + file_name
+    with open(file_name, "r") as f:
+        eval_accuracies = [0.] * len(splits)
+        train_accuracies = [0.] * len(splits)
         for line in f:
             attributes = line.split(",")
             attributes = [attr.split("=") for attr in attributes]
             attributes = {key.strip(): value for key, value in attributes}
             split_val = float(attributes["split"])
-            if split_val == 0.1:
-                eval_accuracy1 = max(eval_accuracy1, float(attributes["eval_accuracy"]))
-                train_accuracy1 = max(train_accuracy1, float(attributes["train_accuracy"]))
-            elif split_val == 0.8:
-                eval_accuracy8 = max(eval_accuracy8, float(attributes["eval_accuracy"]))
-                train_accuracy8 = max(train_accuracy8, float(attributes["train_accuracy"]))
-        return eval_accuracy1, eval_accuracy8, train_accuracy1, train_accuracy8
+            if split_val in splits:
+                i = splits.index(split_val)
+                eval_accuracies[i] = max(eval_accuracies[i], float(attributes["eval_accuracy"]))
+                train_accuracies[i] = max(train_accuracies[i], float(attributes["train_accuracy"]))
+        return eval_accuracies + train_accuracies
 
 
 EXTRACT_K_S = re.compile("k([0-9]+)s([0-9]+)c([0-9]+)(k[0-9]+)?d([0-9]+)")
@@ -546,7 +545,7 @@ elif TABLE_MODE == 'csv':
 
 
 class ExperimentData:
-    def __init__(self, experiment_name:str):
+    def __init__(self, experiment_name: str):
         self.leaf = True
         self.name = experiment_name
         l2 = experiment_name.startswith("l2_")
@@ -654,10 +653,10 @@ class ExperimentDB:
 
     def __init__(self):
         s = " accuracy2.txt"
-        self.experiments = [e[:-len(s)] for e in os.listdir(DIR+'/') if e.endswith(s)]
+        self.experiments = [e[:-len(s)] for e in os.listdir(DIR + '/') if e.endswith(s)]
         self.experiment_data = {n: ExperimentData(n) for n in self.experiments}
         for ex in self.experiment_data.values():
-            s:MachineShape = ex.shape
+            s: MachineShape = ex.shape
             parent = self.experiment_data.get(s.parent_code_name())
             if parent is not None:
                 parent.leaf = False
@@ -693,7 +692,35 @@ class ExperimentDB:
             e.experiment(mode, overwrite_benchmarks=overwrite_benchmarks)
 
 
-run_experiments()
+def print_comparison_across_sample_sizes():
+    ss = [20, 100, 1000, 6000, 12000, 60000]
+    files = {
+        "k6s1c1d1_c49": "k6c49",
+        "k6s1c1d1_k6s1c49d1_c100": "k6c100",
+        "k6s1c1d1_k6s1c49d1_k6s1c100d1_c144": "k6c144",
+        "k6s1c1d1_k6s1c49d1_k6s1c100d1_k6s1c144d1_c256": "k6c256",
+        "k6s1c1d1_k6s1c49d1_k6s1c100d1_k6s1c144d1_k6s1c256d1_c256": "k6c256",
+    }
+    results = {k: {s: [] for s in ss} for k in files.keys()}
+    for s in ss:
+        d = 'predictive_coding_stacked8/' + str(s)
+        suff = " accuracy2.txt"
+        for f in files:
+            splits = [20,100,1000,0.1, 0.9]
+            b = parse_benchmarks(d + '/' + f + suff, splits=splits)
+            b = " ".join(["{:.0%}/{:.0%}".format(e,t) for e,t in zip(b[:len(splits)], b[len(splits):])])
+            results[f][s] = b
+    results = [(k, v) for k, v in results.items()]
+    results.sort(key=lambda a: a[0])
+    print(TABLE_FIELD_SEP.join(["%"] + [files[k] for k, _ in results]), end=TABLE_ROW_SEP)
+    for s in ss:
+        print(s, end=TABLE_FIELD_SEP)
+        print(TABLE_FIELD_SEP.join([result[s] for _, result in results]), end=TABLE_ROW_SEP)
+
+
+print_comparison_across_sample_sizes()
+
+# run_experiments()
 # edb = ExperimentDB()
 # edb.experiment_on_all("softmax", overwrite_benchmarks=True)
 # edb.compare_metrics()
