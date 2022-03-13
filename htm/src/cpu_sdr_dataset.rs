@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter, Debug};
 use ocl::core::{MemInfo, MemInfoResult, BufferRegion, Mem, ArgVal};
 use ndalgebra::buffer::Buffer;
 use crate::ecc_program::EccProgram;
-use crate::{CpuBitset, EncoderTarget, Shape, Idx, as_idx, as_usize, OclSDR, range_contains, VectorFieldSub, VectorFieldPartialOrd, VectorFieldRem, VectorFieldAdd, CpuSDR, ConvShape, CpuEccDense, DenseWeight, ConvWeights, CpuEccPopulation, VectorFieldRng, Shape2, Shape3, VectorFieldOne, EccLayer, from_xyz, from_xy, ShapedArray, CpuEccMachine, ConvShapeTrait, ConvWeightVec, HasShape, Metric};
+use crate::{CpuBitset, EncoderTarget, Shape, Idx, as_idx, as_usize, OclSDR, range_contains, VectorFieldSub, VectorFieldPartialOrd, VectorFieldRem, VectorFieldAdd, CpuSDR, ConvShape, CpuEccDense, DenseWeight, ConvWeights, CpuEccPopulation, VectorFieldRng, Shape2, Shape3, VectorFieldOne, EccLayer, from_xyz, from_xy, ShapedArray, CpuEccMachine, ConvShapeTrait, ConvWeightVec, HasConvShape, Metric, D};
 use std::collections::{HashMap, HashSet};
 use std::borrow::Borrow;
 use serde::{Serialize, Deserialize};
@@ -97,11 +97,11 @@ impl CpuSdrDataset {
             self.push(sdr);
         }
     }
-    pub fn conv_subregion_indices_with_ecc<D: DenseWeight,M:Metric<D>>(&self, ecc: &CpuEccDense<D,M>, indices: &SubregionIndices) -> Self {
-        assert_eq!(ecc.shape().out_grid(), &[1, 1], "EccDense should have only a single output column");
-        self.conv_subregion_indices_with_ker(*ecc.shape().kernel(), *ecc.shape().stride(), indices)
+    pub fn conv_subregion_indices_with_ecc<M:Metric<D>>(&self, ecc: &CpuEccDense<M>, indices: &SubregionIndices) -> Self {
+        assert_eq!(ecc.cshape().out_grid(), &[1, 1], "EccDense should have only a single output column");
+        self.conv_subregion_indices_with_ker(*ecc.cshape().kernel(), *ecc.cshape().stride(), indices)
     }
-    pub fn conv_subregion_indices_with_machine<D: DenseWeight,M:Metric<D>>(&self, ecc: &CpuEccMachine<D,M>, indices: &SubregionIndices) -> Self {
+    pub fn conv_subregion_indices_with_machine<M:Metric<D>>(&self, ecc: &CpuEccMachine<M>, indices: &SubregionIndices) -> Self {
         assert_eq!(ecc.out_grid(), Some(&[1, 1]), "EccMachine should have only a single output column");
         let (k, s) = ecc.composed_kernel_and_stride();
         self.conv_subregion_indices_with_ker(k, s, indices)
@@ -137,8 +137,8 @@ impl CpuSdrDataset {
             self.push(sdr);
         }
     }
-    pub fn train<D: DenseWeight,M:Metric<D>>(&self, decrement_activities:bool, number_of_samples: usize, ecc: &mut CpuEccDense<D,M>, rng: &mut impl Rng, progress_callback: impl Fn(usize)) {
-        assert_eq!(self.shape(), ecc.shape().in_shape(), "Shapes don't match");
+    pub fn train<M:Metric<D>>(&self, decrement_activities:bool, number_of_samples: usize, ecc: &mut CpuEccDense<M>, rng: &mut impl Rng, progress_callback: impl Fn(usize)) {
+        assert_eq!(self.shape(), ecc.cshape().in_shape(), "Shapes don't match");
         assert_ne!(self.len(), 0, "Dataset is empty");
         for i in 0..number_of_samples {
             let sample_idx = rng.gen_range(0..self.len());
@@ -152,12 +152,12 @@ impl CpuSdrDataset {
         }
     }
     /**Setting drift==[1,1] will disable drift. Setting it to [n,n] will mean that patch can randomly jiggle within an area of n-by-n output columns*/
-    pub fn train_with_patches<D: DenseWeight,M:Metric<D>>(&self, decrement_activities:bool,number_of_samples: usize, drift: [Idx; 2], patches_per_sample: usize, ecc: &mut CpuEccDense<D,M>, rng: &mut impl Rng, progress_callback: impl Fn(usize)) {
-        assert_eq!(ecc.shape().out_grid(), &[1, 1], "The ecc network should consist of only a single column");
-        assert_eq!(self.shape().channels(), ecc.shape().in_channels(), "Channels don't match");
+    pub fn train_with_patches<M:Metric<D>>(&self, decrement_activities:bool,number_of_samples: usize, drift: [Idx; 2], patches_per_sample: usize, ecc: &mut CpuEccDense<M>, rng: &mut impl Rng, progress_callback: impl Fn(usize)) {
+        assert_eq!(ecc.cshape().out_grid(), &[1, 1], "The ecc network should consist of only a single column");
+        assert_eq!(self.shape().channels(), ecc.cshape().in_channels(), "Channels don't match");
         assert_ne!(self.len(), 0, "Dataset is empty");
         assert!(drift.all_gt_scalar(0), "Drift can't be 0");
-        let conv = ConvShape::new_in(*self.shape(), ecc.shape().out_channels(), *ecc.shape().kernel(), *ecc.shape().stride());
+        let conv = ConvShape::new_in(*self.shape(), ecc.cshape().out_channels(), *ecc.cshape().kernel(), *ecc.cshape().stride());
         assert!(conv.out_grid().all_ge(&drift), "Drift {:?} is larger than output grid {:?}", drift, conv.out_grid());
         for i in 0..number_of_samples {
             let idx = rng.gen_range(0..self.len());
@@ -178,7 +178,7 @@ impl CpuSdrDataset {
             progress_callback(i);
         }
     }
-    pub fn train_machine_with_patches<D: DenseWeight,M:Metric<D>>(&self, decrement_activities:bool, number_of_samples: usize, ecc: &mut CpuEccMachine<D,M>, rng: &mut impl Rng, progress_callback: impl Fn(usize)) {
+    pub fn train_machine_with_patches<M:Metric<D>>(&self, decrement_activities:bool, number_of_samples: usize, ecc: &mut CpuEccMachine<M>, rng: &mut impl Rng, progress_callback: impl Fn(usize)) {
         assert_eq!(ecc.out_grid(), Some(&[1, 1]), "The ecc network should consist of only a single column");
         assert_eq!(Some(self.shape().channels()), ecc.in_channels(), "Channels don't match");
         assert_ne!(self.len(), 0, "Dataset is empty");
@@ -223,15 +223,15 @@ impl CpuSdrDataset {
         }
         receptive_fields
     }
-    pub fn batch_infer<T: DenseWeight,M:Metric<T>>(&self, ecc: &CpuEccDense<T,M>) -> Self {
-        assert_eq!(self.shape(), ecc.shape().in_shape());
+    pub fn batch_infer<M:Metric<D>>(&self, ecc: &CpuEccDense<M>) -> Self {
+        assert_eq!(self.shape(), ecc.cshape().in_shape());
         let data = ecc.batch_infer(&self.data, |d| d, |o| o);
         Self {
             data,
-            shape: ecc.shape().output_shape(),
+            shape: ecc.cshape().output_shape(),
         }
     }
-    pub fn machine_infer<T: DenseWeight,M:Metric<T>>(&self, ecc: &mut CpuEccMachine<T,M>) -> Self {
+    pub fn machine_infer<M:Metric<D>>(&self, ecc: &mut CpuEccMachine<M>) -> Self {
         assert_eq!(Some(self.shape()), ecc.in_shape());
         let mut data = self.data.iter().map(|s|ecc.infer(s).clone()).collect();
         Self {
@@ -239,28 +239,28 @@ impl CpuSdrDataset {
             shape: *ecc.out_shape().unwrap(),
         }
     }
-    pub fn batch_infer_and_measure_s_expectation<T: DenseWeight,M:Metric<T>>(&self, ecc: &CpuEccDense<T,M>) -> (Self, T, u32) {
-        assert_eq!(self.shape(), ecc.shape().in_shape());
+    pub fn batch_infer_and_measure_s_expectation<M:Metric<D>>(&self, ecc: &CpuEccDense<M>) -> (Self, D, u32) {
+        assert_eq!(self.shape(), ecc.cshape().in_shape());
         let (data, s_exp, missed) = ecc.batch_infer_and_measure_s_expectation(&self.data, |d| d, |o| o);
         (Self {
             data,
-            shape: ecc.shape().output_shape(),
+            shape: ecc.cshape().output_shape(),
         }, s_exp, missed)
     }
-    pub fn batch_infer_conv_weights<T: DenseWeight,M:Metric<T>>(&self, ecc: &ConvWeights<T,M>, target: CpuEccPopulation<T>) -> Self {
-        assert_eq!(self.shape(), ecc.shape().in_shape());
+    pub fn batch_infer_conv_weights<M:Metric<D>>(&self, ecc: &ConvWeights<M>, target: CpuEccPopulation<M>) -> Self {
+        assert_eq!(self.shape(), ecc.cshape().in_shape());
         let data = ecc.batch_infer(&self.data, |d| d, target, |o| o);
         Self {
             data,
-            shape: ecc.shape().output_shape(),
+            shape: ecc.cshape().output_shape(),
         }
     }
-    pub fn batch_infer_conv_weights_and_measure_s_expectation<T: DenseWeight,M:Metric<T>>(&self, ecc: &ConvWeights<T,M>, target: CpuEccPopulation<T>) -> (Self, T, u32) {
-        assert_eq!(self.shape(), ecc.shape().in_shape());
+    pub fn batch_infer_conv_weights_and_measure_s_expectation<M:Metric<D>>(&self, ecc: &ConvWeights<M>, target: CpuEccPopulation<M>) -> (Self, D, u32) {
+        assert_eq!(self.shape(), ecc.cshape().in_shape());
         let (data, s_exp, missed) = ecc.batch_infer_and_measure_s_expectation(&self.data, |d| d, target, |o| o);
         (Self {
             data,
-            shape: ecc.shape().output_shape(),
+            shape: ecc.cshape().output_shape(),
         }, s_exp, missed)
     }
 
@@ -299,11 +299,11 @@ impl CpuSdrDataset {
     pub fn gen_rand_conv_subregion_indices_with_ker(&self, kernel: &[Idx; 2], stride: &[Idx; 2], number_of_samples: usize, rng: &mut impl Rng) -> SubregionIndices {
         self.gen_rand_conv_subregion_indices(self.shape().grid().conv_out_size(stride, kernel), number_of_samples, rng)
     }
-    pub fn gen_rand_conv_subregion_indices_with_ecc<D: DenseWeight,M:Metric<D>>(&self, ecc: &CpuEccDense<D,M>, number_of_samples: usize, rng: &mut impl Rng) -> SubregionIndices {
+    pub fn gen_rand_conv_subregion_indices_with_ecc<M:Metric<D>>(&self, ecc: &CpuEccDense<M>, number_of_samples: usize, rng: &mut impl Rng) -> SubregionIndices {
         assert_eq!(ecc.out_grid(), &[1, 1], "EccDense should have only single output column");
         self.gen_rand_conv_subregion_indices_with_ker(ecc.kernel(), ecc.stride(), number_of_samples, rng)
     }
-    pub fn gen_rand_conv_subregion_indices_with_machine<D: DenseWeight,M:Metric<D>>(&self, ecc: &CpuEccMachine<D,M>, number_of_samples: usize, rng: &mut impl Rng) -> SubregionIndices {
+    pub fn gen_rand_conv_subregion_indices_with_machine<M:Metric<D>>(&self, ecc: &CpuEccMachine<M>, number_of_samples: usize, rng: &mut impl Rng) -> SubregionIndices {
         assert_eq!(ecc.out_grid(), Some(&[1, 1]), "EccMachine should have only single output column");
         let (k, s) = ecc.composed_kernel_and_stride();
         self.gen_rand_conv_subregion_indices_with_ker(&k, &s, number_of_samples, rng)
@@ -532,7 +532,7 @@ impl Occurrences {
     fn get_vote(&self, i: usize, votes: &ShapedArray<f32>, min_deviation_from_mean: f32) -> Option<usize> {
         let offset = i * self.num_classes;
         let slice = &votes[offset..offset + self.num_classes];
-        let (max_idx, max_score) = slice.iter().cloned().enumerate().max_by(|(_, a), (_, b)| f32_cmp_naive(a, b)).unwrap();
+        let (max_idx, max_score) = slice.iter().cloned().enumerate().max_by(|(_, a), (_, b)| a.cmp_naive(b)).unwrap();
         if min_deviation_from_mean > 0. {
             let mean = slice.iter().sum::<f32>() / self.num_classes as f32;
             let deviation = (mean - max_score).abs();
@@ -561,7 +561,7 @@ impl Occurrences {
         self.classify_and_count_votes_per_lbl(sdr, min_deviation_from_mean).iter().position_max().unwrap()
     }
     pub fn classify(&self, sdr: &CpuSDR) -> usize {
-        (0..self.num_classes).map(|lbl| self.class_prob[lbl] + sdr.iter().map(|&i| self.prob(i.as_usize(), lbl)).sum::<f32>()).position_max_by(f32_cmp_naive).unwrap()
+        (0..self.num_classes).map(|lbl| self.class_prob[lbl] + sdr.iter().map(|&i| self.prob(i.as_usize(), lbl)).sum::<f32>()).position_max_by(D::cmp_naive).unwrap()
     }
     pub fn batch_classify(&self, sdr: &CpuSdrDataset) -> Vec<u32> {
         assert_eq!(sdr.shape(), self.shape());
@@ -573,9 +573,6 @@ impl Occurrences {
     }
 }
 
-pub fn f32_cmp_naive(a: &f32, b: &f32) -> Ordering {
-    if a > b { Ordering::Greater } else { Ordering::Less }
-}
 
 #[cfg(test)]
 mod tests {

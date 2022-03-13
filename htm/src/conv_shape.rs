@@ -198,91 +198,93 @@ impl ConvShape {
         w_idx(self.out_shape().idx(*output_pos), self.idx_within_kernel(input_pos, output_pos), self.out_volume())
     }
 }
-
 pub trait HasShape{
-    fn shape(&self)->&ConvShape;
+    fn shape(&self)->&[Idx;3];
+}
+pub trait HasConvShape:HasShape {
+    fn cshape(&self) ->&ConvShape;
 
     fn out_shape(&self) -> &[Idx; 3] {
-        self.shape().out_shape()
+        self.cshape().out_shape()
     }
     fn in_shape(&self) -> &[Idx; 3] {
-        self.shape().in_shape()
+        self.cshape().in_shape()
     }
     fn kernel(&self) -> &[Idx; 2] {
-        self.shape().kernel()
+        self.cshape().kernel()
     }
     fn stride(&self) -> &[Idx; 2] {
-        self.shape().stride()
+        self.cshape().stride()
     }
     fn output_shape(&self) -> [Idx; 3] {
-        self.shape().output_shape()
+        self.cshape().output_shape()
     }
     fn input_shape(&self) -> [Idx; 3] {
-        self.shape().input_shape()
+        self.cshape().input_shape()
     }
     fn kernel_column(&self) -> [Idx; 3] {
-        self.shape().kernel_column()
+        self.cshape().kernel_column()
     }
     fn kernel_column_volume(&self) -> Idx {
-        self.shape().kernel_column_volume()
+        self.cshape().kernel_column_volume()
     }
     fn in_grid(&self) -> &[Idx; 2] {
-        self.shape().in_grid()
+        self.cshape().in_grid()
     }
     fn out_grid(&self) -> &[Idx; 2] {
-        self.shape().out_grid()
+        self.cshape().out_grid()
     }
     fn out_width(&self) -> Idx {
-        self.shape().out_width()
+        self.cshape().out_width()
     }
     fn out_height(&self) -> Idx {
-        self.shape().out_height()
+        self.cshape().out_height()
     }
     fn out_channels(&self) -> Idx {
-        self.shape().out_channels()
+        self.cshape().out_channels()
     }
     fn in_width(&self) -> Idx {
-        self.shape().in_width()
+        self.cshape().in_width()
     }
     fn in_height(&self) -> Idx {
-        self.shape().in_height()
+        self.cshape().in_height()
     }
     fn in_channels(&self) -> Idx {
-        self.shape().in_channels()
+        self.cshape().in_channels()
     }
     fn out_area(&self) -> Idx {
-        self.shape().out_area()
+        self.cshape().out_area()
     }
     fn in_area(&self) -> Idx {
-        self.shape().in_area()
+        self.cshape().in_area()
     }
     fn out_volume(&self) -> Idx {
-        self.shape().out_volume()
+        self.cshape().out_volume()
     }
     fn in_volume(&self) -> Idx {
-        self.shape().in_volume()
+        self.cshape().in_volume()
     }
     fn kernel_offset(&self, output_pos: &[Idx; 3]) -> [Idx; 2] {
-        self.shape().kernel_offset(output_pos)
+        self.cshape().kernel_offset(output_pos)
     }
     fn pos_within_kernel(&self, input_pos: &[Idx; 3], output_pos: &[Idx; 3]) -> [Idx; 3] {
-        self.shape().pos_within_kernel(input_pos,output_pos)
+        self.cshape().pos_within_kernel(input_pos, output_pos)
     }
 
     fn idx_within_kernel(&self, input_pos: &[Idx; 3], output_pos: &[Idx; 3]) -> Idx {
-        self.shape().idx_within_kernel(input_pos,output_pos)
+        self.cshape().idx_within_kernel(input_pos, output_pos)
     }
     fn in_range(&self, output_column_pos: &[Idx; 2]) -> Range<[Idx; 2]> {
-        self.shape().in_range(output_column_pos)
+        self.cshape().in_range(output_column_pos)
     }
     fn w_index(&self, input_pos: &[Idx; 3], output_pos: &[Idx; 3]) -> Idx {
-        self.w_index(input_pos,output_pos)
+        self.cshape().w_index(input_pos, output_pos)
     }
 }
 
-pub trait HasShapeMut:HasShape{
-    fn shape_mut(&mut self)->&mut ConvShape;
+pub trait HasConvShapeMut: HasConvShape {
+    fn cshape_mut(&mut self) ->&mut ConvShape;
     fn set_stride(&mut self, new_stride: [Idx; 2]) {
-        self.shape_mut().set_stride(new_stride)
+        self.cshape_mut().set_stride(new_stride)
     }
 }

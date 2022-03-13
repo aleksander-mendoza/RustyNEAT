@@ -28,53 +28,6 @@ DENSE_TYPE = ecc.CpuEccDenseL2 if L2 else ecc.CpuEccDense
 SPLITS = [20, 100, 1000, 0.1]
 
 
-def visualise_connection_heatmap(in_w, in_h, ecc_net, out_w, out_h, pause=None):
-    global fig, axs
-    if fig is None:
-        fig, axs = plt.subplots(out_w, out_h)
-        for a in axs:
-            for b in a:
-                b.set_axis_off()
-    for i in range(out_w):
-        for j in range(out_h):
-            w = ecc_net.get_weights(i + j * out_w)
-            w = np.array(w)
-            w = w.reshape(in_w, in_h)
-            w.strides = (8, 56)
-            axs[i, j].imshow(w)
-    if pause is None:
-        plt.show()
-    else:
-        plt.pause(pause)
-
-
-def visualise_recursive_weights(w, h, ecc_net):
-    fig, axs = plt.subplots(w, h)
-    for a in axs:
-        for b in a:
-            b.set_axis_off()
-    for i in range(w):
-        for j in range(h):
-            weights = np.array(ecc_net.get_weights(i + j * w))
-            weights[i + j * w] = 0
-            weights = weights.reshape([w, h]).T
-            axs[i, j].imshow(weights)
-    plt.show()
-
-
-def compute_confusion_matrix_fit(conf_mat, ecc_net, metric_l2=True):
-    assert ecc_net.out_grid == [1, 1]
-    fit = torch.empty(ecc_net.out_channels)
-    for i in range(ecc_net.out_channels):
-        corr = conf_mat[i] / conf_mat[i].sum()
-        wei = torch.tensor(ecc_net.get_weights(i))
-        if metric_l2:
-            fit[i] = corr @ wei
-        else:  # l1
-            fit[i] = (corr - wei).abs().sum()
-    return fit
-
-
 def preprocess_mnist():
     enc = htm.EncoderBuilder()
     img_w, img_h, img_c = 28, 28, 1

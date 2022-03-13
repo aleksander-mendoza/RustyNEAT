@@ -28,7 +28,6 @@ while True:
     a = np.random.choice(A)
     x = np.random.choice(state_data['obs'], size=c, replace=False)
 
-
     prev_x = x
     state = state_data[a]
 

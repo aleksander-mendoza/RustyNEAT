@@ -164,25 +164,24 @@ a_j := a_j - \alpha \text{ if } y_j \text{ fired}
 \]
 Now we can include $\boldsymbol{a}$ in the computation of $k$.
 \[\boldsymbol{s} = \boldsymbol{x}W \]
-\[\boldsymbol{r} = \boldsymbol{s} + \boldsymbol{a} \]
+\[\boldsymbol{r} = \boldsymbol{s}+ \boldsymbol{a} \]
 \[k = \argmax_j r_j \]
 The final algorithm looks as follows
 \begin{lstlisting}
-def infer($\boldsymbol{x}$,$W$,$a$,learning_enabled):
-    $s$ = $\boldsymbol{x}W$
-    $r$ = $s + a$
-    $k$ = argmax($r$)
+def infer($\boldsymbol{x}$,$W$,$\boldsymbol{a}$,learning_enabled):
+    $\boldsymbol{s}$ = $\boldsymbol{x}W$
+    $\boldsymbol{r}$ = $\boldsymbol{s} + \boldsymbol{a}$
+    $k$ = argmax($\boldsymbol{r}$)
     if $s_k$ $\le$ threshold:
-        pass    // filter-out noise (optional)
+        pass    // filter-out noise/empty input
     if learning_enabled:
         $a_k$ = $a_k$ - $\alpha$
-        $W_k$ = $W_k+\boldsymbol{x}\epsilon$
+        $W_k$ = $W_k+\epsilon\boldsymbol{x}$/sum($\boldsymbol{x}$)
         $W_k$ = $W_k$ / sum($W_k$)
         // the $W_k$ notation stands for 
         // k-th column of matrix $W$
     return $k$
 \end{lstlisting}
-
 
 \section{Fundamental theory}
 
@@ -750,6 +749,86 @@ The first inequality can be rewritten as
 which has already been proved to hold in one of our previous paragraphs.
 The second inequality holds, because the two clusters $C^{(t)}(y_j)$ and  $C^{(t+1)}(y_j)$ will differ only when there exists some $\boldsymbol{x}\in C^{(t)}(y_j)$ such that there is some other $y_h$ for which $\boldsymbol{x}W_h \ge \boldsymbol{x} W_j$. This implies that the total sum over all clusters cannot decrease.
 
+\paragraph{K-means with entropy maximisation}
+The inequality holds
+\[
+\boldsymbol{x}W_h \ge \boldsymbol{x}W_j \implies d(\boldsymbol{x},W_h) \le d(\boldsymbol{x},W_j)
+\]
+regardless of $\boldsymbol{x}$ cardinality because we can multiply both sides by a (positive) scalar
+\[
+\boldsymbol{x}W_h \ge \boldsymbol{x}W_j \iff  \frac{\boldsymbol{x}}{\lVert\boldsymbol{x}\rVert_2}W_h \ge \frac{\boldsymbol{x}}{\lVert\boldsymbol{x}\rVert_2}W_j \implies d(\boldsymbol{x},W_h) \le d(\boldsymbol{x},W_j)
+\]
+The entropy maximisation could be achieved with  activity vector $\boldsymbol{a}$ as follows
+\[
+C(y_j) = \{\boldsymbol{x} : j=\argmax\big(\frac{\boldsymbol{x}}{\lVert\boldsymbol{x}\rVert_2}W+\boldsymbol{a}\big)\}
+\]
+This time the normalization $\frac{\boldsymbol{x}}{\lVert\boldsymbol{x}\rVert_2}$ is necessary. Previously we were able to omit it because 
+\[\argmax(\boldsymbol{x}W)=\argmax\big(\frac{\boldsymbol{x}}{\lVert\boldsymbol{x}\rVert_2}W\big)\]
+The fitness function is modified accordingly
+\[
+\mathcal{L}^{(t)} = \sum_{j=1}^m \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \big( \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_2} W_j^{(t)}+a_j\big) \bar{p}(\boldsymbol{x})
+\] 
+The k-means algorithm works the same way as before. We use $ C^{(t)}(y_j)$ to compute mean $\mu^{(t)}(y_j)$ and then assign it as a new value of $W_j^{(t+1)}$. We do not modify $\boldsymbol{a}$. It is assumed to be constant throughout execution of k-means algorithm. As a result we can reuse the previous proof with only minor modifications.
+The $\boldsymbol{a}$ can be factored out into a separate summations
+\[
+\mathcal{L}^{(t)} = \Big(\sum_{j=1}^m \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_2} W_j^{(t)} \bar{p}(\boldsymbol{x})\Big) + \Big(\sum_{j=1}^m \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} a_j\bar{p}(\boldsymbol{x}) \Big)
+\] 
+Similarly as before we prove $\mathcal{L}^{(t)}<\mathcal{L}^{(t+1)}$ in two steps. In the first step, the $a_j$ terms will cancel out on both sides of inequality. In the second step the $\boldsymbol{a}$ will not cancel out but we can use analogical reasoning as before. Cluster $C(y_j)$ can change only if there will exist some $W_h$ such that 
+\[
+\frac{\boldsymbol{x}}{\lVert\boldsymbol{x}\rVert_2}W_h+a_h > \frac{\boldsymbol{x}}{\lVert\boldsymbol{x}\rVert_2}W_j+a_j
+\]
+and therefore the total sum $\mathcal{L}$ cannot decrease. This ends the proof of convergence when $\boldsymbol{a}$ is constant.
+
+To show that convergence is guaranteed even when $\boldsymbol{a}$ changes, we use the following reasoning. Suppose we set $\boldsymbol{a}$ to some value, then we run k-means algorithm until convergence. Once $C^{(t)}=C^{(t+1)}$, we recompute $\boldsymbol{a}$ and then run k-means again. Therefore one update to $\boldsymbol{a}$ is followed by multiple updates to $W$. In the limit all values of $\boldsymbol{a}$ will converge to be equal. This will be proved and explained in greater detail later.
+
+\paragraph{K-means with multiplicative entropy maximisation}
+
+Initially we implemented entropy maximisation mechanism using additive bias $\boldsymbol{a}$. It is possible to use multiplicative bias as follows
+\[
+C(y_j) = \{\boldsymbol{x} : j=\argmax\big(\frac{\boldsymbol{x}}{\lVert\boldsymbol{x}\rVert_2}W\circ \boldsymbol{a}\big)\}
+\]
+where $\circ$ is Hadamard product (element-wise multiplication of vectors).  Such definition preserves equality
+\[\argmax(\boldsymbol{x}W\circ \boldsymbol{a})=\argmax\big(\frac{\boldsymbol{x}}{\lVert\boldsymbol{x}\rVert_2}W\circ \boldsymbol{a}\big)\text{ where }\boldsymbol{a}>\boldsymbol{0}\]
+which allows for certain additional optimisations. The fitness function has the following form
+\[
+\mathcal{L}^{(t)} = \sum_{j=1}^m \sum_{\boldsymbol{x}\in C^{(t)}(y_j)}  \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_2} W_j^{(t)} a_j \bar{p}(\boldsymbol{x})
+\] 
+which can be reformulated as
+\[
+\mathcal{L}^{(t)} = \sum_{j=1}^m a_j \bar{p}(y_j) \sum_{\boldsymbol{x}\in C^{(t)}(y_j)}  \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_2} W_j^{(t)} \bar{p}(\boldsymbol{x}|y_j)
+\] 
+Under the assumption that $\boldsymbol{a}$ is constant, the same proof of convergence as before can be applied here with only minor modifications. 
+
+The multiplication $a_j \bar{p}(y_j)$ has an elegant interpretation. Suppose that after k-means reaches convergence we obtain certain distribution $\bar{p}(\boldsymbol{y})$, but we would like to arrange $W$ is such a way as to obtain a different target distribution $\bar{p}_*(\boldsymbol{y})$. If we set $\boldsymbol{a}=\frac{\bar{p}_*(\boldsymbol{y})}{\bar{p}(\boldsymbol{y})}$ then the product becomes $a_j \bar{p}(y_j) = \bar{p}_*(y_j)$. 
+
+The multiplication $W_ja_j$ could be interpreted as encoding direction $W_j$ and magnitude $a_j$ of any (positive) real vector. 
+
+\paragraph{Updated \texttt{infer} algorithm} The procedure for running ECC network may now be restated as follows
+
+\begin{lstlisting}
+def infer2($\boldsymbol{x}$,$W$,$\boldsymbol{a}$,learning_enabled):
+    if $\lVert\boldsymbol{x}\rVert_2$ $\le$ threshold:
+        pass    // filter-out noise/empty input
+    $\boldsymbol{s}$ = $\boldsymbol{x}W$
+    $\boldsymbol{r}$ = $\boldsymbol{s} \circ \boldsymbol{a}$
+    $k$ = argmax($\boldsymbol{r}$)
+    if learning_enabled:
+        $a_k$ = $a_k\alpha$
+        $W_k$ = $W_k+\frac{\boldsymbol{x}}{\lVert\boldsymbol{x}\rVert_2}\epsilon$
+        $W_k$ = $W_k$ / $\lVert W_k \rVert_2$
+    return $k$
+\end{lstlisting}
+
+\paragraph{Convergence of entropy maximisation}
+
+Suppose $\boldsymbol{s}$ is a vector of continuous random variables and $k=\argmax \boldsymbol{s}$ has  probability distribution
+\[
+p(k=\argmax \boldsymbol{s}) = p(s_k = \max \boldsymbol{s}) = \prod_{j=1}^{m}p(s_k \ge  s_j)
+\]
+For simplicity let us assume that each $s_j$ is normally distributed $s_j\sim \mathcal{N}(\mu_j,\sigma_j)$. Then we obtain
+\[
+\prod_{j=1}^{m}p(s_k \ge  s_j) = \prod_{j=1}^{m}p(s_k \ge  s_j)
+\]
 \paragraph{Similarities between ECC and SVD}
 
 The distribution $q(\boldsymbol{x})$ is modelled as a sum
@@ -778,6 +857,7 @@ The task of reducing $m$ has certain similarities to matrix compression by perfo
 q\big(\boldsymbol{x}|y_1\text{ or }y_2;\frac{W_1p(y_1) +W_2p(y_2)}{p(y_1)+p(y_2)}\big) 
 \]
 would hold only when $p(\boldsymbol{x},y_1)$ and $p(\boldsymbol{x},y_2)$ are colinear. If they are only approximately colinear, then the sum of $W_1$ and $W_2$ should still produce good approximation to $q(\boldsymbol{x}|y_1\text{ or }y_2)$. It looks like SVD, except that instead of truncating least significant eigenvalues, we cluster eigenvectors together by their similarity and then average them, producing $\mathbb{E}(\boldsymbol{x}|y_1\text{ or }y_2)$. The clustering algorithm implemented by ECC has some similarities to k-means.
+
 
 \paragraph{Benchmark comparison}
 Figure \ref{fig:benchmarks_l2} presents benchmarks that compares MNIST accuracy of networks trained with $\ell_1$ and $\ell_2$ norms. 

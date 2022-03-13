@@ -23,49 +23,33 @@ use crate::sdr::SDR;
 use crate::as_usize::AsUsize;
 use std::marker::PhantomData;
 
-pub trait DenseWeight: Add<Output=Self> + AddAssign + Sub<Output=Self> + SubAssign + Copy + Debug + Display + Sum + Sync + Send + Sized{
+pub type D = f32;
+pub trait DenseWeight: Add<Output=Self> + PartialOrd + AddAssign + Div<Output=Self> + DivAssign + Sub<Output=Self> + SubAssign + Copy + Debug + Display + Sum + Sync + Send + Sized{
     const IMPOSSIBLE_WEIGHT: Self;
-    const TOTAL_SUM: Self;
+    const ONE: Self;
     const ZERO: Self;
     const DEFAULT_PLASTICITY: Self;
     const INITIAL_ACTIVITY: Self;
     const ACTIVITY_PENALTY: Self;
     const APPROX_EPSILON: Self;
-    fn w_to_f32(w: Self) -> f32;
-    fn gt(self, b: Self) -> bool;
-    fn lt(self, b: Self) -> bool;
-    fn ge(self, b: Self) -> bool;
-    fn le(self, b: Self) -> bool;
-    fn eq(self, b: Self) -> bool;
-    fn mul(self, b: Idx) -> Self;
     fn is_valid(self) -> bool {
-        !self.eq(Self::IMPOSSIBLE_WEIGHT)
+        self != Self::IMPOSSIBLE_WEIGHT
     }
     fn approx_eq(self, b: Self) -> bool;
+
+    fn cmp_naive(&self, b: &Self) -> Ordering {
+        if self > b { Ordering::Greater } else { Ordering::Less }
+    }
     fn min_w(self, b: Self) -> Self {
-        if self.lt(b) { self } else { b }
+        if self<b { self } else { b }
     }
     fn max_w(self, b: Self) -> Self {
-        if self.gt(b) { self } else { b }
+        if self >b { self } else { b }
     }
-    fn f32_to_w(w: f32) -> Self;
     fn initialise_weight_matrix<M: Metric<Self>>(kernel_column_volume: Idx, output_volume: Idx, seed: Vec<f32>) -> Vec<Self>;
     fn default_threshold(out_channels: Idx) -> Self;
     fn normalize_stochastic(weights: &mut [Self], active_inputs: Idx, output_idx: Idx, plasticity: Self, rand_seed: Rand, kernel_column_volume: Idx, output_volume: Idx) -> Idx;
-    fn normalize<M: Metric<Self>>(weights: &mut [Self], weight_sum: Self, output_idx: Idx, kernel_column_volume: Idx, output_volume: Idx);
-    // /**Assumes that the weights were already normalized (summing up to 1) and recently several (active_inputs) weights
-    // have been incremented by (plasticity) constant. Based on that we can quickly figure out the new sum of weights.
-    // Then we use this sum to normalise the weights. In ideal world, this would be great but due to floating-point finite
-    // precision, this calculation will slowly build up error.*/
-    // fn normalize_quick<M:Metric<D>>(weights: &mut [Self], active_inputs: Idx, output_idx: Idx, plasticity: Self, kernel_column_volume: Idx, output_volume: Idx){
-    //     let w_sum = Self::TOTAL_SUM + plasticity.mul(active_inputs);
-    //     Self::normalize::<M>(weights,w_sum,output_idx, kernel_column_volume, output_volume)
-    // }
-    /**First computes the exact sum of weights in linear O(n) time. Then uses this sum to normalise the weights*/
-    fn normalize_precise<M: Metric<Self>>(weights: &mut [Self], output_idx: Idx, kernel_column_volume: Idx, output_volume: Idx) {
-        let magnitude = M::kernel_column_weight_magnitude(kernel_column_volume, output_volume, output_idx, weights);
-        Self::normalize::<M>(weights, magnitude, output_idx, kernel_column_volume, output_volume)
-    }
+
 }
 
 pub trait DenseWeightL2: DenseWeight + Mul<Output=Self> {
@@ -206,42 +190,16 @@ pub fn debug_assert_approx_eq_weight<D: DenseWeight>(a: D, b: D) {
 
 impl DenseWeight for f32 {
     const IMPOSSIBLE_WEIGHT: f32 = -1.;
-    const TOTAL_SUM: f32 = 1.;
+    const ONE: f32 = 1.;
     const ZERO: Self = 0.;
-    const DEFAULT_PLASTICITY: Self = Self::ACTIVITY_PENALTY;
-    const INITIAL_ACTIVITY: Self = 0.;
+    const DEFAULT_PLASTICITY: Self = 0.01;
     const ACTIVITY_PENALTY: Self = 0.0001;
     const APPROX_EPSILON: Self = 0.00001;
 
-    fn w_to_f32(w: Self) -> f32 {
-        w
-    }
-
-    fn gt(self, b: Self) -> bool {
-        self > b
-    }
-    fn lt(self, b: Self) -> bool {
-        self < b
-    }
-    fn ge(self, b: Self) -> bool {
-        self >= b
-    }
-    fn le(self, b: Self) -> bool {
-        self <= b
-    }
-    fn eq(self, b: Self) -> bool {
-        self == b
-    }
-    fn mul(self, b: Idx) -> Self {
-        self * b as f32
-    }
     fn approx_eq(self, b: Self) -> bool {
         (self - b).abs() < Self::APPROX_EPSILON
     }
 
-    fn f32_to_w(w: f32) -> Self {
-        w
-    }
     fn initialise_weight_matrix<M: Metric<Self>>(kernel_column_volume: Idx, output_volume: Idx, seed: Vec<f32>) -> Vec<Self> {
         let kv = kernel_column_volume;
         let v = output_volume;
@@ -260,30 +218,14 @@ impl DenseWeight for f32 {
         w
     }
     fn default_threshold(out_channels: Idx) -> Self {
-        Self::TOTAL_SUM / out_channels as f32
+        Self::ONE / out_channels as f32
     }
     fn normalize_stochastic(weights: &mut [Self], active_inputs: Idx, output_idx: Idx, plasticity: Self, mut rand_seed: Rand, kernel_column_volume: Idx, output_volume: Idx) -> Idx {
         unimplemented!();
     }
-    fn normalize<M: Metric<Self>>(weights: &mut [Self], w_magnitude: Self, output_idx: Idx, kernel_column_volume: Idx, output_volume: Idx) {
-        let kv = kernel_column_volume;
-        let v = output_volume;
-        debug_assert_approx_eq_weight(w_magnitude, M::kernel_column_weight_magnitude(kv, v, output_idx, &weights));
-        for input_within_kernel_column in 0..kv {
-            let w_idx = w_idx(output_idx, input_within_kernel_column, v);
-            if weights[w_idx.as_usize()] != Self::IMPOSSIBLE_WEIGHT {
-                weights[w_idx.as_usize()] /= w_magnitude;
-            }
-        }
-        debug_assert_approx_eq_weight(1., M::kernel_column_weight_sum(kv, v, output_idx, &weights));
-    }
+
 }
 
-impl DenseWeightL2 for f32 {
-    fn sqrt(self) -> Self {
-        f32::sqrt(self)
-    }
-}
 
 #[inline]
 pub fn w_idx(output_idx: Idx, idx_within_kernel_column: Idx, output_volume: Idx) -> Idx {
@@ -312,26 +254,41 @@ fn kernel_column_weight_sum<D: DenseWeight>(kernel_column_volume: Idx, out_volum
     (0..kernel_column_volume).map(|i| w[w_idx(output_neuron_idx, i, out_volume).as_usize()]).filter(|&w| w.is_valid()).map(metric).sum()
 }
 
-pub trait Metric<D>: Clone + Sync + Send{
+pub trait Metric<D>: Copy + Clone + Default + Sync + Send{
+    const INITIAL_ACTIVITY: D;
+    fn r(sum:D,activity:D)->D;
     fn kernel_column_weight_sum(kernel_column_volume: Idx, out_volume: Idx, output_neuron_idx: Idx, w: &[D]) -> D;
     fn root(_: D) -> D;
     fn kernel_column_weight_magnitude(kernel_column_volume: Idx, out_volume: Idx, output_neuron_idx: Idx, w: &[D]) -> D{
         Self::root(Self::kernel_column_weight_sum(kernel_column_volume,out_volume,output_neuron_idx,w))
     }
     fn max_inner_product(sdr:&CpuSDR)->D;
+    // /**Assumes that the weights were already normalized (summing up to 1) and recently several (active_inputs) weights
+    // have been incremented by (plasticity) constant. Based on that we can quickly figure out the new sum of weights.
+    // Then we use this sum to normalise the weights. In ideal world, this would be great but due to floating-point finite
+    // precision, this calculation will slowly build up error.*/
+    // fn normalize_quick<M:Metric<D>>(weights: &mut [Self], active_inputs: Idx, output_idx: Idx, plasticity: Self, kernel_column_volume: Idx, output_volume: Idx){
+    //     let w_sum = Self::TOTAL_SUM + plasticity.mul(active_inputs);
+    //     Self::normalize::<M>(weights,w_sum,output_idx, kernel_column_volume, output_volume)
+    // }
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize)]
-pub struct MetricL2<D: DenseWeightL2> {
-    _p: PhantomData<D>,
+#[derive(Copy, Clone, Default, Serialize, Deserialize)]
+pub struct MetricL2 {
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize)]
-pub struct MetricL1<D: DenseWeight> {
-    _p: PhantomData<D>,
+#[derive(Copy, Clone, Default, Serialize, Deserialize)]
+pub struct MetricL1 {
 }
 
-impl<D: DenseWeight> Metric<D> for MetricL1<D> {
+impl Metric<D> for MetricL1 {
+
+    const INITIAL_ACTIVITY: D = 0.;
+
+    fn r(sum: f32, activity: f32) -> f32 {
+        sum+activity
+    }
+
     fn kernel_column_weight_sum(kernel_column_volume: u32, out_volume: u32, output_neuron_idx: u32, w: &[D]) -> D {
         kernel_column_weight_sum(kernel_column_volume, out_volume, output_neuron_idx, w, |w| w)
     }
@@ -341,11 +298,19 @@ impl<D: DenseWeight> Metric<D> for MetricL1<D> {
     }
 
     fn max_inner_product(sdr: &CpuSDR) -> D {
-        D::TOTAL_SUM
+        D::ONE
     }
+
+
 }
 
-impl<D: DenseWeightL2> Metric<D> for MetricL2<D> {
+impl Metric<D> for MetricL2 {
+    const INITIAL_ACTIVITY: D = 1.;
+
+    fn r(sum: f32, activity: f32) -> f32 {
+        sum*activity
+    }
+
     fn kernel_column_weight_sum(kernel_column_volume: u32, out_volume: u32, output_neuron_idx: u32, w: &[D]) -> D {
         kernel_column_weight_sum(kernel_column_volume, out_volume, output_neuron_idx, w, |w| w * w)
     }
@@ -355,7 +320,7 @@ impl<D: DenseWeightL2> Metric<D> for MetricL2<D> {
     }
 
     fn max_inner_product(sdr: &CpuSDR) -> D {
-        D::f32_to_w((sdr.cardinality() as f32).sqrt())
+        Self::root(sdr.cardinality() as f32)
     }
 }
 

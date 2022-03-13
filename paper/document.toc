@@ -33,25 +33,29 @@
 \contentsline {paragraph}{Interpretation of $\boldsymbol {x}W$}{31}{}%
 \contentsline {paragraph}{Expected value $\mathbb {E}_{\bar {p}}(\boldsymbol {x}|y_j)$ maximises $\boldsymbol {x}W_j$}{31}{}%
 \contentsline {paragraph}{Proof of convergence for k-means algorithm}{32}{}%
-\contentsline {paragraph}{Similarities between ECC and SVD}{33}{}%
-\contentsline {paragraph}{Benchmark comparison}{34}{}%
-\contentsline {section}{\numberline {7}Reinforcement learning and control}{34}{}%
-\contentsline {paragraph}{ECC can't learn value functions}{34}{}%
-\contentsline {paragraph}{Geometric deep learning theory}{36}{}%
-\contentsline {paragraph}{Reinforcement learning sample inefficiency}{36}{}%
-\contentsline {paragraph}{Inference of groups from actions and observations}{37}{}%
-\contentsline {paragraph}{Parametric groups}{38}{}%
-\contentsline {paragraph}{Inductive inference of groups}{39}{}%
-\contentsline {paragraph}{Group manifolds}{40}{}%
-\contentsline {paragraph}{ECC networks are a parallel algorithm for group inference from noisy observations}{40}{}%
-\contentsline {paragraph}{Learning groups and cosets}{40}{}%
-\contentsline {paragraph}{Reducing reward maximisation problem to a search problem}{41}{}%
-\contentsline {paragraph}{Supervised vs unsupervised (This paragraph is mostly work-in-progress)}{42}{}%
-\contentsline {section}{\numberline {8}Optimisations and efficiency benchmarks}{43}{}%
-\contentsline {paragraph}{Optimisations}{43}{}%
-\contentsline {paragraph}{Benchmarks}{44}{}%
-\contentsline {section}{\numberline {9}Inhibitory plasticity}{44}{}%
-\contentsline {paragraph}{Problems of ECC networks}{44}{}%
-\contentsline {paragraph}{Plastic inhibitory neurons}{45}{}%
-\contentsline {section}{\numberline {10}ECC are spiking networks}{45}{}%
-\contentsline {section}{\numberline {11}Evolving ECC networks}{47}{}%
+\contentsline {paragraph}{K-means with entropy maximisation}{33}{}%
+\contentsline {paragraph}{K-means with multiplicative entropy maximisation}{34}{}%
+\contentsline {paragraph}{Updated \texttt {infer} algorithm}{35}{}%
+\contentsline {paragraph}{Convergence of entropy maximisation}{35}{}%
+\contentsline {paragraph}{Similarities between ECC and SVD}{36}{}%
+\contentsline {paragraph}{Benchmark comparison}{37}{}%
+\contentsline {section}{\numberline {7}Reinforcement learning and control}{37}{}%
+\contentsline {paragraph}{ECC can't learn value functions}{37}{}%
+\contentsline {paragraph}{Geometric deep learning theory}{38}{}%
+\contentsline {paragraph}{Reinforcement learning sample inefficiency}{38}{}%
+\contentsline {paragraph}{Inference of groups from actions and observations}{39}{}%
+\contentsline {paragraph}{Parametric groups}{40}{}%
+\contentsline {paragraph}{Inductive inference of groups}{41}{}%
+\contentsline {paragraph}{Group manifolds}{42}{}%
+\contentsline {paragraph}{ECC networks are a parallel algorithm for group inference from noisy observations}{42}{}%
+\contentsline {paragraph}{Learning groups and cosets}{42}{}%
+\contentsline {paragraph}{Reducing reward maximisation problem to a search problem}{43}{}%
+\contentsline {paragraph}{Supervised vs unsupervised (This paragraph is mostly work-in-progress)}{44}{}%
+\contentsline {section}{\numberline {8}Optimisations and efficiency benchmarks}{45}{}%
+\contentsline {paragraph}{Optimisations}{45}{}%
+\contentsline {paragraph}{Benchmarks}{46}{}%
+\contentsline {section}{\numberline {9}Inhibitory plasticity}{46}{}%
+\contentsline {paragraph}{Problems of ECC networks}{46}{}%
+\contentsline {paragraph}{Plastic inhibitory neurons}{47}{}%
+\contentsline {section}{\numberline {10}ECC are spiking networks}{47}{}%
+\contentsline {section}{\numberline {11}Evolving ECC networks}{49}{}%

@@ -1,4 +1,4 @@
-use crate::{SDR, EccLayer, CpuSDR, CpuEccDense, Idx, DenseWeight, ConvShape, VectorFieldOne, Shape3, VectorFieldPartialOrd, Shape, ConvShapeTrait, HasShape, Metric};
+use crate::{SDR, EccLayer, CpuSDR, CpuEccDense, Idx, DenseWeight, ConvShape, VectorFieldOne, Shape3, VectorFieldPartialOrd, Shape, ConvShapeTrait, HasConvShape, Metric, D};
 use std::ops::{Index, IndexMut};
 use serde::{Serialize, Deserialize};
 use rand::Rng;
@@ -11,7 +11,7 @@ pub struct EccMachine<A: SDR, L: EccLayer<A=A>> {
     inputs: Vec<A>,
 }
 
-pub type CpuEccMachine<D,M> = EccMachine<CpuSDR, CpuEccDense<D,M>>;
+pub type CpuEccMachine<M> = EccMachine<CpuSDR, CpuEccDense<M>>;
 
 impl<A: SDR, L: EccLayer<A=A>> Index<usize> for EccMachine<A, L> {
     type Output = L;
@@ -221,7 +221,7 @@ impl<A: SDR, L: EccLayer<A=A>> EccMachine<A, L> {
     }
 }
 
-impl<D: DenseWeight,M:Metric<D>> CpuEccMachine<D,M> {
+impl<M:Metric<D>> CpuEccMachine<M> {
     pub fn new_cpu(output: [Idx; 2], kernels: &[[Idx; 2]], strides: &[[Idx; 2]], channels: &[Idx], k: &[Idx], rng: &mut impl Rng) -> Self {
         Self::new(output, kernels, strides, channels, k, rng,
                   |output, in_channels, out_channels, k, kernel, stride, rng|
@@ -243,7 +243,7 @@ impl<D: DenseWeight,M:Metric<D>> CpuEccMachine<D,M> {
         }
         Self { ecc: vec, inputs: pretrained.inputs.iter().map(|_| CpuSDR::new()).collect() }
     }
-    pub fn push_repeated_column(&mut self, top: &CpuEccDense<D,M>, column_pos: [Idx; 2]) {
+    pub fn push_repeated_column(&mut self, top: &CpuEccDense<M>, column_pos: [Idx; 2]) {
         self.push(if let Some(input) = self.out_shape() {
             let output = input.grid().conv_out_size(top.stride(), top.kernel());
             CpuEccDense::from_repeated_column(output, top, column_pos)
@@ -251,7 +251,7 @@ impl<D: DenseWeight,M:Metric<D>> CpuEccMachine<D,M> {
             top.clone()
         })
     }
-    pub fn prepend_repeated_column(&mut self, bottom: &CpuEccDense<D,M>, column_pos: [Idx; 2]) {
+    pub fn prepend_repeated_column(&mut self, bottom: &CpuEccDense<M>, column_pos: [Idx; 2]) {
         self.prepend(if let Some(output) = self.in_shape() {
             CpuEccDense::from_repeated_column(*output.grid(), bottom, column_pos)
         } else {

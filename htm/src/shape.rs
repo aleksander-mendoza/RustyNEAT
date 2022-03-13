@@ -7,10 +7,10 @@ use crate::vector_field::{VectorField, VectorFieldNum};
 use std::collections::{Bound, HashSet};
 use num_traits::{Num, One, Zero};
 use itertools::Itertools;
-use crate::{CpuSDR, VectorFieldPartialOrd, VectorFieldSub, VectorFieldOne};
+use crate::{CpuSDR, VectorFieldPartialOrd, VectorFieldSub, VectorFieldOne, Idx};
 use std::cmp::Ordering;
 use std::cmp::Ordering::{Greater, Less};
-use std::iter::FromIterator;
+use std::iter::{FromIterator, FlatMap};
 
 pub trait Shape<T: Num + Copy + Debug + PartialOrd, const DIM: usize>: Eq + PartialEq + Copy + Clone + Debug + VectorFieldNum<T> {
     fn pos(&self, mut index: T) -> [T; DIM] {
@@ -307,7 +307,7 @@ mod tests {
         for _ in 0..54 {
             let k = rng.gen_range(2usize..8);
             let arr: Vec<usize> = (0..64).map(|_| rng.gen_range(0..max)).collect();
-            let o = top_small_k_indices(k, arr.len(), |i| arr[i], |a, b| a > b);
+            let o = top_small_k_indices(k, arr.len(), |i| arr[i]);
             let mut top_values1: Vec<usize> = o.into_iter().map(|(i, v)| v).collect();
             let mut arr_ind: Vec<(usize, usize)> = arr.into_iter().enumerate().collect();
             arr_ind.sort_by_key(|&(_, v)| v);
@@ -323,7 +323,7 @@ mod tests {
         let max = 128usize;
         for _ in 0..54 {
             let arr: Vec<usize> = (0..64).map(|_| rng.gen_range(0..max)).collect();
-            let o = top_small_k_indices(1, arr.len(), |i| arr[i], |a, b| a > b);
+            let o = top_small_k_indices(1, arr.len(), |i| arr[i]);
             let (top_idx, top_val) = o[0];
             assert_eq!(top_val, *arr.iter().max().unwrap());
             assert_eq!(top_idx, arr.len() - 1 - arr.iter().rev().position_max().unwrap());
@@ -331,6 +331,13 @@ mod tests {
     }
 }
 
+pub fn range_foreach2d<T: Copy>(range: &Range<[T; 2]>, mut f:impl FnMut([T;2])) where Range<T>:Iterator<Item=T>{
+    for p0 in range.start[0]..range.end[0] {
+        for p1 in range.start[1]..range.end[1] {
+            f([p0,p1])
+        }
+    }
+}
 pub fn range_contains<T: Copy + PartialOrd + Debug, const DIM: usize>(range: &Range<[T; DIM]>, element: &[T; DIM]) -> bool {
     range.start.all_le(element) && element.all_lt(&range.end)
 }
@@ -344,7 +351,6 @@ pub fn range_translate<T: Copy + Num + std::cmp::PartialOrd + std::cmp::Eq + Deb
         None
     }
 }
-
 pub fn resolve_range<T: Add<Output=T> + Copy + One + Zero + PartialOrd + Debug>(input_size: T, input_range: impl RangeBounds<T>) -> Range<T> {
     let b = match input_range.start_bound() {
         Bound::Included(&x) => x,
@@ -361,22 +367,22 @@ pub fn resolve_range<T: Add<Output=T> + Copy + One + Zero + PartialOrd + Debug>(
     b..e
 }
 
-pub fn top_small_k_indices<V: Copy + Debug>(mut k: usize, n: usize, f: impl Fn(usize) -> V, gt: fn(V, V) -> bool) -> Vec<(usize, V)> {
+pub fn top_small_k_indices<V: Copy + Debug + PartialOrd>(mut k: usize, n: usize, f: impl Fn(usize) -> V) -> Vec<(usize, V)> {
     debug_assert!(k <= n);
     let mut heap: Vec<(usize, V)> = (0..k).map(&f).enumerate().collect();
-    heap.sort_by(|v1, v2| if gt(v1.1, v2.1) { Greater } else { Less });
+    heap.sort_by(|v1, v2| if v1.1>v2.1 { Greater } else { Less });
     for (idx, v) in (k..n).map(f).enumerate() {
         let idx = idx + k;
-        if gt(v, heap[0].1) {
+        if v> heap[0].1 {
             let mut i = 1;
-            while i < k && gt(v, heap[i].1) {
+            while i < k && v > heap[i].1 {
                 heap[i - 1] = heap[i];
                 i += 1
             }
             heap[i - 1] = (idx, v);
         }
     }
-    debug_assert!(heap.iter().tuple_windows().all(|(smaller, larger)| !gt(smaller.1, larger.1)));
+    debug_assert!(heap.iter().tuple_windows().all(|(smaller, larger)| smaller.1<= larger.1));
     debug_assert_eq!(HashSet::<usize>::from_iter(heap.iter().map(|v| v.0)).len(), heap.len(), "{:?}", heap);
     heap
 }

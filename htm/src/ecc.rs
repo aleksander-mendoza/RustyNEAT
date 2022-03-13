@@ -1,4 +1,4 @@
-use crate::{VectorFieldOne, Shape2, Shape3, VectorFieldPartialOrd, EccProgram, CpuSDR, CpuEccDense, DenseWeight, top_small_k_indices, EncoderTarget, Shape, range_contains, from_xyz, w_idx, ConvShape, ConvShapeTrait, HasShape, HasShapeMut, Metric};
+use crate::{VectorFieldOne, Shape2, Shape3, VectorFieldPartialOrd, EccProgram, CpuSDR, CpuEccDense, DenseWeight, top_small_k_indices, EncoderTarget, Shape, range_contains, from_xyz, w_idx, ConvShape, ConvShapeTrait, HasConvShape, HasConvShapeMut, Metric};
 use crate::xorshift::xorshift32;
 use std::ops::{Deref, DerefMut, IndexMut, Index};
 use itertools::Itertools;
@@ -20,7 +20,7 @@ pub fn as_idx(i:usize)->Idx{
 
 
 
-pub trait EccLayer:HasShapeMut {
+pub trait EccLayer: HasConvShapeMut {
     type A:SDR;
     type D:DenseWeight;
     fn get_threshold(&self) -> Self::D;
@@ -38,7 +38,7 @@ pub trait EccLayer:HasShapeMut {
     fn new_empty_sdr(&self,capacity:Idx)->Self::A;
     fn new_empty_output_sdr(&self)->Self::A {
         let k = self.k();
-        let a = self.shape().out_area();
+        let a = self.cshape().out_area();
         self.new_empty_sdr(a*k)
     }
     fn run(&mut self, input: &Self::A) -> Self::A {
