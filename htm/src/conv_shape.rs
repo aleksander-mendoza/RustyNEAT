@@ -1,6 +1,7 @@
-use crate::{Idx, Shape3, VectorFieldOne, Shape, VectorFieldPartialOrd, range_contains, from_xyz, Shape2, w_idx};
+use crate::{Idx, Shape3, VectorFieldOne, Shape, VectorFieldPartialOrd, range_contains, from_xyz, Shape2, w_idx, CpuSDR, AsUsize, top_small_k_indices, Weight};
 use serde::{Serialize, Deserialize};
-use std::ops::Range;
+use std::ops::{Range, AddAssign, Div};
+use std::fmt::Debug;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct ConvShape {
@@ -13,11 +14,12 @@ pub struct ConvShape {
     stride: [Idx; 2],
     //[height, width]
 }
+
 pub trait ConvShapeTrait {
-    fn out_shape(&self) -> &[Idx; 3] ;
-    fn in_shape(&self) -> &[Idx; 3] ;
-    fn kernel(&self) -> &[Idx; 2] ;
-    fn stride(&self) -> &[Idx; 2] ;
+    fn out_shape(&self) -> &[Idx; 3];
+    fn in_shape(&self) -> &[Idx; 3];
+    fn kernel(&self) -> &[Idx; 2];
+    fn stride(&self) -> &[Idx; 2];
     fn output_shape(&self) -> [Idx; 3] {
         *self.out_shape()
     }
@@ -80,13 +82,53 @@ pub trait ConvShapeTrait {
     fn idx_within_kernel(&self, input_pos: &[Idx; 3], output_pos: &[Idx; 3]) -> Idx {
         self.kernel_column().idx(self.pos_within_kernel(input_pos, output_pos))
     }
-     fn in_range(&self, output_column_pos: &[Idx; 2]) -> Range<[Idx; 2]> {
+    fn in_range(&self, output_column_pos: &[Idx; 2]) -> Range<[Idx; 2]> {
         assert!(output_column_pos.all_lt(self.out_grid()));
         output_column_pos.conv_in_range(self.stride(), self.kernel())
     }
+    fn out_range(&self, input_pos: &[Idx; 2]) -> Range<[Idx; 2]> {
+        input_pos.conv_out_range_clipped_both_sides(self.stride(), self.kernel(), self.out_grid())
+    }
+    fn sparse_broadcast<V>(&self, input: &CpuSDR, output: &CpuSDR, mut value:V,
+                        mut kernel_column_finished:impl FnMut(V,Idx)->V,
+                        mut target:impl FnMut(V,Idx)->V) {
+        let input_pos: Vec<[Idx; 3]> = input.iter().map(|&i| self.in_shape().pos(i)).collect();
+        let v = self.out_volume();
+        let kernel_column = self.kernel_column();
+        for &output_idx in output.as_slice() {
+            let output_pos = self.out_shape().pos(output_idx);
+            let kernel_offset = self.kernel_offset(&output_pos);
+            let input_range = self.in_range(output_pos.grid());
+            for (&input_idx, input_pos) in input.iter().zip(input_pos.iter()) {
+                if range_contains(&input_range, input_pos.grid()) {
+                    let w_index = ConvShape::w_index_(&input_pos, &kernel_offset, output_idx, &kernel_column, v);
+                    value = target(value,w_index);
+                }
+            }
+            value = kernel_column_finished(value,output_idx)
+        }
+    }
+    fn sparse_unbiased_increment<D:Copy+AsUsize+Div<Output=D>+AddAssign>(&self, w_slice:&mut [D], epsilon:D, input: &CpuSDR, output: &CpuSDR){
+        let w_to_increment:Vec<Idx> = Vec::with_capacity(input.len());
+        self.sparse_broadcast(input,output,w_to_increment,|mut w_to_increment,_|{
+            let plasticity = epsilon / D::from_usize(w_to_increment.len());
+            for w_index in w_to_increment.iter().cloned() {
+                w_slice[w_index.as_usize()] += plasticity;
+            }
+            w_to_increment.clear();
+            w_to_increment
+        },|mut w_to_increment,idx|{
+            w_to_increment.push(idx);
+            w_to_increment
+        })
+    }
+    fn sparse_biased_increment<D:Copy+AddAssign>(&self, w_slice:&mut [D], epsilon:D, input: &CpuSDR, output: &CpuSDR){
+        self.sparse_broadcast(input,output,(),|_,_|(),|(),idx|w_slice[idx.as_usize()]+=epsilon)
+    }
+
 }
 
-impl ConvShapeTrait for ConvShape{
+impl ConvShapeTrait for ConvShape {
     fn out_shape(&self) -> &[Idx; 3] {
         &self.output_shape
     }
@@ -121,10 +163,10 @@ impl ConvShape {
             stride: [1; 2],
         }
     }
-    pub fn new_linear(input: Idx, output:Idx) -> Self {
+    pub fn new_linear(input: Idx, output: Idx) -> Self {
         Self {
-            input_shape: from_xyz(1,1,input),
-            output_shape: from_xyz(1,1,output),
+            input_shape: from_xyz(1, 1, input),
+            output_shape: from_xyz(1, 1, output),
             kernel: [1; 2],
             stride: [1; 2],
         }
@@ -198,11 +240,13 @@ impl ConvShape {
         w_idx(self.out_shape().idx(*output_pos), self.idx_within_kernel(input_pos, output_pos), self.out_volume())
     }
 }
-pub trait HasShape{
-    fn shape(&self)->&[Idx;3];
+
+pub trait HasShape {
+    fn shape(&self) -> &[Idx; 3];
 }
-pub trait HasConvShape:HasShape {
-    fn cshape(&self) ->&ConvShape;
+
+pub trait HasConvShape: HasShape {
+    fn cshape(&self) -> &ConvShape;
 
     fn out_shape(&self) -> &[Idx; 3] {
         self.cshape().out_shape()
@@ -280,10 +324,18 @@ pub trait HasConvShape:HasShape {
     fn w_index(&self, input_pos: &[Idx; 3], output_pos: &[Idx; 3]) -> Idx {
         self.cshape().w_index(input_pos, output_pos)
     }
+    fn out_range(&self, input_pos: &[Idx; 2]) -> Range<[Idx; 2]>{
+        self.cshape().out_range(input_pos)
+    }
+    fn sparse_broadcast<V>(&self, input: &CpuSDR, output: &CpuSDR,value:V,
+                        mut kernel_column_finished:impl FnMut(V,Idx)->V,
+                        mut target:impl FnMut(V,Idx)->V){
+        self.cshape().sparse_broadcast(input,output,value,kernel_column_finished,target)
+    }
 }
 
 pub trait HasConvShapeMut: HasConvShape {
-    fn cshape_mut(&mut self) ->&mut ConvShape;
+    fn cshape_mut(&mut self) -> &mut ConvShape;
     fn set_stride(&mut self, new_stride: [Idx; 2]) {
         self.cshape_mut().set_stride(new_stride)
     }

@@ -1,4 +1,4 @@
-\title{Sparse neural networks of exclusive coincidence classes}
+\title{Sparse binary Winner-Takes-All neural networks of exclusive coincidence classes}
 \author{Aleksander Mendoza}
 
 \documentclass[12pt]{article}
@@ -16,11 +16,14 @@
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{tikzit}
+\usepackage[hidelinks]{hyperref}
 \usepackage{tabularx}
 \usepackage{enumitem}
 \input{style.tikzstyles}
+\def\MakeUppercaseUnsupportedInPdfStrings{\scshape}
 \DeclareMathOperator*{\argmax}{argmax}
 \DeclareMathOperator*{\argmin}{argmin}
+\DeclareMathOperator*{\hot}{hot}
 \newtheorem{definition}{Definition}
 \newtheorem{theorem}{Theorem}[section]
 \newtheorem{corollary}{Corollary}[theorem]
@@ -168,7 +171,7 @@ Now we can include $\boldsymbol{a}$ in the computation of $k$.
 \[k = \argmax_j r_j \]
 The final algorithm looks as follows
 \begin{lstlisting}
-def infer($\boldsymbol{x}$,$W$,$\boldsymbol{a}$,learning_enabled):
+def infer($\boldsymbol{x}$,$W$,$\boldsymbol{a}$):
     $\boldsymbol{s}$ = $\boldsymbol{x}W$
     $\boldsymbol{r}$ = $\boldsymbol{s} + \boldsymbol{a}$
     $k$ = argmax($\boldsymbol{r}$)
@@ -203,7 +206,7 @@ where $p(\boldsymbol{x}|y_j)$ are vectors and $p(y_j)$ are scalars with the cons
 p(\boldsymbol{x})\approx\sum_{j} q(\boldsymbol{x}|y_j) p(y_j)
 \]
 Such density function is parameterised using weight matrix $W$.
-\paragraph{Interpretations of $W$ matrix}  It is possible to turn an ECC network ``upside-down'' and use it as a generative model.
+\paragraph{Interpretations of $W$ matrix}\label{par:generate_function}  It is possible to turn an ECC network ``upside-down'' and use it as a generative model.
 \begin{lstlisting}
 def generate(c, W, j):
     $\boldsymbol{x}$ = [0, 0, ... , 0] // n zeroes
@@ -353,33 +356,6 @@ The difference between k-means and \texttt{infer} is the same as that between on
 	\caption{Results of learning on randomly generated data $\bar{p}$ with $\epsilon=0.01$ (top) and $\epsilon=1$ (bottom). The horizontal axis in all graphs refers to time-step $t$. $\mathbb{E}(s_k)$ shows that match $s_k=\boldsymbol{x}W_k$ gets better over time. $\lVert c W_j - \mathbb{E}(\boldsymbol{x}|y_j)\rVert_2$ shows that $W_j$ converges to $\mu(y_j)$. $D_{KL}$ is Kullback-Leibler divergence between $\bar{p}$ and $q$.}
 	\label{fig:k_means}
 \end{figure} 
-
-\paragraph{\texttt{infer} and \texttt{generate} define two different models of $q(\boldsymbol{x})$}
-We will now consider two models $q_g$ and $q_i$, first one according to \texttt{generate} and other defined by \texttt{infer}. The probability $q_g$ is modelled as before
-\[
-q_g(\boldsymbol{x}) = \sum_{j=1}^{m} q(\boldsymbol{x}|y_j)p(y_j)
-\]
-We know that \texttt{infer} function will assign each $\boldsymbol{x}$ only to its respective cluster $C(y_j)$. As a result the true joint probability (not the one modelled by \texttt{generate}) is
-\[
-q_i(\boldsymbol{x},y_j) = 0 \text{ when } \boldsymbol{x}\notin C(y_j)
-\]
-Therefore we can state $q_i$ as
-\[
-q_i(\boldsymbol{x}) = q(\boldsymbol{x}|y_k)p(y_k)\text{ where }\boldsymbol{x}\in C(y_k)
-\]
-Through learning, the two models should become approximately equal. In order to achieve such agreement, training  must increase $q(\boldsymbol{x}|y_k)$ and decrease all other $q(\boldsymbol{x}|y_j)$. 
-\begin{gather*}
-	q_g(\boldsymbol{x}) = 	\sum_{j=1}^{m} q(\boldsymbol{x}|y_j)p(y_j) \approx q(\boldsymbol{x}|y_k)p(y_k) = q_i(\boldsymbol{x}) \\
-	\sum_{j\ne k} q(\boldsymbol{x}|y_j)p(y_j) \approx 0 
-\end{gather*}
-Any algorithm that maximizes $\sum_{\boldsymbol{x}\in C(y_k)}q(\boldsymbol{x}|y_k)$ will automatically minimise $\sum_{\boldsymbol{x}\notin C(y_k)} q(\boldsymbol{x}|y_k)$  because probabilities sum up to $1$. If $\sum_{\boldsymbol{x}\notin C(y_j)} q(\boldsymbol{x}|y_j)$ decreases across all $y_j$ and $p(y_j)$ stay constant then the following sum decreases
-\[
-	\sum_{j} \sum_{\boldsymbol{x}\notin C(y_j)} q(\boldsymbol{x}|y_j) p(y_j) = \sum_{\boldsymbol{x}} \sum_{j\ne k}  q(\boldsymbol{x}|y_j) p(y_j) \text{ where }\boldsymbol{x}\in C(y_k)
-\]
-Therefore it can be seen that maximization of $\sum_{\boldsymbol{x}\in C(y_k)}q(\boldsymbol{x}|y_k)$ will push $q_g$ closer to $q_i$.  The maximal possible value is $1$.  The probabilities of each individual $q(\boldsymbol{x}|y_k)$ should be proportional to empirically sampled distribution $\bar{p}(\boldsymbol{x}|y_k)$
-\[
-q(\boldsymbol{x}|y_k) \approx \bar{p}(\boldsymbol{x}|y_k) = \frac{\bar{p}(\boldsymbol{x})}{\sum_{\boldsymbol{x}\in C(y_k)}\bar{p}(\boldsymbol{x})}
-\]
 
 
 \section{Convolutional networks}
@@ -560,6 +536,13 @@ Network topology is determined by its sequence of convolutions. Each layer is ch
 \end{figure} 
 
 
+\paragraph{Optimisations and efficiency benchmarks}
+Sparsity enables major optimisations. We can define ECC layers with thousands of neurons, leading to $W$ matrices with millions of weights. Computing them is cheap and can be done on a single CPU because the input vector is sparse and binary. We do not need to multiply $\boldsymbol{x}W$ entirely. If we represent $\boldsymbol{x}$ as a list of indices of active neurons, then we can only iterate such list and visit only a handful of columns in $W$. The $\argmax$ operation is linear. During learning we have to renormalise the winning column of $W$. This requires computing sum, which is of linear complexity. We can achieve constant complexity if we implement a stochastic algorithm, that is, we add $\epsilon$ to $w_{ik}$ for $x_i=1$ (this operation is constant because $\boldsymbol{x}$ is sparse) and then we randomly choose a few other $w_{ik}$ for $x_i=0$ and subtract $\epsilon$ from them. We might need to check if $w_{ik}>0$ in order to avoid introducing negative values. This ensures that weights always sum up to $1$.
+
+
+We ran benchmarks on random patches of MNIST images. Each patch was 25x25 pixels. The network had 734400 learnable parameters (and several non-learnable sparse matrices). Our implementation written in Rust was able to process 2000 images per second on a single thread on 2.7 GHz Intel i5 core. When learning was enabled, it could train on 1700 images per second.
+
+
 \paragraph{Universal approximation}
 
 ECC networks can approximate any $p(\boldsymbol{x})$ with only two layers. The first layer contains $2^n$ hidden neurons $\boldsymbol{y}$, one for every possible binary vector $\{0,1\}^n$. For every $\boldsymbol{x} \in \{0,1\}^n$, there exists $y_j$ such that the weights $W_j^{(\boldsymbol{y})}$ are uniformly distributed for all $x_i \in \boldsymbol{x}$ and zero everywhere else. The second layer $\boldsymbol{z}$ takes input from $\boldsymbol{y}$ and produces a single output $\boldsymbol{z}=[z_1]$. For every $y_j$ there exists a single weight $w_{j1}^{(\boldsymbol{z})}$ to $z_1$ whose value determines the probability $q(j|z_1)=p(y_j)$. 
@@ -637,7 +620,7 @@ Figure \ref{fig:lin_reg_over_sample_size} shows how the accuracy changes as the 
 	\label{fig:benchmarks_k}
 \end{figure} 
 
-\paragraph{Sparse connections (dropout)} All of our ECC networks so far have used weight matrices $W$ representing dense connection. The real neurons are not so well organised. A far more biologically-plausible model can be achieved by randomly setting certain weights in $W$ to zero forever (hebbian learning is not allowed to modify them). 
+\paragraph{Sparse connections (dropout)} All of our ECC networks so far have used weight matrices $W$ representing a dense connection pattern. The real neurons are not so well organised. A far more biologically-plausible model can be achieved by randomly setting certain weights in $W$ to zero forever (hebbian learning is not allowed to modify them). 
 Randomly dropping certain percentage of weights allows for building sparsely-connected networks where each neurons has access to only some fragment of the input. 
 
 When we subdivide a column into several subpopulations, each one of them will have access to the same fragment of input. By adding dropout, we can introduce enough bias to prevent all of the subpopulations from becoming identical. This allows for additional regularisation.
@@ -721,7 +704,7 @@ It should be noted that such expected value will be skewed more towards the $\bo
 
 
 
-\paragraph{Proof of convergence for k-means algorithm}
+\paragraph{Proof of convergence for k-means algorithm} \label{par:l2_proof}
 Every hidden node $y_j$ defines a cluster
 \[
 C(y_j) = \{\boldsymbol{x} : j=\argmax(\boldsymbol{x}W)\}
@@ -747,7 +730,7 @@ Second we show monotonicity when $C^{(t)}$ is updated to $C^{(t+1)}$
 The first inequality can be rewritten as 
 \[\sum_{j=1}^m \bar{p}(y_j)  \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_2} W_j^{(t)} \bar{p}(\boldsymbol{x}|y_j) \le \sum_{j=1}^m \bar{p}(y_j) \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_2} \mu^{(t)}(y_j) \bar{p}(\boldsymbol{x}|y_j)\] 
 which has already been proved to hold in one of our previous paragraphs.
-The second inequality holds, because the two clusters $C^{(t)}(y_j)$ and  $C^{(t+1)}(y_j)$ will differ only when there exists some $\boldsymbol{x}\in C^{(t)}(y_j)$ such that there is some other $y_h$ for which $\boldsymbol{x}W_h \ge \boldsymbol{x} W_j$. This implies that the total sum over all clusters cannot decrease.
+The second inequality holds, because any two clusters $C^{(t)}(y_j)$ and  $C^{(t+1)}(y_j)$ will differ only when there exists some $\boldsymbol{x}\in C^{(t)}(y_j)$ such that there is some other $y_h$ for which $\boldsymbol{x}W_h \ge \boldsymbol{x} W_j$. This implies that the total sum over all clusters cannot decrease.
 
 \paragraph{K-means with entropy maximisation}
 The inequality holds
@@ -804,20 +787,34 @@ The multiplication $a_j \bar{p}(y_j)$ has an elegant interpretation. Suppose tha
 The multiplication $W_ja_j$ could be interpreted as encoding direction $W_j$ and magnitude $a_j$ of any (positive) real vector. 
 
 \paragraph{Updated \texttt{infer} algorithm} The procedure for running ECC network may now be restated as follows
-
 \begin{lstlisting}
-def infer2($\boldsymbol{x}$,$W$,$\boldsymbol{a}$,learning_enabled):
-    if $\lVert\boldsymbol{x}\rVert_2$ $\le$ threshold:
+def infer$_{(u,\diamond)}$($\boldsymbol{x}$,$W$,$\boldsymbol{a}$):
+    if $\lVert\boldsymbol{x}\rVert_u$ $\le$ threshold:
         pass    // filter-out noise/empty input
-    $\boldsymbol{s}$ = $\boldsymbol{x}W$
-    $\boldsymbol{r}$ = $\boldsymbol{s} \circ \boldsymbol{a}$
+    if biased: $\boldsymbol{s}$ = $\boldsymbol{x}W$
+    else: $\boldsymbol{s}$ = $\frac{\boldsymbol{x}}{\lVert\boldsymbol{x}\rVert_u}W$
+    $\boldsymbol{r}$ = $\boldsymbol{s} \diamond \boldsymbol{a}$
     $k$ = argmax($\boldsymbol{r}$)
     if learning_enabled:
-        $a_k$ = $a_k\alpha$
-        $W_k$ = $W_k+\frac{\boldsymbol{x}}{\lVert\boldsymbol{x}\rVert_2}\epsilon$
-        $W_k$ = $W_k$ / $\lVert W_k \rVert_2$
+        update_activity($\boldsymbol{a}$, $k$)
+        $W_k$ = $W_k+\frac{\boldsymbol{x}}{\lVert\boldsymbol{x}\rVert_u}\epsilon$
+        $W_k$ = $W_k$ / $\lVert W_k \rVert_u$
     return $k$
 \end{lstlisting}
+The diamond operation $\diamond$ could be either addition $+$ or Hadamard multiplication $\circ$. The $u$ constant corresponds to $\ell_u$ norm.  
+Convergence proofs hold regardless of whether $\boldsymbol{s}$ is \texttt{biased} or not. In some cases (like \texttt{infer}$_{(2,\circ)}$ or when no $\boldsymbol{a}$ is used at all) there is no difference between biased and unbiased $\boldsymbol{s}$, as both produce the same $\argmax \boldsymbol{r}$ result. Activity $\boldsymbol{a}$ may need to be updated in different ways depending on choice of $\diamond$ operation. If $\diamond=+$ then \texttt{update\_activity} is $a_k=a_k+\alpha$ where $\alpha$ is some constant. The initial $\boldsymbol{a}$ doesn't matter. If $\diamond=\circ$ then                                                                                                                                                                       
+
+TODO: explain multiplicative entropy
+
+Figure \ref{fig:benchmarks_l_bias_entropy_lr} presents benchmarks comparing how fitness function evolves over time for different variations of \texttt{infer} procedure.
+
+\begin{figure}[!htbp]
+	\centering
+	\includegraphics[width=13.8cm]{benchmarks_l_bias_entropy_lr}
+	\caption{Comparison of \texttt{infer} implementations. The x axis in all graphs represents $100$ time steps (so there are $10000$ invocations of \texttt{infer} in total). The y axis represents unbiased fitness $\sum_{j}\sum_{\boldsymbol{x}\in C(y_j)} \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_u} W_j p(\boldsymbol{x})$ without $\boldsymbol{a}$. In cases when \texttt{biased} is $1$, we normalise $s_k$ by $\lVert \boldsymbol{x} \rVert_u$. This way we can reliably compare all implementations of \texttt{biased} and $\diamond$ that use the same norm. If the norms differ, then the values of fitness functions won't be easily comparable. Therefore we present the two norms in separate graphs.}
+	\label{fig:benchmarks_l_bias_entropy_lr}
+\end{figure}
+
 
 \paragraph{Convergence of entropy maximisation}
 
@@ -829,35 +826,8 @@ For simplicity let us assume that each $s_j$ is normally distributed $s_j\sim \m
 \[
 \prod_{j=1}^{m}p(s_k \ge  s_j) = \prod_{j=1}^{m}p(s_k \ge  s_j)
 \]
-\paragraph{Similarities between ECC and SVD}
 
-The distribution $q(\boldsymbol{x})$ is modelled as a sum
-\[
-q(\boldsymbol{x}) = \sum_{j=1}^{m}q(\boldsymbol{x}|y_j)p(y_j)  = \sum_{j=1}^{m}\big(\prod_{i=1}^n q(x_i|y_j)\big)p(y_j) 
-\]
-Such factorization is motivated by the assumption that the external world has many latent causes $y_j$, and every one of them produces noisy observations $x_i$. The real world could potentially be approximated using trillions of latent causes, each one corresponding to some state of the world and objects in it. 
-
-Many of the latent causes will produce similar or nearly identical observations. Could we exploit those similarities and compress our model (so that $m$ is as small as possible)? 
-
-One way to reduce the number of $y$'s is by adding two (or more) of them as follows
-\[
-q(\boldsymbol{x}|y_1) p(y_1)+q(\boldsymbol{x}|y_2) p(y_2) = 
-q(\boldsymbol{x}|y_1\text{ or }y_2) (p(y_1)+p(y_2))
-\]
-but storing $q(\boldsymbol{x}|y_1\text{ or }y_2)$ directly is impossible, because $W$ can only be used to represent mutually independent bits $x_i$. 
-\begin{gather*}
-	q(x_i|y_1) p(y_1)+q(x_i|y_2) p(y_2) = c(w_{i1}p(y_1) +w_{i2}p(y_2))  \\
-	q(\boldsymbol{x}|y_1) p(y_1)+q(\boldsymbol{x}|y_2) p(y_2) \ne c(W_1p(y_1) +W_2p(y_2)) 
-\end{gather*}
-\underline{Hypothesis:} Perhaps there might be some way to reformulate certain aspects of linear algebra in a space of probability distributions 
-\[p(\boldsymbol{x})\in \mathbb{R}^{2^n} \text{ such that } \lVert p(\boldsymbol{x}) \rVert_1=1\]
-The task of reducing $m$ has certain similarities to matrix compression by performing SVD and truncating least significant eigenvalues. The receptive fields $p(\boldsymbol{x}|y_j)$ learned by neurons could be thought of as ``eigendistributions'' because they play analogical role to eigenvectors, i.e. every $p(\boldsymbol{x})$ is (approximately) a linear combination of eigendistributions $p(\boldsymbol{x}|y_j)$. The equality 
-\[
-\frac{q(\boldsymbol{x}|y_1;W_1) p(y_1)+q(\boldsymbol{x}|y_2;W_2) p(y_2)}{p(y_1)+p(y_2)} = 
-q\big(\boldsymbol{x}|y_1\text{ or }y_2;\frac{W_1p(y_1) +W_2p(y_2)}{p(y_1)+p(y_2)}\big) 
-\]
-would hold only when $p(\boldsymbol{x},y_1)$ and $p(\boldsymbol{x},y_2)$ are colinear. If they are only approximately colinear, then the sum of $W_1$ and $W_2$ should still produce good approximation to $q(\boldsymbol{x}|y_1\text{ or }y_2)$. It looks like SVD, except that instead of truncating least significant eigenvalues, we cluster eigenvectors together by their similarity and then average them, producing $\mathbb{E}(\boldsymbol{x}|y_1\text{ or }y_2)$. The clustering algorithm implemented by ECC has some similarities to k-means.
-
+TODO: add proof here
 
 \paragraph{Benchmark comparison}
 Figure \ref{fig:benchmarks_l2} presents benchmarks that compares MNIST accuracy of networks trained with $\ell_1$ and $\ell_2$ norms. 
@@ -869,12 +839,399 @@ Figure \ref{fig:benchmarks_l2} presents benchmarks that compares MNIST accuracy 
 \end{figure}
 The results are not significantly different. In some rows $\ell_1$ slightly outperforms $\ell_2$, whereas in others the opposite holds. The only difference is that formal proof  of convergence exists for $\ell_2$, while the same cannot be said about $\ell_1$.
 Both metrics seem to converge in empirical benchmarks nonetheless. This result suggests that the exact normalisation strategy is not important, as long as the weights are constrained in some way. It should be sufficient for biological neurons to only perform some approximation of this process. 
+
+
+\section{Alternative model with $\ell_1$ norm}
+
+The proof of convergence for $\ell_2$ norm works, because the expected value $\frac{1}{2 \lambda}\mathbb{E}(\boldsymbol{x})$ maximizes inner product $\boldsymbol{x}W$.
+The same does not hold for $\ell_1$ norm. Therefore a modification of \texttt{infer} procedure is necessary.
+
+\paragraph{One-hot vector maximizes $\boldsymbol{x}W$}
+We wish to maximise the expected value of $\boldsymbol{x}W_j$ 
+\[
+\sum_{\boldsymbol{x}\in C(y_j)} \boldsymbol{x} W_j \bar{p}(\boldsymbol{x}|y_j) \text{ where } \lVert W_j \rVert_1=1
+\]
+sampled according to some distribution $\bar{p}(\boldsymbol{x}|y_j)$ from a given set $\boldsymbol{x}\in C(y_j)$.  The sum can be rewritten as
+\[
+\sum_{\boldsymbol{x}\in C(y_j)} \boldsymbol{x} W_j \bar{p}(\boldsymbol{x}|y_j) = \mathbb{E}_{\bar{p}}(\boldsymbol{x} W_j|y_j) = \mathbb{E}_{\bar{p}}(\boldsymbol{x}|y_j)W_j
+\]
+because $\mathbb{E}$ is a linear operator. The value of $\mathbb{E}_{\bar{p}}(\boldsymbol{x}|y_j)$ is some real vector $\mathbb{R}^n$.  It can be observed that $\mathbb{E}_{\bar{p}}(\boldsymbol{x}|y_j)W_j$ is maximised when $W_j$ is a one-hot vector with $w_{ij}=1$ for $i$ where $p(x_i|y_j)$ is maximal. 
+
+\paragraph{Generalized $a_j$-hot vector maximizes $\boldsymbol{x}W$}
+The result above can be generalised for $\lVert W_j \rVert_1 = a_j$ where $a_j$ is any positive constant, not just $1$. When $a_j=1$, then we have a guarantee that $w_{ij}\le 1$ for all $i$. Hence our original definition of $W_j$ was a real vector $W_j\in \mathbb{R}^n$, but implicitly it was only $W_j\in [0,1]^n$. 
+
+When $a_j\ne 1$, then we must be explicit and state exactly the allowed range of values for $w_{ij}$. Let us consider a scenario where $a_j\in\mathbb{N}^+$ and $W_j\in [0,1]^n$, then the value of $W_j$ that maximizes $\mathbb{E}_{\bar{p}}(\boldsymbol{x}|y_j)W_j$ is an $a_j$-hot vector with $w_{ij}=1$ for all $i$ such that $p(x_i|y_j)$ is among the top $a_j$ highest probabilities. 
+
+If $a_j\in\mathbb{R}^+$ and $W_j\in [0,1]^n$ then we can maximise $\mathbb{E}_{\bar{p}}(\boldsymbol{x}|y_j)W_j$ using similar strategy. First we find the $\lfloor a_j \rfloor$ highest values $p(x_i|y_j)$ and assign $w_{ij}=1$ for all those $i$. Lastly we find the $\lfloor a_j \rfloor+1$ highest value of $p(x_i|y_j)$ and assign the remaining fractional value to $w_{ij}=a_j - \lfloor a_j \rfloor$. 
+
+For example let 
+\[
+\mathbb{E}_{\bar{p}}(\boldsymbol{x}|y_j) = [0.2,0.3,0.8,0.7,0.4]
+\]
+If $a_j=3$ then maximal $\mathbb{E}_{\bar{p}}(\boldsymbol{x}|y_j)W_j$ is obtained for 
+\[
+W_j=[0,0,1,1,1]
+\]
+If $a_j=2.3$ then maximum is at
+\[
+W_j=[0,0,1,1,0.3]
+\]
+\paragraph{Using $a_j$ as $W_j$ length}
+All of the algorithms investigated so far achieved entropy maximisation by adding or multiplying $\boldsymbol{a}$ with $\boldsymbol{s}$. In the latter case, we could interpret $\boldsymbol{s}\circ \boldsymbol{a}=\boldsymbol{x}W\circ \boldsymbol{a}$ as encoding the direction  $W_j$ and  magnitude $a_j$ of some real vector $W_j a_j$.
+We could achieve the same result in a different way. Originally we assumed that the norm $\lVert W_j \rVert_u$ is always equal to $1$. What if we instead agreed that $\lVert W_j \rVert_u=a_j$? Then nothing would change in the case of $\ell_2$, but for $\ell_1$ the weights $w_j$ would become $a_j$-hot vectors. 
+
+\paragraph{Proof of convergence for $\ell_1$ norm} \label{par:l1_proof} Suppose that $W_j \in [0,1]^n$ with length $\lVert W_j \rVert_1 = a_j$ where $a_j>0$ is some constant.
+Every hidden node $y_j$ defines a cluster
+\[
+C(y_j) = \{\boldsymbol{x} : j=\argmax(\boldsymbol{x}W)\}
+\]
+The (unbiased) mean of the cluster is defined as
+\[
+\mu(y_j) = \sum_{\boldsymbol{x}\in C(y_j)} \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_1} W_j \bar{p}(\boldsymbol{x}|y_j)
+\]
+K-means algorithm works iteratively by collecting $C^{(t)}(y_j)$ at time-step $t$ for all $y_j$, then computing its mean $\mu^{(t)}(y_j)$. Unlike previously, we do \textbf{not} assign $\mu^{(t)}(y_j)$ as the new value of $W_j$
+\[
+W_j^{(t+1)} \ne \frac{\mu^{(t)}(y_j)}{\lVert \mu^{(t)}(y_j) \rVert_1}
+\]
+Instead we build $a_j$-hot vector as it has been discussed in previous paragraphs.
+\[
+W_j^{(t+1)} = a_j\text{-hot}(\mu^{(t)}(y_j))
+\]
+The updated weights are then used to obtain new clustering $C^{(t+1)}(y_j)$. This process loops until $C^{(t)}(y_j)=C^{(t+1)}(y_j)$ for all $y_j$. 
+
+To show that convergence is guaranteed let us define a fitness function
+\[
+\mathcal{L}^{(t)} = \sum_{j=1}^m \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_1} W_j^{(t)} \bar{p}(\boldsymbol{x})
+\] 
+This function is bounded from above by $1$. We can show that it is monotonously non-decreasing. The proof is done in two steps. First we show inequality when $W_j^{(t)}$  is replaced by $W_j^{(t+1)}$
+\[\mathcal{L}^{(t)}= \sum_{j=1}^m \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_1} W_j^{(t)} \bar{p}(\boldsymbol{x}) \le \sum_{j=1}^m \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_1} W_j^{(t+1)} \bar{p}(\boldsymbol{x})\] 
+Second we show monotonicity when $C^{(t)}$ is updated to $C^{(t+1)}$
+\[\sum_{j=1}^m \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_1} W_j^{(t+1)} \bar{p}(\boldsymbol{x}) \le \sum_{j=1}^m \sum_{\boldsymbol{x}\in C^{(t+1)}(y_j)} \frac{\boldsymbol{x}}{\lVert \boldsymbol{x} \rVert_1} W_j^{(t+1)} \bar{p}(\boldsymbol{x})=\mathcal{L}^{(t+1)}\] 
+The first inequality holds because $a_j$-hot vector maximizes inner product $\boldsymbol{x}W_j$ (or normalized inner product $\frac{\boldsymbol{x}}{\lVert\boldsymbol{x}\rVert_1}W_j$ in the unbiased case). 
+The second inequality holds, because any two clusters $C^{(t)}(y_j)$ and  $C^{(t+1)}(y_j)$ will differ only when there exists some $\boldsymbol{x}\in C^{(t)}(y_j)$ such that there is some other $y_h$ for which $\boldsymbol{x}W_h \ge \boldsymbol{x} W_j$. This implies that the total sum over all clusters cannot decrease.
+
+An analogical proof could be formulated in the case of biased  means.
+
+\paragraph{Inference procedure}
+Computing $a_j$-hot vectors is an $O(na_j)$ operation that requires access to the unknown $p(x_i|y_j)$ distribution. An online learning procedure could approximate $q(x_i|y_j)$  by keeping an empirically observed $\mathbb{E}(\boldsymbol{x}|y_j)$. Normalized value of such expectation is (as before)
+\[
+\frac{\mathbb{E}(\boldsymbol{x}|y_j)}{\lVert \mathbb{E}(\boldsymbol{x}|y_j) \rVert_1} = q(i|y_j)
+\]
+Let us use matrix $Q$ to store our estimated distribution $q(i|y_j)$. This leads to the following procedure
+\begin{lstlisting}
+def infer$_{1}$($\boldsymbol{x}$,$Q$,$W$,$\boldsymbol{a}$):
+    if $\lVert\boldsymbol{x}\rVert_1$ $\le$ threshold:
+        pass    // filter-out noise/empty input
+    $k$ = argmax($\boldsymbol{x}W$)
+    if learning_enabled:
+        $Q_k$ = $Q_k+\frac{\boldsymbol{x}}{\lVert\boldsymbol{x}\rVert_1}\epsilon$
+        $Q_k$ = $Q_k$ / $\lVert Q_k\rVert_1$
+        $W_k$ = $a_k$-hot($Q_k$)
+    return $k$
+\end{lstlisting}
+Notice that $\boldsymbol{r}$ and \texttt{biased} are redundant and have been omitted, whereas $\boldsymbol{a}$ is no longer being mutated.
+
+The most expensive operation is $a_k$-hot($Q_k$). If $a_k$ is a natural number then certain optimisations can be made. We could introduce a special threshold $h_{k}$ and define $W_k = Q_k>h_k$ as a binary vector such that $w_{ik}=1$ if $q(i|y_j)>h_k$ and $w_{ik}=0$ otherwise. Such definition does not make any guarantees in regards to cardinality $\lVert W_k \rVert_1$. We could converge to $\lVert W_k \rVert_1=a_k$ over time if we decrement $h_k$ when $\lVert W_k \rVert_1>a_k$ and increment when $\lVert W_k \rVert_1<a_k$.
+
+It is possible to entirely omit $a_k$ and keep the threshold $h_k$ constant.  Interestingly such optimisation leads to the emergence of an algorithm similar to HTM (hierarchical temporal memory) networks introduced by Jeff Hawkins. Hence it could be stated that HTM is a special case of ECC network. Our theoretical framework provides a principled approach for analysing HTM and finding new (potentially better) models.
+
+
+\section{Higher-order eigendistributions}
+
+The following section attempts to build a unified and abstract theory that encompasses proofs and results obtained for both $\ell_1$ and $\ell_2$ norms (and possibly all others as well).
+
+
+\paragraph{Formal definition of (first-order) ECC network}
+Let us formally define ECC as a tuple $(Q,D_W,u,C,\boldsymbol{a})$. Matrix $Q\in \mathbb{R}^{n\times m}$ stores values of $q(x_i|y_j)$. Set $D_W$ specifies the domain of weight matrix $W\in D_W^{n \times m}$. Constant $u$ defines some norm $\ell_u$.  Vector $\boldsymbol{a}$ imposes length constraint on $\lVert W_j \rVert_u=a_j$. Set $C$ defines some partitioning (clustering) of input space $\boldsymbol{x}\in \{0,1\}^n$ into $m$ non-overlapping subsets $C(y_j) $.
+Weights $W$ are defined as
+\begin{gather*}
+	W_j = \argmax_{W_j\in D_W^{n}} \mathbb{E}_p(\boldsymbol{x}W_j|y_j)\text{ where } \lVert W_j \rVert_u=a_j \\
+	\mathbb{E}_p(\boldsymbol{x}W_j|y_j) = \sum_{\boldsymbol{x}\in C(y_j)}\boldsymbol{x}W_jp(\boldsymbol{x}|y_j) \\ 
+	p(\boldsymbol{x}|y_j) = \frac{p(\boldsymbol{x},y_j)}{p(y_j)} \\
+	p(y_j) =  \sum_{\boldsymbol{x}\in \{0,1\}^n}p(\boldsymbol{x},y_j)
+\end{gather*}
+The clustering assigns every $\boldsymbol{x}$ to its respective $C(y_j)$. Therefore 
+\[
+p(\boldsymbol{x},y_j) = \begin{cases}
+	p(\boldsymbol{x}) & \boldsymbol{x} \in C(y_j) \\
+	0 & \boldsymbol{x} \in C(y_j)
+\end{cases}
+\]
+As a result we can simplify $p(\boldsymbol{x}|y_j)$ and $p(y_j)$ to
+\begin{gather*}
+p(\boldsymbol{x}|y_j) = \frac{p(\boldsymbol{x})}{p(y_j)} \\
+p(y_j) =  \sum_{\boldsymbol{x}\in C(y_j)}p(\boldsymbol{x})
+\end{gather*}
+The distribution $p(\boldsymbol{x}|y_j)$ is not known and the exact $W_j$ cannot be computed. Instead, ECC network attempts to approximate $p$ using $q$ 
+\[
+p(\boldsymbol{x}|y_j) \approx q(\boldsymbol{x}|y_j)
+\]
+First-order ECC networks model the distribution $q$ using the matrix $Q$. 
+Under the assumption that all bits $q(x_i|y_j)$ are mutually independent random variables we obtain
+\[
+q(\boldsymbol{x}|y_j) = \prod_{i=1}^n q(x_i|y_j)
+\]
+In the case of $\ell_1$ and $\ell_2$, it is possible to compute $W_j$ using only  $Q$ and without having to model $q(\boldsymbol{x}|y_j)$ directly (convergence proofs work even without assuming mutual independence of $x_i$ bits).
+
+\paragraph{Learning is achieved by maximising $q(\boldsymbol{x}|y_k)$}
+The probability $q(\boldsymbol{x})$ is modelled as
+\[
+q(\boldsymbol{x}) = \sum_{j=1}^{m} q(\boldsymbol{x}|y_j)p(y_j)
+\]
+We can find good approximation $q(\boldsymbol{x})\approx p(\boldsymbol{x})$, by ensuring that $q(\boldsymbol{x}|y_j)\approx p(\boldsymbol{x}|y_j)$. 
+\begin{gather*}
+	q(\boldsymbol{x}) \approx p(\boldsymbol{x}) \\
+	\sum_{j=1}^{m} q(\boldsymbol{x}|y_j)p(y_j) \approx \sum_{j=1}^{m} p(\boldsymbol{x}|y_j)p(y_j) \\
+	\sum_{j=1}^{m} q(\boldsymbol{x}|y_j)p(y_j)  \approx p(\boldsymbol{x}|y_k)p(y_k) \text{ where }\boldsymbol{x}\in C(y_k)
+\end{gather*}
+By subtracting $p(\boldsymbol{x}|y_k)p(y_k)$ from both sides, it implies that $ q(\boldsymbol{x}|y_j)$ should be minimised for all $j$ such that $\boldsymbol{x}\notin C(y_j)$
+\[
+	\sum_{j\ne k} q(\boldsymbol{x}|y_j)p(y_j) \approx 0 
+\]
+Minimisation of $q(\boldsymbol{x}|y_k)$ for $\boldsymbol{x}\notin C(y_k)$ is equivalent to maximization of $\sum_{\boldsymbol{x}\in C(y_k)}q(\boldsymbol{x}|y_k)$ because probabilities sum up to $1$. 
+\[
+\sum_{\boldsymbol{x}\in\{0,1\}^n} \sum_{j=1}^{m} q(\boldsymbol{x}|y_j)p(y_j) = 1
+\]
+If $\sum_{\boldsymbol{x}\notin C(y_j)} q(\boldsymbol{x}|y_j)$ decreases across all $y_j$ and $p(y_j)$ stay constant then the following sum decreases
+\[
+\sum_{j} \sum_{\boldsymbol{x}\notin C(y_j)} q(\boldsymbol{x}|y_j) p(y_j) = \sum_{\boldsymbol{x}} \sum_{j\ne k}  q(\boldsymbol{x}|y_j) p(y_j) \text{ where }\boldsymbol{x}\in C(y_k)
+\]
+Therefore it can be seen that maximization of $\sum_{\boldsymbol{x}\in C(y_k)}q(\boldsymbol{x}|y_k)$ will push $q$ closer to $p$. This observation is fortunate, because Hebbian learning rules strengthen connections to those $\boldsymbol{x}$ that cause $y_j$ to fire.
+
+\paragraph{Clustering problem measured with overlap}
+We can measure quality of cluster $C(y_j)$ as the expected overlap $\langle \boldsymbol{x}, \boldsymbol{x}'\rangle$ (number of $1$ bits in common) of two binary vectors  randomly drawn from the distribution $p(\boldsymbol{x}|y_j)$.
+\[
+\mathbb{E}_p(\langle \boldsymbol{x}, \boldsymbol{x}'\rangle|y_j) = \sum_{\boldsymbol{x},\boldsymbol{x}'\in C(y_j)} \langle \boldsymbol{x}, \boldsymbol{x}'\rangle p(\boldsymbol{x}|y_j)p(\boldsymbol{x}'|y_j)
+\]
+The expectation of any two vectors overlapping in a specific bit $x_i$ is given by
+\begin{gather*}
+p(x_i|y_j) = \sum_{\substack{\boldsymbol{x}\in C(y_j)\\x_i=1}} p(\boldsymbol{x}|y_j)	= \sum_{\boldsymbol{x}\in C(y_j)} x_i p(\boldsymbol{x}|y_j)	= \mathbb{E}(x_i|y_j)\\
+\mathbb{E}_p(x_i x_i' | y_j) = \sum_{\boldsymbol{x},\boldsymbol{x}'\in C(y_j)}  x_i x_i' p(\boldsymbol{x}|y_j)p(\boldsymbol{x}'|y_j) = 	\sum_{\substack{\boldsymbol{x},\boldsymbol{x}'\in C(y_j) \\ x_i=x_i'=1}} p(\boldsymbol{x}|y_j)p(\boldsymbol{x}'|y_j) = \\
+= \sum_{\substack{\boldsymbol{x}\in C(y_j) \\ x_i=1}} p(\boldsymbol{x}|y_j) \sum_{\substack{\boldsymbol{x}'\in C(y_j) \\ x_i'=1}} p(\boldsymbol{x}'|y_j) = 
+\sum_{\substack{\boldsymbol{x}\in C(y_j) \\ x_i=1}} p(\boldsymbol{x}|y_j) \mathbb{E}(x_i'|y_j)= \\
+= \mathbb{E}(x_i'|y_j) \sum_{\substack{\boldsymbol{x}\in C(y_j) \\ x_i=1}} p(\boldsymbol{x}|y_j) = \mathbb{E}(x_i'|y_j) \mathbb{E}(x_i|y_j) = \mathbb{E}(x_i|y_j)^2
+\end{gather*}
+Therefore the expected value of overlap can be rewritten as  
+\begin{gather*}
+\mathbb{E}_p(\langle \boldsymbol{x}, \boldsymbol{x}'\rangle|y_j) =  \sum_{\boldsymbol{x},\boldsymbol{x}'\in C(y_j)} \big(\sum_{i=1}^n x_i x_i'\big)  p(\boldsymbol{x}|y_j)p(\boldsymbol{x}'|y_j) = \\
+= \sum_{i=1}^n \sum_{\boldsymbol{x},\boldsymbol{x}'\in C(y_j)}  x_i x_i'  p(\boldsymbol{x}|y_j)p(\boldsymbol{x}'|y_j) = \sum_{i=1}^n \mathbb{E}(x_i|y_j)^2 = \lVert \mathbb{E}(\boldsymbol{x}|y_j) \rVert_2^2
+\end{gather*}
+\paragraph{Clustering problem measured as difference in bits}
+Another  quality indicator for a cluster is the expected Manhattan distance $\lVert \boldsymbol{x} - \boldsymbol{x}' \rVert_1$ (number of differing bits)
+\[
+\mathbb{E}_p(\lVert \boldsymbol{x} - \boldsymbol{x}' \rVert_1|y_j) = \sum_{\boldsymbol{x},\boldsymbol{x}'\in C(y_j)} \lVert \boldsymbol{x} - \boldsymbol{x}' \rVert_1 p(\boldsymbol{x}|y_j)p(\boldsymbol{x}'|y_j)
+\]
+The expectation of any two vectors disagreeing at a specific bit $x_i$ is given by
+\begin{gather*}
+	\mathbb{E}_p(|x_i - x_i'| | y_j)  = \mathbb{E}_p(x_i \ne x_i' | y_j) = 1 - \mathbb{E}_p(x_i = x_i' | y_j) \\
+	\mathbb{E}_p(x_i = x_i' | y_j) =	\sum_{\substack{\boldsymbol{x},\boldsymbol{x}'\in C(y_j) \\ x_i= x_i'}} p(\boldsymbol{x}|y_j)p(\boldsymbol{x}'|y_j) = \\
+    = \big( \sum_{\substack{\boldsymbol{x},\boldsymbol{x}'\in C(y_j) \\ x_i= x_i'=1}} p(\boldsymbol{x}|y_j)p(\boldsymbol{x}'|y_j)\big) + \big( \sum_{\substack{\boldsymbol{x},\boldsymbol{x}'\in C(y_j) \\ x_i= x_i'=0}} p(\boldsymbol{x}|y_j)p(\boldsymbol{x}'|y_j)\big) = \\
+    = \mathbb{E}(x_i=1|y_j)^2 + \mathbb{E}(x_i=0|y_j)^2  = \mathbb{E}(x_i|y_j)^2 + \big(1-\mathbb{E}(x_i|y_j)\big)^2 
+\end{gather*}
+Therefore the expected number of \textbf{agreeing} bits is 
+\begin{gather*}
+\mathbb{E}_p(n - \lVert \boldsymbol{x} - \boldsymbol{x}' \rVert_1|y_j) = 
+\sum_{i=1}^n \mathbb{E}_p(x_i = x_i' | y_j) = \\
+=  \sum_{i=1}^n \mathbb{E}(x_i|y_j)^2 + \big(1-\mathbb{E}(x_i|y_j)\big)^2 = \lVert \mathbb{E}(\boldsymbol{x}|y_j)\rVert_2^2 + \lVert \boldsymbol{1}-\mathbb{E}(\boldsymbol{x}|y_j)\rVert_2^2
+\end{gather*}
+\paragraph{Clustering problem measured with normalized overlap}
+Measuring expected overlap $\mathbb{E}(\langle \boldsymbol{x}, \boldsymbol{x}'\rangle|y_j)$ is highly sensitive to the cardinality of vectors. A more robust metric might be to use
+\begin{gather*}
+\mathbb{E}\big(\frac{\langle \boldsymbol{x}, \boldsymbol{x}'\rangle}{\lVert \boldsymbol{x}\cup \boldsymbol{x}' \rVert_1}\big|y_j\big) = \mathbb{E}\big(\frac{\langle \boldsymbol{x}, \boldsymbol{x}'\rangle}{\lVert \boldsymbol{x} \rVert_1 + \lVert \boldsymbol{x}' \rVert_1 - \lVert \boldsymbol{x}\cap \boldsymbol{x}' \rVert_1}\big|y_j\big) = \\
+\mathbb{E}\big(\frac{\langle \boldsymbol{x}, \boldsymbol{x}'\rangle}{\lVert \boldsymbol{x} \rVert_1 + \lVert \boldsymbol{x}' \rVert_1 - \langle \boldsymbol{x}, \boldsymbol{x}' \rangle}\big|y_j\big)  = \mathbb{E}\big(\frac{2 \langle \boldsymbol{x}, \boldsymbol{x}'\rangle}{\lVert \boldsymbol{x} \rVert_1 + \lVert \boldsymbol{x}' \rVert_1 + \lVert \boldsymbol{x}- \boldsymbol{x}' \rVert_1}\big|y_j\big) 
+\end{gather*}
+There is no simpler form of this expectation that could be rewritten without $\boldsymbol{x}'$.  The only way to simplify  it is by optimistically assuming that most inputs have approximately equal cardinality. ECC networks are designed to work with sparse binary vectors, hence such assumption is justified. As a result, the expression $\lVert \boldsymbol{x} \rVert_1 + \lVert \boldsymbol{x}' \rVert_1$ can be treated like a constant. Minimisation of $\lVert \boldsymbol{x}- \boldsymbol{x}' \rVert_1$ will cause maximisation of $\langle \boldsymbol{x}, \boldsymbol{x}'\rangle$. Denominator gets smaller, numerator larger and the expectation as a whole increases.
+
+\paragraph{Expected overlap and $Q$ matrix} 
+The expected overlap can be expressed in terms of the matrix $Q$
+\[
+\mathbb{E}(\langle \boldsymbol{x}, \boldsymbol{x}'\rangle|y_j) = \lVert \mathbb{E}(\boldsymbol{x}|y_j) \rVert_2^2 =  \lVert Q_j \rVert_2^2
+\]
+or as a dot product $\boldsymbol{x}Q$
+\begin{gather*}
+	\mathbb{E}_p(x_i x_i' | y_j) = 
+	\sum_{\substack{\boldsymbol{x}\in C(y_j) \\ x_i=1}} p(\boldsymbol{x}|y_j) \mathbb{E}(x_i'|y_j)= \mathbb{E}_p\big(x_i \mathbb{E}(x_i'|y_j) \big| y_j\big) = \mathbb{E}_p\big(x_i p(x_i|y_j) \big| y_j'\big)\\
+	\mathbb{E}_q(\langle \boldsymbol{x}, \boldsymbol{x}'\rangle|y_j) = \mathbb{E}(\boldsymbol{x} Q_j | y_j)
+\end{gather*}
+
+\paragraph{Zero-order ECC networks}
+In the first-order ECC network, we defined weights by finding $W_j$ that maximise product $\boldsymbol{x}W_j$
+\begin{gather*}
+	W_j = \argmax_{W_j\in D_W^{n}} \mathbb{E}_p(\boldsymbol{x}W_j|y_j)\text{ where } \lVert W_j \rVert_u=a_j
+\end{gather*}
+In zero-order ECC network we assume that $Q=W$. Then maximisation of $\boldsymbol{x}W$ is synonymous with maximisation of both $\boldsymbol{x}Q$ and $\mathbb{E}(\langle \boldsymbol{x}, \boldsymbol{x}'\rangle|y_j) $. 
+The implication holds trivially by equality
+\[
+\boldsymbol{x}W_j \le \boldsymbol{x}W_h  \implies  \boldsymbol{x}Q_j \le \boldsymbol{x}Q_h 
+\]
+Note that our very first definition of \texttt{infer} did indeed represent a zero-order ECC network. The latter definitions of \texttt{infer}$_{(u,\diamond)}$ represented first-order networks.
+
+\paragraph{Optimal clustering maximises $p(\boldsymbol{x}|y_k)$} 
+The effectiveness of neurons depends on their ability to maximise $q(\boldsymbol{x}|y_j)$ for all inputs that belong to a given cluster $\boldsymbol{x}\in C(y_j)$ and minimise $q(\boldsymbol{x}|y_j)$ for those that don't  $\boldsymbol{x}\notin C(y_k)$. In an ideal case $q(\boldsymbol{x}|y_j)$ would be $0$ for all $\boldsymbol{x}\notin C(y_j)$. 
+
+The $Q$ matrix is not capable of fitting every distribution $q(\boldsymbol{x}|y_k)$.
+If we assume that
+\[
+C(y_j) = \{\boldsymbol{x}:j=\argmax \boldsymbol{x}W\}
+\]
+then the network could use $W$ matrix to optimally cluster $\boldsymbol{x}$ in a way that makes the task of fitting $q(\boldsymbol{x}|y_j)$ easier for $Q$. If we can show
+\[
+\boldsymbol{x}W_j \le \boldsymbol{x}W_h  \implies  \boldsymbol{x}Q_j \le \boldsymbol{x}Q_h 
+\]
+then it would imply that maximisation of $\boldsymbol{x}W_j$ leads to higher overlap
+$\mathbb{E}(\langle \boldsymbol{x}, \boldsymbol{x}'\rangle|y_j) $. If most inputs $\boldsymbol{x}\in C(y_j)$ share many bits in common, then $Q_j$ can better fit $p(\boldsymbol{x}|y_j)$ by assigning higher probabilities only to those highly frequent bits and near-zero everywhere else. This leads to agreement between \texttt{infer} and \texttt{generate}. 
+
+\paragraph{Generalised proof of k-means convergence for first-order networks}
+Start with some arbitrary $C^{(0)}$ at time step $t=0$. Given $C^{(t)}$ compute $Q^{(t)}$
+\[
+Q^{(t)}_j = \mathbb{E}_p(\boldsymbol{x}|y_j)
+\]
+Given $C^{(t)}$ and $Q^{(t)}$ compute weights $W^{(t)}$
+\begin{gather*}
+	W_j^{(t)} = \argmax_{W_j\in D_W^{n}} \mathbb{E}_p(\boldsymbol{x}W_j|y_j)\text{ where } \lVert W_j \rVert_u=a_j
+\end{gather*}
+Given $W^{(t)}$ compute new clusters $C^{(t)}$
+\[
+C^{(t+1)}(y_j) = \{\boldsymbol{x} : j=\argmax(\boldsymbol{x}W^{(t)})\}
+\]
+To show that convergence is guaranteed let us define a fitness function
+\[
+\mathcal{L}^{(t)} = \sum_{j=1}^m \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \boldsymbol{x} W_j^{(t)} p(\boldsymbol{x})
+\] 
+This function is bounded from above by some constant that depends on $\boldsymbol{a}$. We can show that it is monotonously non-decreasing. The proof is done in two steps. First we show inequality when $W_j^{(t)}$  is replaced by $W_j^{(t+1)}$
+\[\mathcal{L}^{(t)}= \sum_{j=1}^m \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \boldsymbol{x} W_j^{(t)} p(\boldsymbol{x}) \le \sum_{j=1}^m \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \boldsymbol{x}W_j^{(t+1)} p(\boldsymbol{x})\] 
+Second we show monotonicity when $C^{(t)}$ is updated to $C^{(t+1)}$
+\[\sum_{j=1}^m \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \boldsymbol{x} W_j^{(t+1)} p(\boldsymbol{x}) \le \sum_{j=1}^m \sum_{\boldsymbol{x}\in C^{(t+1)}(y_j)} \boldsymbol{x} W_j^{(t+1)} p(\boldsymbol{x})=\mathcal{L}^{(t+1)}\] 
+The first inequality holds because it can be rewritten as
+\[\sum_{j=1}^m p(y_j) \mathbb{E}(\boldsymbol{x} W_j^{(t)}|y_j)  \le \sum_{j=1}^m  p(y_j)  \mathbb{E}(\boldsymbol{x}W_j^{(t+1)}|y_j)\] 
+and we know that $W_j^{(t+1)}$ maximizes $\mathbb{E}(\boldsymbol{x}W_j^{(t+1)})$.
+The second inequality holds, because any two clusters $C^{(t)}(y_j)$ and  $C^{(t+1)}(y_j)$ will differ only when there exists some $\boldsymbol{x}\in C^{(t)}(y_j)$ such that there is some other $y_h$ for which $\boldsymbol{x}W_h \ge \boldsymbol{x} W_j$. This implies that the total sum over all clusters cannot decrease.
+
+\paragraph{Convergence is not guaranteed for zero-order networks}
+The k-means procedure for zero-order networks is almost identical as above except that $W^{(t)}=Q^{(t)}$. The loss function becomes
+\begin{gather*}
+\mathcal{L}^{(t)} = \sum_{j=1}^m \sum_{\boldsymbol{x}\in C^{(t)}(y_j)} \boldsymbol{x} Q_j^{(t)} p(\boldsymbol{x}) = \sum_{j=1}^m p(y_j) \mathbb{E}(\boldsymbol{x} Q_j^{(t)}|y_j) = \\ 
+= \sum_{j=1}^m p(y_j) \mathbb{E}(\langle \boldsymbol{x},\boldsymbol{x}' \rangle |y_j) 	 = \mathbb{E}(\langle \boldsymbol{x},\boldsymbol{x}' \rangle)
+\end{gather*}
+The previous proof no longer applies, because $Q_j$ does not maximise $\mathbb{E}(\boldsymbol{x}W_j|y_j)$. Empirical benchmarks showed that the fitness function increases and converges but doesn't do it monotonously. 
+\paragraph{Convergence of $Q$ in online-learning}
+In the proofs based on k-means algorithm we were allowed to compute $Q$ exactly. 
+\[
+Q_j = \sum_{\boldsymbol{x}\in C(y_j)}\boldsymbol{x}p(\boldsymbol{x}|y_j)
+\]
+If we do not have access to $p$, we could use empirical distribution $\bar{p}$, given to us in form of some static observed sample. In the case of online-learning our algorithm receives an infinite stream of samples that cannot be stored or replayed. We can still approximate $Q$ with the following algorithm
+\begin{lstlisting}
+$Q_j$ = random_initialization()
+for $\boldsymbol{x}$ sampled from $p(\boldsymbol{x}|y_j)$:
+    $Q_j$ = $(1-\epsilon)Q_j + \epsilon \boldsymbol{x}$ 
+\end{lstlisting}
+This is a moving-average approximation of $p(x_i|y_j)$, which converges due to central limit theorem (CLT). To prove it, suppose $\boldsymbol{x}_1,\boldsymbol{x}_2,...,\boldsymbol{x}_t$ is a sample and $\bar{\boldsymbol{x}}$ is it's mean. Then after observing new $\boldsymbol{x}_{t+1}$, the updated mean is $\frac{t\bar{\boldsymbol{x}} + \boldsymbol{x}_{t+1} }{t+1}$. If we put $\epsilon=\frac{1}{\text{t+1}}$, then CLT states that $\bar{\boldsymbol{x}}$ approaches $\mathbb{E}(\boldsymbol{x}|y_j)$ as $t$ goes to infinity. As $x_i$ is a binary random variable, it implies that $\mathbb{E}(x_i|y_j)=p(x_i|y_j)$. Hence if we choose small $\epsilon$, then $Q$ will approximate $p$ with greater precision.
+
+There also exists an alternative algorithm that can approximates $p(i|y_j)$ instead of $p(x_i|y_j)$. It is defined as
+\begin{gather*}
+	q(i|y_j) = \frac{q(x_i=1|y_j)}{\sum_{ï=0}^n{q(x_{ï}=1|y_j)}} \\
+	\sum_{i=1}^n q(x_{i}|y_j) =  \lVert \mathbb{E}_q( \boldsymbol{x}|y_j) \rVert_1 = \mathbb{E}_q(\lVert \boldsymbol{x} \rVert_1|y_j) \\
+	q(x_i|y_j) = \begin{cases}
+		q(i|y_j)\mathbb{E}_q(\lVert \boldsymbol{x} \rVert_1|y_j)&\text{if }x_i=1 \\
+		1-q(i|y_j)\mathbb{E}_q(\lVert \boldsymbol{x} \rVert_1|y_j)&\text{if }x_i=0 
+	\end{cases}
+\end{gather*}
+The algorithm computes a moving average of vectors, rather than individual scalars
+\begin{lstlisting}
+$Q_j$ = random_initialization()
+for $\boldsymbol{x}$ sampled from $p(\boldsymbol{x}|y_j)$:
+    $Q_j$ = $Q_j + \epsilon \boldsymbol{x}$ 
+    $Q_j$ = $Q_j$/$\lVert Q_j \rVert_1$
+\end{lstlisting}
+
+\paragraph{Higher-order networks}
+
+The distribution $q(\boldsymbol{x})$ is modelled as a sum
+\[
+q(\boldsymbol{x}) = \sum_{j=1}^{m}q(\boldsymbol{x}|y_j)p(y_j) 
+\]
+Such factorization is motivated by the assumption that the external world has many latent causes $y_j$, and every one of them produces noisy observations $x_i$. The real world could potentially be approximated using trillions of latent causes, each one corresponding to some state of the world and objects in it. 
+
+Many of the latent causes will produce similar or nearly identical observations. Could we exploit those similarities and compress our model (so that $m$ is as small as possible)? 
+
+One way to reduce the number of $y$'s is by adding two (or more) of them as follows
+\[
+q(\boldsymbol{x}|y_1) p(y_1)+q(\boldsymbol{x}|y_2) p(y_2) = 
+q(\boldsymbol{x}|y_1\text{ or }y_2) (p(y_1)+p(y_2))
+\]
+but storing $q(\boldsymbol{x}|y_1\text{ or }y_2)$ directly is impossible, because $Q$ can only be used to represent mutually independent bits $x_i$. 
+\[
+\frac{q(\boldsymbol{x}|y_1;Q_1) p(y_1)+q(\boldsymbol{x}|y_2;Q_2) p(y_2)}{p(y_1)+p(y_2)} \ne 
+q\big(\boldsymbol{x}|y_1\text{ or }y_2;\frac{Q_1p(y_1) +Q_2p(y_2)}{p(y_1)+p(y_2)}\big) 
+\]
+The above equality would be approximately true when 
+\[
+\prod_{i=1}^{n}q(x_i|y_1)\approx \prod_{i=1}^{n}q(x_i|y_2)
+\]
+
+
+What if we pretended that a single neuron $y_j$ could
  
+ \section{Inhibitory plasticity}
+ 
+ In the original definition, all of the excitatory neurons that share a common inhibitory neuron, are mutually exclusive. This is an abstraction that simplifies the biological mechanisms.
+ In reality the inhibitory neurons themselves are plastic and there exist special hebbian learning rules for them, called inhibitory long term potentiation (iLTP). It is possible to provide alternative implementation of ECC networks in a way that uses iLTP. 
+ 
+ \paragraph{Problems of ECC networks}
+ There are two problems in ECC networks that iLTP could solve at once. One of them is the question of what happens when one excitatory neuron in connected to two inhibitory. Then it will be mutually exclusive with two populations and as a result, it will fire significantly less often then any of its neighbours. Figure \ref{fig:inh_problem} provides an example.
+ 
+ \begin{figure}[!htbp]
+ 	\centering
+ 	\begin{tikzpicture}[scale=0.2]
+ 		\tikzstyle{every node}+=[inner sep=0pt]
+ 		\draw [black] (23.6,-17) circle (3);
+ 		\draw (23.6,-17) node {$y_1$};
+ 		\draw [black] (32.7,-17) circle (3);
+ 		\draw (32.7,-17) node {$y_2$};
+ 		\draw [black] (42.1,-17) circle (3);
+ 		\draw (42.1,-17) node {$y_3$};
+ 		\draw [black] (28.1,-9.6) circle (3);
+ 		\draw (28.1,-9.6) node {$e_1$};
+ 		\draw [black] (28.1,-9.6) circle (2.4);
+ 		\draw [black] (37.7,-9.6) circle (3);
+ 		\draw (37.7,-9.6) node {$e_2$};
+ 		\draw [black] (37.7,-9.6) circle (2.4);
+ 		\draw [black] (26.54,-12.16) -- (25.16,-14.44);
+ 		\fill [black] (25.16,-14.44) -- (26,-14.01) -- (25.15,-13.49);
+ 		\draw [black] (29.68,-12.15) -- (31.12,-14.45);
+ 		\fill [black] (31.12,-14.45) -- (31.12,-13.51) -- (30.27,-14.04);
+ 		\draw [black] (36.02,-12.09) -- (34.38,-14.51);
+ 		\fill [black] (34.38,-14.51) -- (35.24,-14.13) -- (34.41,-13.57);
+ 		\draw [black] (39.23,-12.18) -- (40.57,-14.42);
+ 		\fill [black] (40.57,-14.42) -- (40.59,-13.48) -- (39.73,-13.99);
+ 	\end{tikzpicture}
+ 	\caption{Suppose $s_1<s_2<s_3$. Then $y_1$ won't be able to fire, because $y_2$ has higher $s_2$. Unfortunately $y_2$ also is unable to fire because it loses against $y_3$. As a result none of the neurons connected to $e_1$ fires. The same problem appears when $s_1>s_2>s_3$. As a result the probability of $y_2$ becoming active is significantly lower than that of its neighbours.}
+ 	\label{fig:inh_problem}
+ \end{figure} 
+ 
+ The second problem is concerned with biological plausibility. In all of the ECC topologies presented so far, the ratio of inhibitory to excitatory neurons is around 1 to a few dozen or hundred. In the real brain, inhibitory neurons make up about 20\%. This leads to an efficiency problem. Currently the pattern of inhibition is fixed and a single neuron would need to send its inhibitory neurotransmitter to all of the excitatory neurons. It should be noted that most of the time, a given input pattern $\boldsymbol{x}$ will significantly potentiate ($s$ value will be high) only for a small fraction of $\boldsymbol{y}$ neurons. It would be more efficient to first look at the pattern in  $\boldsymbol{x}$ and then send the inhibitory  neurotransmitters only to those $y$ that we expect to fire the most.
+ 
+ \paragraph{Plastic inhibitory neurons}
+ 
+Let $\boldsymbol{x}\in \{0,1\}^n$ represent input and $\Delta^{(\boldsymbol{x})}\in\{-1,1\}^n$ be the constant vector of signs.
+By $\Delta\boldsymbol{x}$ we will denote the Hadamard product $\boldsymbol{x}\circ\Delta^{(\boldsymbol{x})} \in \{-1,0,1\}^n$, which is a sparse ternary vector.  The output $\boldsymbol{y}\in \{0,1\}^m$ is computed as
+\begin{gather*}
+s_j = \Delta\boldsymbol{x} W_j \\
+y_j = \begin{cases}
+1 &	s_j > h \\
+0 & s_j\le h
+\end{cases}
+\end{gather*}
+where $h$ is some constant threshold. The input $\boldsymbol{x}$ may vary over time, but $\Delta^{(\boldsymbol{x})}$ must always stay constant.
+
+The learning rules are as follows. When $y_j$ fires, the weights $w_{ij}$ are incremented for all $x_i$ 
+
 \section{Reinforcement learning and control}
 
 \paragraph{ECC can't learn value functions}
 
 The deep neural networks learn using backpropagation. They are inherently a supervised method of building intelligence. Even when the labels and error comes from the data itself, like in the self-supervised approach, the learning algorithm itself still relies on the same supervised mechanisms. Deep nets can be applied to reinforcement learning problems by modelling the reward function. ECC networks on the other hand are purely unsupervised and they do not approximate functions. They can't represent policy or reward function in the same way as deep nets. However, the biological brains are capable of performing control tasks very well. How could we achieve the same using ECC networks?
+
 
 \paragraph{Geometric deep learning theory}
 
@@ -907,7 +1264,7 @@ There is also one additional benefit. The learning algorithm should be capable o
 
 \paragraph{Parametric groups}
 
-There might exist many possible ways to parameterise structure of a group. Any finitely generated group can be defined using a set of word equivalences and then new equalities can be found using Knuth-Benedix procedure. Differentiable encoding can be achieved with real vectors $\mathbb{R}^n$ and then deep network could be trained by modelling the differentiable (Lie) group operations. Such encodings can be observed to emerge in Tolman-Eichenbaum machine. 
+There might exist many possible ways to parameterise structure of a group. Any finitely presented group can be defined using a set of word equivalences and then new equalities can be found using Knuth-Benedix procedure. Differentiable encoding can be achieved with real vectors $\mathbb{R}^n$ and then deep network could be trained by modelling the differentiable (Lie) group operations. Such encodings can be observed to emerge in Tolman-Eichenbaum machine. 
 
 ECC networks allow for yet another group representation using sparse binary vectors. 
 Every group element $g_{\boldsymbol{x}}$ is represented as a set of neurons (bits in binary vector) $g_{\boldsymbol{x}}=\{i:x_i\in\boldsymbol{x}\}$. Network connections  $W$ represent edges in Cayley graph. Such encoding allows for certain degree of imprecision and fuzziness. We can measure similarity of nodes by the overlap in their binary vectors. This allows for robustness when observations $\boldsymbol{x}$ are noisy.
@@ -992,6 +1349,38 @@ Suppose that sources of energy are scarce in the environment. Then finding any s
 
 The search is performed on the learned Cayley graph of group $\mathcal{G}$. The agent only needs to learn, which elements of the group are associated with sources of energy. Assuming this graph is generated by a few elements (corresponding to some specific set of actions), the agent needs to find the right word (sequence of group-generating elements) that will lead to the goal. Working with Cayley graphs has one additional advantage. The agent can be trained without any reward. Instead during training, the objective could be to visit a specific graph node (``navigate'' to some state of the world).  Then during the decision time, the agent can define its own goal (target node) and then navigate to it (find the right sequence of group actions). Often the decided goal will coincide with some source of energy, but it doesn't necessarily need to be so.
 
+\paragraph{Action equations}
+Bellman equations play a central role in the theory of Markov decision processes (MDP). They allow for recursively defining a value function $V$ over all states $s$
+\[
+V(s) = \sum_{a\in A} \pi(s,a) \big(R(s,a) + \gamma V(s')\big)
+\]
+We argue that states $s$ should be interpreted as elements of some group $s\in \mathcal{G}$ and the state-space itself is synonymous with that group $\mathcal{G}$.
+The action-space defines the generator set of $\mathcal{G}$. 
+
+The ``classical'' reinforcement learning is naive and treats $\mathcal{G}$ as if it was a free group. The state-space is always represented as a decision tree. Therefore most algorithms are inefficient and slow. We argue that $\mathcal{G}$ is not a tree and it is not a free group.
+
+Let $\langle A| R\rangle$ be the presentation of group $\mathcal{G}$. The Bellman equation could be rewritten as
+\[
+\forall_{g\in \mathcal{G}} V(g) = \sum_{a\in A} \pi(g,a) \big(R(g,a) + \gamma V(ag)\big)
+\]
+For every word equation $g_1=g_2$ from $R$ we obtain additional Bellman-like equations
+\[
+\forall_{g\in \mathcal{G}} V(g_1g) = V(g_2g)
+\]
+Let us refer to them as ``action equations''.
+
+For example suppose that $A=\{-1, 1\}$ consists of movements to the left $-1$ and to the right $1$ on the number line $\mathcal{G}=\mathbb{Z}$. This is indeed a free group and $R$ is an empty set. Since every element in a group must be invertible we know that $1-1=0$. Therefore we obtain the action equation
+\[
+\forall_{g\in \mathcal{G}} V(1-1+g) = V(g)
+\]
+If $R$ contained an equality $5=0$, we would obtain a cyclic group and a corresponding action equation
+\[
+\forall_{g\in \mathcal{G}} V(5+g) = V(g)
+\]
+\paragraph{Markov decision processes and Mealy-Moore automata}
+
+
+
 \paragraph{Supervised vs unsupervised (This paragraph is mostly work-in-progress)}
 Most of the learning in biological agents is latent, meaning that the agent learns despite not receiving any reward. We believe that ECC networks allow for meaningful formalisation of this phenomenon. Figure \ref{fig:rl} introduces unsupervised reinforcement learning. The key difference between it and supervised RL, is that there is no (external) reward . Instead, the network learns by modelling its effective fields. In order to define what this means, we need to assume that the agent is embodied. Let $\boldsymbol{u}$ be a binary vector representing motor neurons.
 Analogically to receptive fields $p(\boldsymbol{x}|y_j)$ modelling input, the effective field
@@ -1011,55 +1400,6 @@ If the agent builds an internal model of the world, that works like a map, it co
 
 Once the agent has an internal map, it could then exactly know which aspects of the environment are unexplored. Unlike in the current deep reinforcement learning approaches, an agent with episodic memory would only need to visit a novel place once in order to learn about it. If the world is dynamically changing, then an attention mechanism will be necessary. If an animal sees or hears something unexpected it will focus all its attention on the novel experience. This mechanism can be explained using ECC networks as well. Suppose that the current internal model $\boldsymbol{y}$ explains all the previously experienced observations $p(\boldsymbol{x})=\sum_j p(\boldsymbol{x},y_j)$. If the agent experiences something novel that does not fit into any specific $y$, then it will be surprised. The agent will become curious and focus on the novel experience for a while. After the model  $\boldsymbol{y}$ restructures itself and learns about the new $\boldsymbol{x}$, then the agent becomes ``bored''. 
 
-\section{Optimisations and efficiency benchmarks}
-
-\paragraph{Optimisations}
-Sparsity enables major optimisations. We can define ECC layers with thousands of neurons, leading to $W$ matrices with millions of weights. Computing them is cheap and can be done on a single CPU because the input vector is sparse and binary. We do not need to multiply $\boldsymbol{x}W$ entirely. If we represent $\boldsymbol{x}$ as a list of indices of active neurons, then we can only iterate such list and visit only a handful of columns in $W$. The $\argmax$ operation is linear. During learning we have to renormalise the winning column of $W$. This requires computing sum, which is of linear complexity. We can achieve constant complexity if we implement a stochastic algorithm, that is, we add $\epsilon$ to $w_{ik}$ for $x_i=1$ (this operation is constant because $\boldsymbol{x}$ is sparse) and then we randomly choose a few other $w_{ik}$ for $x_i=0$ and subtract $\epsilon$ from them. We might need to check if $w_{ik}>0$ in order to avoid introducing negative values. This ensures that weights always sum up to $1$.
-
-\paragraph{Benchmarks}
-We ran benchmarks on random patches of MNIST images. Each patch was 25x25 pixels. The network had 734400 learnable parameters (and several non-learnable sparse matrices). Our implementation written in Rust was able to process 2000 images per second on a single thread on 2.7 GHz Intel i5 core. When learning was enabled, it could train on 1700 images per second.
-
-\section{Inhibitory plasticity}
-
-In the original definition, all of the excitatory neurons that share a common inhibitory one, are mutually exclusive. This is an abstraction that simplifies the biological mechanisms.
-In reality the inhibitory neurons themselves are plastic and there exist special hebbian learning rules for them, called inhibitory long term potentiation (iLTP). It is possible to provide alternative implementation of ECC networks in a way that uses iLTP. 
-
-\paragraph{Problems of ECC networks}
-There are two problems in ECC networks that iLTP could solve at once. One of them is the question of what happens when one excitatory neuron in connected to two inhibitory. Then it will be mutually exclusive with two populations and as a result, it will fire significantly less often then any of its neighbours. Figure \ref{fig:inh_problem} provides an example.
- 
- \begin{figure}[!htbp]
- 	\centering
- 	\begin{tikzpicture}[scale=0.2]
- 		\tikzstyle{every node}+=[inner sep=0pt]
- 		\draw [black] (23.6,-17) circle (3);
- 		\draw (23.6,-17) node {$y_1$};
- 		\draw [black] (32.7,-17) circle (3);
- 		\draw (32.7,-17) node {$y_2$};
- 		\draw [black] (42.1,-17) circle (3);
- 		\draw (42.1,-17) node {$y_3$};
- 		\draw [black] (28.1,-9.6) circle (3);
- 		\draw (28.1,-9.6) node {$e_1$};
- 		\draw [black] (28.1,-9.6) circle (2.4);
- 		\draw [black] (37.7,-9.6) circle (3);
- 		\draw (37.7,-9.6) node {$e_2$};
- 		\draw [black] (37.7,-9.6) circle (2.4);
- 		\draw [black] (26.54,-12.16) -- (25.16,-14.44);
- 		\fill [black] (25.16,-14.44) -- (26,-14.01) -- (25.15,-13.49);
- 		\draw [black] (29.68,-12.15) -- (31.12,-14.45);
- 		\fill [black] (31.12,-14.45) -- (31.12,-13.51) -- (30.27,-14.04);
- 		\draw [black] (36.02,-12.09) -- (34.38,-14.51);
- 		\fill [black] (34.38,-14.51) -- (35.24,-14.13) -- (34.41,-13.57);
- 		\draw [black] (39.23,-12.18) -- (40.57,-14.42);
- 		\fill [black] (40.57,-14.42) -- (40.59,-13.48) -- (39.73,-13.99);
- 	\end{tikzpicture}
- 	\caption{Suppose $s_1<s_2<s_3$. Then $y_1$ won't be able to fire, because $y_2$ has higher $s_2$. Unfortunately $y_2$ also is unable to fire because it loses against $y_3$. As a result none of the neurons connected to $e_1$ fires. The same problem appears when $s_1>s_2>s_3$. As a result the probability of $y_2$ becoming active is significantly lower than that of its neighbours.}
- 	\label{fig:inh_problem}
- \end{figure} 
-
-The second problem is concerned with biological plausibility. In all of the ECC topologies presented so far, the ratio of inhibitory to excitatory neurons is around 1 to a few dozen or hundred. In the real brain, inhibitory neurons make up about 20\%. This leads to an efficiency problem. Currently the pattern of inhibition is fixed and a single neuron would need to send its inhibitory neurotransmitter to all of the excitatory neurons. It should be noted that most of the time, a given input pattern $\boldsymbol{x}$ will significantly potentiate ($s$ value will be high) only for a small fraction of $\boldsymbol{y}$ neurons. It would be more efficient to first look at the pattern in  $\boldsymbol{x}$ and then send the inhibitory  neurotransmitters only to those $y$ that we expect to fire the most.
-
-\paragraph{Plastic inhibitory neurons}
-Both of the problems are solved by introducing more inhibitory neurons and allowing them to choose their connections via plasticity mechanisms. Instead of using $\argmax$, every neuron should have a spiking threshold. The inhibitory neurons $\boldsymbol{el}$are excited by the same (or similar) inputs $\boldsymbol{x}$ as the excitatory $\boldsymbol{y}$. When a neuron $y_j$ is depolarised ($s_j$ raises ``high enough'') but does not fire ($s_j$ is below the threshold) after $e_k$, then the synapse from $e_k$ to $y_j$ is strengthened. 
 
 \section{ECC are spiking networks}
 

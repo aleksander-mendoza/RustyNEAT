@@ -7,7 +7,7 @@ use crate::vector_field::{VectorField, VectorFieldNum};
 use std::collections::{Bound, HashSet};
 use num_traits::{Num, One, Zero};
 use itertools::Itertools;
-use crate::{CpuSDR, VectorFieldPartialOrd, VectorFieldSub, VectorFieldOne, Idx};
+use crate::{CpuSDR, VectorFieldPartialOrd, VectorFieldSub, VectorFieldOne, Idx, k_reg, AsUsize};
 use std::cmp::Ordering;
 use std::cmp::Ordering::{Greater, Less};
 use std::iter::{FromIterator, FlatMap};
@@ -144,6 +144,7 @@ pub trait Shape<T: Num + Copy + Debug + PartialOrd, const DIM: usize>: Eq + Part
         let composed_stride = self.mul(next_stride);
         (composed_stride, composed_kernel)
     }
+
 }
 
 impl<T: Num + Debug + Eq + Copy + PartialOrd, const DIM: usize> Shape<T, DIM> for [T; DIM] {
@@ -367,7 +368,7 @@ pub fn resolve_range<T: Add<Output=T> + Copy + One + Zero + PartialOrd + Debug>(
     b..e
 }
 
-pub fn top_small_k_indices<V: Copy + Debug + PartialOrd>(mut k: usize, n: usize, f: impl Fn(usize) -> V) -> Vec<(usize, V)> {
+pub fn top_small_k_indices<V: Copy + PartialOrd>(mut k: usize, n: usize, f: impl Fn(usize) -> V) -> Vec<(usize, V)> {
     debug_assert!(k <= n);
     let mut heap: Vec<(usize, V)> = (0..k).map(&f).enumerate().collect();
     heap.sort_by(|v1, v2| if v1.1>v2.1 { Greater } else { Less });
@@ -382,8 +383,6 @@ pub fn top_small_k_indices<V: Copy + Debug + PartialOrd>(mut k: usize, n: usize,
             heap[i - 1] = (idx, v);
         }
     }
-    debug_assert!(heap.iter().tuple_windows().all(|(smaller, larger)| smaller.1<= larger.1));
-    debug_assert_eq!(HashSet::<usize>::from_iter(heap.iter().map(|v| v.0)).len(), heap.len(), "{:?}", heap);
     heap
 }
 
@@ -409,22 +408,84 @@ pub fn top_large_k_indices<T>(mut k: usize, values: &[T], candidates_per_value: 
     }
 }
 
-pub trait Shape3 {
-    type T: Copy;
-    fn grid(&self) -> &[Self::T; 2];
-    fn right(&self) -> &[Self::T; 2];
-    fn width(&self) -> Self::T;
-    fn height(&self) -> Self::T;
-    fn channels(&self) -> Self::T;
-    fn width_mut(&mut self) -> &mut Self::T;
-    fn height_mut(&mut self) -> &mut Self::T;
-    fn channels_mut(&mut self) -> &mut Self::T;
-    fn area(&self) -> Self::T;
-    fn volume(&self)->Self::T;
+pub trait Shape3<T:Num + Copy + Debug + PartialOrd> {
+    fn grid(&self) -> &[T; 2];
+    fn right(&self) -> &[T; 2];
+    fn width(&self) -> T;
+    fn height(&self) -> T;
+    fn channels(&self) -> T;
+    fn width_mut(&mut self) -> &mut T;
+    fn height_mut(&mut self) -> &mut T;
+    fn channels_mut(&mut self) -> &mut T;
+    fn area(&self) -> T;
+    fn volume(&self) -> T;
 }
-
-impl<T: Copy+Mul<Output=T>+One> Shape3 for [T; 3] {
-    type T = T;
+pub trait TopK:Shape3<Idx> {
+    fn topk_per_column<D:PartialOrd+Copy>(&self,k:usize, value: impl Fn(usize,usize) -> D, target: impl FnMut(D,usize,usize));
+    fn top1_in_range<D:PartialOrd>(&self,range:Range<Idx>, value: impl Fn(Idx) -> D) -> (D,Idx);
+    fn top1_per_region<D:PartialOrd>(&self,k:Idx, value: impl Fn(Idx) -> D, target: impl FnMut(D,Idx));
+    fn top1_per_region_per_column<D:PartialOrd,V>(&self,k:Idx, column_value:impl Fn(Idx)->V, value: impl Fn(&V,Idx) -> D, target: impl FnMut(D,Idx));
+}
+impl TopK for [Idx;3]{
+    fn topk_per_column<D:PartialOrd+Copy>(&self,k:usize, value: impl Fn(usize,usize) -> D, mut target: impl FnMut(D,usize,usize)) {
+        let a = self.volume().as_usize();
+        let c = self.channels().as_usize();
+        for column_idx in 0..a {
+            let r = c * column_idx;
+            for (i, v) in top_small_k_indices(k, c, |i| {
+                debug_assert!(i < c);
+                value(column_idx,i + r)
+            }) {
+                let e = r + i;
+                debug_assert!(r <= e);
+                debug_assert!(e < r + c);
+                target(v,column_idx,e);
+            }
+        }
+    }
+    fn top1_in_range<D:PartialOrd>(&self,mut range:Range<Idx>, value: impl Fn(Idx) -> D) -> (D,Idx){
+        let mut top1_idx = range.start;
+        let mut top1_val = value(top1_idx);
+        range.start+=1;
+        for i in range{
+            let val = value(i);
+            if val > top1_val{
+                top1_val = val;
+                top1_idx = i;
+            }
+        }
+        (top1_val,top1_idx)
+    }
+    fn top1_per_region<D:PartialOrd>(&self,k:Idx, value: impl Fn(Idx) -> D, mut target: impl FnMut(D,Idx)) {
+        assert_eq!(self.channels() % k, 0);
+        for region_idx in 0..k_reg::get_region_count(k,self) {
+            //There are k regions per column, each has region_size neurons.
+            //We need to pick the top 1 winner within each region.
+            //Giving us the total of k winners per output column.
+            //The channels of each column are arranged contiguously. Regions are also contiguous.
+            let mut range = k_reg::get_region_range(k,self, region_idx);
+            let (top1_val,top1_idx) = self.top1_in_range(range,&value);
+            target(top1_val,top1_idx)
+        }
+    }
+    fn top1_per_region_per_column<D:PartialOrd,V>(&self,k:Idx, column_value:impl Fn(Idx)->V, value: impl Fn(&V,Idx) -> D, mut target: impl FnMut(D,Idx)) {
+        assert_eq!(self.channels() % k, 0);
+        for col_idx in 0..self.area() {
+            for region_idx_within_col in 0..k {
+                //There are k regions per column, each has region_size neurons.
+                //We need to pick the top 1 winner within each region.
+                //Giving us the total of k winners per output column.
+                //The channels of each column are arranged contiguously. Regions are also contiguous.
+                let col_val = column_value(col_idx);
+                let region_idx = k*col_idx + region_idx_within_col;
+                let mut range = k_reg::get_region_range(k, self, region_idx);
+                let (top1_val, top1_idx) = self.top1_in_range(range, |i|value(&col_val,i));
+                target(top1_val, top1_idx)
+            }
+        }
+    }
+}
+impl<T: Num + Copy + Debug + Eq + PartialOrd> Shape3<T> for [T; 3] {
 
     fn grid(&self) -> &[T; 2] {
         let [ref a @ .., _] = self;
@@ -451,27 +512,25 @@ impl<T: Copy+Mul<Output=T>+One> Shape3 for [T; 3] {
     fn height_mut(&mut self) -> &mut T { &mut self[1] }
     fn channels_mut(&mut self) -> &mut T { &mut self[2] }
 
-    fn area(&self) -> Self::T {
+    fn area(&self) -> T {
         self.grid().product()
     }
-    fn volume(&self)->Self::T{
+    fn volume(&self)->T{
         self.product()
     }
 }
 
-pub trait Shape2 {
-    type T: Copy;
-    type A3: Shape3<T=Self::T>;
-    fn add_channels(&self, channels: Self::T) -> Self::A3;
+pub trait Shape2<T:Num + Copy + Debug + Eq + PartialOrd> {
+    type A3: Shape3<T>;
+    fn add_channels(&self, channels: T) -> Self::A3;
 
-    fn width(&self) -> Self::T;
+    fn width(&self) -> T;
 
-    fn height(&self) -> Self::T;
-    fn area(&self) ->Self::T;
+    fn height(&self) -> T;
+    fn area(&self) -> T;
 }
 
-impl<T: Copy+Mul<Output=T>+One> Shape2 for [T; 2] {
-    type T = T;
+impl<T: Num + Copy + Debug + Eq + PartialOrd> Shape2<T> for [T; 2] {
     type A3 = [T; 3];
 
     fn add_channels(&self, channels: T) -> Self::A3 {
@@ -486,7 +545,7 @@ impl<T: Copy+Mul<Output=T>+One> Shape2 for [T; 2] {
         self[1]
     }
 
-    fn area(&self) -> Self::T {
+    fn area(&self) -> T {
         self.product()
     }
 }

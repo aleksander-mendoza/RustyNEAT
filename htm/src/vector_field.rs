@@ -1,29 +1,50 @@
 use std::fmt::{Debug, Formatter};
 
 use serde::{Serialize, Deserialize};
-use std::ops::{Add, Sub, Div, Mul, Rem, Index, IndexMut, Neg};
+use std::ops::{Add, Sub, Div, Mul, Rem, Index, IndexMut, Neg, AddAssign, SubAssign, DivAssign, MulAssign, RemAssign};
 use std::mem::MaybeUninit;
-use num_traits::{Zero, One, Num, AsPrimitive};
+use num_traits::{Zero, One, Num, AsPrimitive, NumAssign};
 use rand::Rng;
 use rand::distributions::{Standard, Distribution};
+use crate::{CpuSDR, EncoderTarget, as_idx};
 
 pub trait VectorField<Scalar: Copy>: Sized {
-    fn fold(&self, zero: Scalar, f: impl FnMut(Scalar, Scalar) -> Scalar) -> Scalar;
+    fn fold<T>(&self, zero: T, f: impl FnMut(T, Scalar) -> T) -> T;
+    fn for_each(&self, mut f: impl FnMut(Scalar)) {
+        self.fold((), |(), s| f(s))
+    }
+    fn for_each_enumerated(&self, mut f: impl FnMut(usize, Scalar)) {
+        self.fold(0usize, |i, s| {
+            f(i, s);
+            i + 1
+        });
+    }
     fn map(&self, f: impl FnMut(Scalar) -> Scalar) -> Self;
-    fn new_const(s:Scalar) -> Self;
+    fn map_assign(&mut self, f: impl FnMut(&mut Scalar)) -> &mut Self;
+    fn new_const(s: Scalar) -> Self;
     fn all(&self, f: impl FnMut(Scalar) -> bool) -> bool;
     fn any(&self, f: impl FnMut(Scalar) -> bool) -> bool;
     fn all_zip(&self, other: &Self, f: impl FnMut(Scalar, Scalar) -> bool) -> bool;
     fn any_zip(&self, other: &Self, f: impl FnMut(Scalar, Scalar) -> bool) -> bool;
     fn zip(&self, other: &Self, f: impl FnMut(Scalar, Scalar) -> Scalar) -> Self;
+    fn zip_assign(&mut self, other: &Self, f: impl FnMut(&mut Scalar, Scalar)) -> &mut Self;
 }
 
 pub trait VectorFieldAdd<Scalar: Add<Output=Scalar> + Copy>: VectorField<Scalar> {
     fn add(&self, rhs: &Self) -> Self {
-        self.zip(&rhs, |a, b| a + b)
+        self.zip(rhs, |a, b| a + b)
     }
     fn add_scalar(&self, rhs: Scalar) -> Self {
         self.map(|a| a + rhs)
+    }
+}
+
+pub trait VectorFieldAddAssign<Scalar: AddAssign + Copy>: VectorField<Scalar> {
+    fn add_assign(&mut self, rhs: &Self) -> &mut Self {
+        self.zip_assign(rhs, |a, b| *a += b)
+    }
+    fn add_assign_scalar(&mut self, rhs: Scalar) -> &mut Self {
+        self.map_assign(|a| *a += rhs)
     }
 }
 
@@ -40,7 +61,7 @@ pub trait VectorFieldPartialOrd<Scalar: PartialOrd + Copy>: VectorField<Scalar> 
     }
     #[inline]
     fn all_le_scalar(&self, rhs: Scalar) -> bool {
-        self.all( |l| l <= rhs)
+        self.all(|l| l <= rhs)
     }
     #[inline]
     fn all_lt(&self, rhs: &Self) -> bool {
@@ -48,7 +69,7 @@ pub trait VectorFieldPartialOrd<Scalar: PartialOrd + Copy>: VectorField<Scalar> 
     }
     #[inline]
     fn all_lt_scalar(&self, rhs: Scalar) -> bool {
-        self.all( |l| l < rhs)
+        self.all(|l| l < rhs)
     }
     #[inline]
     fn all_gt(&self, rhs: &Self) -> bool {
@@ -56,7 +77,7 @@ pub trait VectorFieldPartialOrd<Scalar: PartialOrd + Copy>: VectorField<Scalar> 
     }
     #[inline]
     fn all_gt_scalar(&self, rhs: Scalar) -> bool {
-        self.all( |l| l > rhs)
+        self.all(|l| l > rhs)
     }
     #[inline]
     fn all_ge(&self, rhs: &Self) -> bool {
@@ -64,7 +85,7 @@ pub trait VectorFieldPartialOrd<Scalar: PartialOrd + Copy>: VectorField<Scalar> 
     }
     #[inline]
     fn all_ge_scalar(&self, rhs: Scalar) -> bool {
-        self.all( |l| l >= rhs)
+        self.all(|l| l >= rhs)
     }
     #[inline]
     fn all_eq(&self, rhs: &Self) -> bool {
@@ -80,7 +101,7 @@ pub trait VectorFieldPartialOrd<Scalar: PartialOrd + Copy>: VectorField<Scalar> 
     }
     #[inline]
     fn all_neq_scalar(&self, rhs: Scalar) -> bool {
-        self.all( |l| l != rhs)
+        self.all(|l| l != rhs)
     }
     #[inline]
     fn max(&self, rhs: &Self) -> Self {
@@ -89,6 +110,14 @@ pub trait VectorFieldPartialOrd<Scalar: PartialOrd + Copy>: VectorField<Scalar> 
     #[inline]
     fn min(&self, rhs: &Self) -> Self {
         self.zip(rhs, |l, r| if l < r { l } else { r })
+    }
+    #[inline]
+    fn max_assign(&mut self, rhs: &Self) -> &mut Self {
+        self.zip_assign(rhs, |l, r| if *l > r { *l = r })
+    }
+    #[inline]
+    fn min_assign(&mut self, rhs: &Self) -> &mut Self {
+        self.zip_assign(rhs, |l, r| if r < *l { *l = r })
     }
     #[inline]
     fn max_scalar(&self, rhs: Scalar) -> Self {
@@ -103,19 +132,19 @@ pub trait VectorFieldPartialOrd<Scalar: PartialOrd + Copy>: VectorField<Scalar> 
         self.any_zip(rhs, |l, r| l <= r)
     }
     #[inline]
-    fn any_le_scalar(&self, rhs: Scalar) -> bool { self.any( |l| l <= rhs) }
+    fn any_le_scalar(&self, rhs: Scalar) -> bool { self.any(|l| l <= rhs) }
     #[inline]
     fn any_lt(&self, rhs: &Self) -> bool { self.any_zip(rhs, |l, r| l < r) }
     #[inline]
-    fn any_lt_scalar(&self, rhs: Scalar) -> bool { self.any( |l| l < rhs) }
+    fn any_lt_scalar(&self, rhs: Scalar) -> bool { self.any(|l| l < rhs) }
     #[inline]
     fn any_gt(&self, rhs: &Self) -> bool { self.any_zip(rhs, |l, r| l > r) }
     #[inline]
-    fn any_gt_scalar(&self, rhs: Scalar) -> bool { self.any( |l| l > rhs) }
+    fn any_gt_scalar(&self, rhs: Scalar) -> bool { self.any(|l| l > rhs) }
     #[inline]
     fn any_ge(&self, rhs: &Self) -> bool { self.any_zip(rhs, |l, r| l >= r) }
     #[inline]
-    fn any_ge_scalar(&self, rhs: Scalar) -> bool { self.any( |l| l >= rhs) }
+    fn any_ge_scalar(&self, rhs: Scalar) -> bool { self.any(|l| l >= rhs) }
     #[inline]
     fn any_eq(&self, rhs: &Self) -> bool { self.any_zip(rhs, |l, r| l == r) }
     #[inline]
@@ -123,33 +152,66 @@ pub trait VectorFieldPartialOrd<Scalar: PartialOrd + Copy>: VectorField<Scalar> 
     #[inline]
     fn any_neq(&self, rhs: &Self) -> bool { self.any_zip(rhs, |l, r| l != r) }
     #[inline]
-    fn any_neq_scalar(&self, rhs: Scalar) -> bool { self.any( |l| l != rhs) }
+    fn any_neq_scalar(&self, rhs: Scalar) -> bool { self.any(|l| l != rhs) }
+    fn find_gt(&self, scalar: Scalar, destination: &mut CpuSDR) {
+        self.for_each_enumerated(|i,s|if s>scalar{destination.push(as_idx(i))})
+    }
+    fn find_lt(&self, scalar: Scalar, destination: &mut CpuSDR) {
+        self.for_each_enumerated(|i,s|if s<scalar{destination.push(as_idx(i))})
+    }
+    fn find_ge(&self, scalar: Scalar, destination: &mut CpuSDR) {
+        self.for_each_enumerated(|i,s|if s>=scalar{destination.push(as_idx(i))})
+    }
+    fn find_le(&self, scalar: Scalar, destination: &mut CpuSDR) {
+        self.for_each_enumerated(|i,s|if s<=scalar{destination.push(as_idx(i))})
+    }
+    fn find_eq(&self, scalar: Scalar, destination: &mut CpuSDR) {
+        self.for_each_enumerated(|i,s|if s==scalar{destination.push(as_idx(i))})
+    }
+    fn find_neq(&self, scalar: Scalar, destination: &mut CpuSDR) {
+        self.for_each_enumerated(|i,s|if s!=scalar{destination.push(as_idx(i))})
+    }
 }
 
 pub trait VectorFieldAbs<Scalar: Neg<Output=Scalar> + Zero + PartialOrd + Copy>: VectorField<Scalar> {
     fn abs(&self) -> Self {
         self.map(|b| if b < Scalar::zero() { -b } else { b })
     }
+    fn abs_assign(&mut self) -> &mut Self {
+        self.map_assign(|b| if *b < Scalar::zero() { *b = -*b })
+    }
 }
 
 pub trait VectorFieldNeg<Scalar: Neg<Output=Scalar> + Copy>: VectorField<Scalar> {
     fn neg(&self) -> Self {
-        self.map( |b| -b)
+        self.map(|b| -b)
+    }
+    fn neg_assign(&mut self) -> &mut Self {
+        self.map_assign(|b| *b = -*b)
     }
 }
 
 pub trait VectorFieldSub<Scalar: Sub<Output=Scalar> + Copy>: VectorField<Scalar> {
     fn sub(&self, rhs: &Self) -> Self {
-        self.zip(&rhs, |a, b| a - b)
+        self.zip(rhs, |a, b| a - b)
     }
     fn sub_scalar(&self, scalar: Scalar) -> Self {
         self.map(|a| a - scalar)
     }
 }
 
+pub trait VectorFieldSubAssign<Scalar: SubAssign + Copy>: VectorField<Scalar> {
+    fn sub_assign(&mut self, rhs: &Self) -> &mut Self {
+        self.zip_assign(rhs, |a, b| *a -= b)
+    }
+    fn sub_assign_scalar(&mut self, scalar: Scalar) -> &mut Self {
+        self.map_assign(|a| *a -= scalar)
+    }
+}
+
 pub trait VectorFieldDiv<Scalar: Div<Output=Scalar> + Copy>: VectorField<Scalar> {
     fn div(&self, rhs: &Self) -> Self {
-        self.zip(&rhs, |a, b| a / b)
+        self.zip(rhs, |a, b| a / b)
     }
     fn div_scalar(&self, scalar: Scalar) -> Self {
         self.map(|a| a / scalar)
@@ -157,16 +219,41 @@ pub trait VectorFieldDiv<Scalar: Div<Output=Scalar> + Copy>: VectorField<Scalar>
 }
 
 pub trait VectorFieldDivDefaultZero<Scalar: Div<Output=Scalar> + Copy + Zero>: VectorFieldDiv<Scalar> {
-    fn div_default_zero(&self, rhs: &Self, defult_value_for_division_by_zero:Scalar) -> Self {
-        self.zip(&rhs, |a, b| if b.is_zero() {defult_value_for_division_by_zero}else{a / b})
+    fn div_default_zero(&self, rhs: &Self, default_value_for_division_by_zero: Scalar) -> Self {
+        self.zip(&rhs, |a, b| if b.is_zero() { default_value_for_division_by_zero } else { a / b })
     }
 }
+
+pub trait VectorFieldDivAssign<Scalar: DivAssign + Copy>: VectorField<Scalar> {
+    fn div_assign(&mut self, rhs: &Self) -> &mut Self {
+        self.zip_assign(rhs, |a, b| *a /= b)
+    }
+    fn div_assign_scalar(&mut self, scalar: Scalar) -> &mut Self {
+        self.map_assign(|a| *a /= scalar)
+    }
+}
+
+pub trait VectorFieldDivAssignDefaultZero<Scalar: DivAssign + Copy + Zero>: VectorFieldDivAssign<Scalar> {
+    fn div_assign_default_zero(&mut self, rhs: &Self, default_value_for_division_by_zero: Scalar) -> &mut Self {
+        self.zip_assign(&rhs, |a, b| if b.is_zero() { *a = default_value_for_division_by_zero } else { *a /= b })
+    }
+}
+
 pub trait VectorFieldMul<Scalar: Mul<Output=Scalar> + Copy>: VectorField<Scalar> {
     fn mul(&self, rhs: &Self) -> Self {
-        self.zip(&rhs, |a, b| a * b)
+        self.zip(rhs, |a, b| a * b)
     }
     fn mul_scalar(&self, scalar: Scalar) -> Self {
         self.map(|a| a * scalar)
+    }
+}
+
+pub trait VectorFieldMulAssign<Scalar: MulAssign + Copy>: VectorField<Scalar> {
+    fn mul_assign(&mut self, rhs: &Self) -> &mut Self {
+        self.zip_assign(rhs, |a, b| *a *= b)
+    }
+    fn mul_scalar_assign(&mut self, scalar: Scalar) -> &mut Self {
+        self.map_assign(|a| *a *= scalar)
     }
 }
 
@@ -184,15 +271,35 @@ pub trait VectorFieldRem<Scalar: Rem<Output=Scalar> + Copy>: VectorField<Scalar>
         self.map(|a| a % scalar)
     }
 }
-pub trait VectorFieldRemDefaultZero<Scalar: Rem<Output=Scalar> + Copy + Zero>: VectorFieldRem<Scalar> {
-    fn rem_default_zero(&self, rhs: &Self, default_value_for_division_by_zero:Scalar) -> Self {
-        self.zip(&rhs, |a, b| if b.is_zero(){default_value_for_division_by_zero}else{a % b})
+
+pub trait VectorFieldRemAssign<Scalar: RemAssign + Copy>: VectorField<Scalar> {
+    fn rem_assign(&mut self, rhs: &Self) -> &mut Self {
+        self.zip_assign(rhs, |a, b| *a %= b)
+    }
+    fn rem_assign_scalar(&mut self, scalar: Scalar) -> &mut Self {
+        self.map_assign(|a| *a %= scalar)
     }
 }
-pub trait VectorFieldRng<Scalar: Copy>: VectorField<Scalar> {
-    fn rand_vec(&self, rng: &mut impl rand::Rng)->Self;
+
+pub trait VectorFieldRemDefaultZero<Scalar: Rem<Output=Scalar> + Copy + Zero>: VectorFieldRem<Scalar> {
+    fn rem_default_zero(&self, rhs: &Self, default_value_for_division_by_zero: Scalar) -> Self {
+        self.zip(&rhs, |a, b| if b.is_zero() { default_value_for_division_by_zero } else { a % b })
+    }
 }
 
+pub trait VectorFieldRemAssignDefaultZero<Scalar: RemAssign + Copy + Zero>: VectorFieldRemAssign<Scalar> {
+    fn rem_assign_default_zero(&mut self, rhs: &Self, default_value_for_division_by_zero: Scalar) -> &mut Self {
+        self.zip_assign(rhs, |a, b| if b.is_zero() { *a = default_value_for_division_by_zero } else { *a %= b })
+    }
+}
+
+pub trait VectorFieldRng<Scalar: Copy>: VectorField<Scalar> {
+    fn rand_vec(&self, rng: &mut impl rand::Rng) -> Self;
+}
+
+pub trait VectorFieldRngAssign<Scalar: Copy>: VectorField<Scalar> {
+    fn rand_vec_assign(&mut self, rng: &mut impl rand::Rng)->&mut Self;
+}
 
 pub trait VectorFieldNum<S: Num + Copy + PartialOrd>: VectorField<S> +
 VectorFieldAdd<S> + VectorFieldSub<S> +
@@ -201,120 +308,17 @@ VectorFieldDivDefaultZero<S> + VectorFieldRemDefaultZero<S> +
 VectorFieldPartialOrd<S> + VectorFieldRem<S> +
 VectorFieldOne<S> + VectorFieldZero<S> {}
 
-impl<T: Copy, const DIM: usize> VectorField<T> for [T; DIM] {
-    #[inline]
-    fn fold(&self, zero: T, mut f: impl FnMut(T, T) -> T) -> T {
-        self.iter().fold(zero, |a, b| f(a, *b))
-    }
-    #[inline]
-    fn map(&self, mut f: impl FnMut(T) -> T) -> Self {
-        let mut arr: [T; DIM] = unsafe { MaybeUninit::uninit().assume_init() };
-        for i in 0..DIM {
-            arr[i] = f(self[i]);
-        }
-        arr
-    }
-    #[inline]
-    fn new_const(s: T) -> Self {
-        [s;DIM]
-    }
-    #[inline]
-    fn all(&self, mut f: impl FnMut(T) -> bool) -> bool {
-        self.iter().cloned().all(f)
-    }
-    #[inline]
-    fn any(&self, mut f: impl FnMut(T) -> bool) -> bool {
-        self.iter().cloned().any(f)
-    }
-    #[inline]
-    fn all_zip(&self, other: &Self, mut f: impl FnMut(T, T) -> bool) -> bool {
-        self.iter().zip(other.iter()).all(|(&a, &b)| f(a, b))
-    }
-    #[inline]
-    fn any_zip(&self, other: &Self, mut f: impl FnMut(T, T) -> bool) -> bool {
-        self.iter().zip(other.iter()).any(|(&a, &b)| f(a, b))
-    }
-    #[inline]
-    fn zip(&self, other: &Self, mut f: impl FnMut(T, T) -> T) -> Self {
-        let mut arr: [T; DIM] = unsafe { MaybeUninit::uninit().assume_init() };
-        for i in 0..DIM {
-            arr[i] = f(self[i], other[i]);
-        }
-        arr
-    }
-}
+pub trait VectorFieldNumAssign<S: NumAssign + Copy + PartialOrd>: VectorFieldNum<S> +
+VectorFieldAddAssign<S> + VectorFieldSubAssign<S> +
+VectorFieldMulAssign<S> + VectorFieldDivAssign<S> +
+VectorFieldDivAssignDefaultZero<S> + VectorFieldRemAssignDefaultZero<S> +
+VectorFieldRemAssign<S> {}
 
-impl<T: Copy + Add<Output=T>, const DIM: usize> VectorFieldAdd<T> for [T; DIM] {}
-
-impl<T: Copy + Add<Output=T> + Zero, const DIM: usize> VectorFieldZero<T> for [T; DIM] {}
-
-impl<T: Copy + Sub<Output=T>, const DIM: usize> VectorFieldSub<T> for [T; DIM] {}
-
-impl<T: Copy + Div<Output=T>, const DIM: usize> VectorFieldDiv<T> for [T; DIM] {}
-
-impl<T: Copy + Div<Output=T> + Zero, const DIM: usize> VectorFieldDivDefaultZero<T> for [T; DIM] {}
-
-impl<T: Copy + Rem<Output=T> + Zero, const DIM: usize> VectorFieldRemDefaultZero<T> for [T; DIM] {}
-
-impl<T: Copy + Mul<Output=T>, const DIM: usize> VectorFieldMul<T> for [T; DIM] {}
-
-impl<T: Copy + Mul<Output=T> + One, const DIM: usize> VectorFieldOne<T> for [T; DIM] {}
-
-impl<T: Copy + Rem<Output=T>, const DIM: usize> VectorFieldRem<T> for [T; DIM] {}
-
-impl<T: Copy + PartialOrd, const DIM: usize> VectorFieldPartialOrd<T> for [T; DIM] {}
-
-impl<T: Neg<Output=T> + Zero + PartialOrd + Copy, const DIM: usize> VectorFieldAbs<T> for [T; DIM] {}
-
-impl<T: Neg<Output=T> + Copy, const DIM: usize> VectorFieldNeg<T> for [T; DIM] {}
-
-impl<T: Num + Copy + PartialOrd, const DIM: usize> VectorFieldNum<T> for [T; DIM] {}
 
 pub trait ArrayCast<Scalar: Copy, const DIM: usize> {
     fn as_scalar<IntoScalar: 'static + Copy>(&self) -> [IntoScalar; DIM] where Scalar: AsPrimitive<IntoScalar>;
 }
 
-impl<T: Copy, const DIM: usize> ArrayCast<T, DIM> for [T; DIM] {
-    fn as_scalar<IntoScalar: 'static + Copy>(&self) -> [IntoScalar; DIM] where T: AsPrimitive<IntoScalar> {
-        let mut arr: [IntoScalar; DIM] = unsafe { MaybeUninit::uninit().assume_init() };
-        for i in 0..DIM {
-            arr[i] = self[i].as_();
-        }
-        arr
-    }
-}
-
-impl<T: Copy + Rem<Output=T>, const DIM: usize> VectorFieldRng<T> for [T; DIM] where Standard: Distribution<T>{
-    fn rand_vec(&self, rng: &mut impl rand::Rng)->Self{
-        let mut s:[T;DIM] = unsafe{MaybeUninit::uninit().assume_init()};
-        for i in 0..DIM{
-            s[i] = rng.gen::<T>()%self[i];
-        }
-        s
-    }
-}
-
-
-#[cfg(test)]
-mod tests {
-    use crate::VectorFieldRng;
-    use rand::thread_rng;
-
-    #[test]
-    fn test1() {
-        let a = [3,3];
-        let mut c = [[0;2];3];
-        let mut rng = thread_rng();
-        for i in 0..64{
-            let b = a.rand_vec(&mut rng);
-            c[b[0]][0] += 1;
-            c[b[1]][1] += 1;
-        }
-        for c in c.iter() {
-            for &c in c.iter() {
-                assert!(c>0);
-            }
-        }
-    }
-
+pub trait VecCast<Scalar: Copy> {
+    fn as_scalar<IntoScalar: 'static + Copy>(&self) -> Vec<IntoScalar> where Scalar: AsPrimitive<IntoScalar>;
 }

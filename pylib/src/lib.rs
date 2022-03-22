@@ -5,10 +5,14 @@ mod py_ndalgebra;
 mod py_rustyneat;
 mod py_ocl;
 mod py_htm;
-mod py_ecc;
+mod py_ecc_layer;
 mod util;
-mod py_ecc_population;
+mod py_ecc_conv_tensor;
 mod py_sdr_dataset;
+mod py_ecc_tensor;
+mod py_ecc_net;
+mod py_ecc_config;
+mod py_ecc_net_sdrs;
 
 use pyo3::prelude::*;
 use pyo3::{wrap_pyfunction, wrap_pymodule, PyObjectProtocol};
@@ -83,13 +87,18 @@ pub fn ndalgebra(py: Python, m: &PyModule) -> PyResult<()> {
 
 #[pymodule]
 pub fn ecc(py: Python, m: &PyModule) -> PyResult<()> {
-    use py_ecc::*;
-    use py_ecc_population::*;
-    m.add_class::<CpuEccDense>()?;
-    m.add_class::<CpuEccMachine>()?;
-    m.add_class::<CpuEccPopulation>()?;
-    m.add_class::<ConvWeights>()?;
-    m.add_class::<WeightSums>()?;
+    use py_ecc_layer::*;
+    use py_ecc_net::*;
+    use py_ecc_config::*;
+    use py_ecc_conv_tensor::*;
+    use py_ecc_tensor::*;
+    use py_ecc_net_sdrs::*;
+    m.add_class::<EccLayer>()?;
+    m.add_class::<EccNet>()?;
+    m.add_class::<EccConfig>()?;
+    m.add_class::<Tensor>()?;
+    m.add_class::<ConvTensor>()?;
+    m.add_class::<EccNetSDRs>()?;
     Ok(())
 }
 

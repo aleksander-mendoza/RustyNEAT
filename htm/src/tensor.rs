@@ -1,58 +1,40 @@
 use std::ops::{Deref, DerefMut, SubAssign, AddAssign};
-use crate::{Idx, as_usize, VectorFieldOne, CpuEccPopulation, DenseWeight, Metric, HasConvShape, ConvShape, HasShape};
 use serde::{Serialize, Deserialize};
 use std::fmt::{Debug, Formatter};
 use crate::as_usize::AsUsize;
+use std::iter::Sum;
+use crate::tensor_trait::TensorTrait;
+use crate::{Idx, HasShape, Shape2, VectorFieldOne, Shape3, Weight};
 
 #[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
-pub struct ShapedArray<D> {
+pub struct Tensor<D> {
     arr: Vec<D>,
     shape: [Idx; 3],
 }
 
-pub trait ForwardTarget<D> {
-    fn target(&self) -> &[D];
-    fn len(&self) -> usize {
-        self.target().len()
-    }
-    fn state(&self, idx: Idx) -> &D {
-        &self.target()[idx.as_usize()]
-    }
-    fn excite(&mut self, idx: Idx, w: D) where D:AddAssign{
-        self.target_mut()[idx.as_usize()] += w;
-    }
-    fn inhibit(&mut self, idx: Idx, w: D) where D:SubAssign{
-        self.target_mut()[idx.as_usize()] -= w;
-    }
-    fn target_mut(&mut self) -> &mut [D];
-    fn target_vec(&self) -> Vec<D> where D: Clone{
-        self.target().to_vec()
-    }
-}
-
-pub trait ConvShapedArrayTrait<D>: HasConvShape + ShapedArrayTrait<D> {}
-
-pub trait ShapedArrayTrait<D>: HasShape + ForwardTarget<D> {}
-
-impl<D> HasShape for ShapedArray<D> {
+impl<D> HasShape for Tensor<D> {
     fn shape(&self) -> &[Idx; 3] {
         &self.shape
     }
 }
-
-impl<D> ShapedArrayTrait<D> for ShapedArray<D> {}
-
-impl<D> ForwardTarget<D> for ShapedArray<D> {
-    fn target(&self) -> &[D] {
+impl<D: Weight> TensorTrait<D> for Tensor<D> {
+    fn as_slice(&self) -> &[D] {
         self.arr.as_slice()
     }
 
-    fn target_mut(&mut self) -> &mut [D] {
+    fn repeat_column(&self, column_grid: [Idx; 2], column_pos: [Idx; 2]) -> Self {
+        let shape = column_grid.add_channels(self.shape().channels());
+        let mut slf = unsafe{Self::empty(shape)};
+        slf.copy_repeated_column(self,column_pos);
+        slf
+    }
+
+    fn as_mut_slice(&mut self) -> &mut [D] {
         self.arr.as_mut_slice()
     }
 }
 
-impl<D: Debug> Debug for ShapedArray<D> {
+impl<D: Debug> Debug for Tensor<D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut i0 = 0;
         let mut i1 = 0;
@@ -85,23 +67,25 @@ impl<D: Debug> Debug for ShapedArray<D> {
     }
 }
 
-impl ShapedArray<f32> {
-    pub fn from_pop<M: Metric<f32>>(pop: &CpuEccPopulation<M>) -> Self {
-        Self {
-            shape: *pop.shape(),
-            arr: pop.sums.clone(),
+impl<D> Tensor<D> {
+    pub fn null() -> Self {
+        Self{
+            arr: vec![],
+            shape: [0,0,0]
         }
     }
-}
-
-impl<D> ShapedArray<D> {
     pub fn new(shape: [Idx; 3], initial_value: D) -> Self where D: Clone {
         Self {
             arr: vec![initial_value; shape.product().as_usize()],
             shape,
         }
     }
-
+    pub unsafe fn empty(shape: [Idx; 3]) -> Self {
+        let l = shape.product().as_usize();
+        let mut arr = Vec::with_capacity(l);
+        arr.set_len(l);
+        Self { arr, shape, }
+    }
     pub fn from(shape: [Idx; 3], arr: Vec<D>) -> Self {
         assert_eq!(shape.product().as_usize(), arr.len());
         Self {
@@ -116,19 +100,5 @@ impl<D> ShapedArray<D> {
     pub fn into_vec(self)->Vec<D>{
         let Self{arr,..} = self;
         arr
-    }
-}
-
-impl<D> Deref for ShapedArray<D> {
-    type Target = Vec<D>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.arr
-    }
-}
-
-impl<D> DerefMut for ShapedArray<D> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.arr
     }
 }
