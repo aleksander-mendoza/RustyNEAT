@@ -179,7 +179,7 @@ impl CpuSdrDataset {
         }
     }
     pub fn train_machine_with_patches<M:Metric<D>>(&self, decrement_activities:bool, number_of_samples: usize, ecc: &mut CpuEccMachine<M>, rng: &mut impl Rng, progress_callback: impl Fn(usize)) {
-        assert_eq!(ecc.out_grid(), Some(&[1, 1]), "The ecc network should consist of only a single column");
+        //assert_eq!(ecc.out_grid(), Some(&[1, 1]), "The ecc network should consist of only a single column");
         assert_eq!(Some(self.shape().channels()), ecc.in_channels(), "Channels don't match");
         assert_ne!(self.len(), 0, "Dataset is empty");
         for i in 0..number_of_samples {

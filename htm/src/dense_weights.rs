@@ -193,6 +193,7 @@ impl DenseWeight for f32 {
     const ONE: f32 = 1.;
     const ZERO: Self = 0.;
     const DEFAULT_PLASTICITY: Self = 0.01;
+    const INITIAL_ACTIVITY: Self = 1.;
     const ACTIVITY_PENALTY: Self = 0.0001;
     const APPROX_EPSILON: Self = 0.00001;
 

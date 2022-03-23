@@ -29,6 +29,7 @@ use crate::util::*;
 use crate::py_htm::{CpuSDR, OclSDR};
 use rand::SeedableRng;
 use pyo3::ffi::PyFloat_Type;
+use crate::py_ecc::M;
 
 
 ///
@@ -46,7 +47,7 @@ pub struct WeightSums {
 ///
 #[pyclass]
 pub struct CpuEccPopulation {
-    pub ecc: htm::CpuEccPopulation<MetricL2>,
+    pub ecc: htm::CpuEccPopulation<M>,
 }
 
 ///
@@ -55,7 +56,7 @@ pub struct CpuEccPopulation {
 ///
 #[pyclass]
 pub struct ConvWeights {
-    pub ecc: htm::ConvWeights<MetricL2>,
+    pub ecc: htm::ConvWeights<M>,
 }
 
 #[pymethods]

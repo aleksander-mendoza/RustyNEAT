@@ -19,7 +19,7 @@ fig, axs = None, None
 
 MNIST, LABELS = torch.load('htm/data/mnist.pt')
 L2 = True
-METRIC_STR = "l2_new" if L2 else "l1"
+METRIC_STR = "l2" if L2 else "l1"
 SAMPLES = 60000
 DIR = 'predictive_coding_stacked8/' + METRIC_STR + "/" + str(SAMPLES)
 ENTROPY_MAXIMISATION = True

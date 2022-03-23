@@ -31,7 +31,7 @@ use rand::SeedableRng;
 use pyo3::ffi::PyFloat_Type;
 use crate::py_ecc_population::{ConvWeights, CpuEccPopulation, WeightSums};
 
-pub type M = htm::MetricL2;
+pub type M = htm::MetricL1;
 
 ///
 /// CpuEccDense(output: list[int], kernel: list[int], stride: list[int], in_channels: int, out_channels: int, k: int)
