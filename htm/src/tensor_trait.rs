@@ -1,10 +1,13 @@
-use crate::{HasShape, CpuSDR, AsUsize, ConvTensorTrait, Shape3, top_small_k_indices, EncoderTarget, Shape, Shape2, from_xyz, NaiveCmp, Idx, as_idx, Weight, TopK};
+use crate::{HasShape, CpuSDR, AsUsize, ConvTensorTrait, Shape3, top_small_k_indices, EncoderTarget, Shape, Shape2, from_xyz, NaiveCmp, Idx, as_idx, Weight, TopK, from_xy, Tensor, LNorm};
 use std::iter::Sum;
 use std::slice::{Iter, IterMut};
 use std::fmt::Debug;
 use std::ops::{Range, Mul, Add, SubAssign, MulAssign, DivAssign, AddAssign, Sub};
 use num_traits::One;
 use std::process::Output;
+use rand::Rng;
+use rand::distributions::{Standard, Distribution};
+use itertools::Itertools;
 
 pub trait TensorTrait<D:Copy>: HasShape {
     fn as_slice(&self) -> &[D];
@@ -20,6 +23,12 @@ pub trait TensorTrait<D:Copy>: HasShape {
     }
     fn get_at(&self,pos:[Idx;3])->D{
         self.geti(self.shape().idx(pos))
+    }
+    fn get_at_mut(&mut self,pos:[Idx;3])->&mut D{
+        self.geti_mut(self.shape().idx(pos))
+    }
+    fn get_at2d_mut(&mut self,pos:[Idx;2])->&mut D{
+        self.geti_mut(self.shape().grid().idx(pos))
     }
     fn iter(&self) -> Iter<D> {
         self.as_slice().iter()
@@ -102,16 +111,104 @@ pub trait TensorTrait<D:Copy>: HasShape {
         self.column_iter(column_idx).cloned().min_by(D::cmp_naive).unwrap()
     }
     /**sum(self[i] for i in output)*/
-    fn sparse_dot(&self, output: &CpuSDR) -> D where D:Sum{
+    fn sparse_sum(&self, output: &CpuSDR) -> D where D:Sum{
         output.iter().map(|i| self.get(i.as_usize())).sum()
     }
+    /***/
+    fn mat_sparse_dot_lhs_vec(&self, lhs: &CpuSDR, output:&mut impl TensorTrait<D>) where D:Sum{
+        assert_eq!(self.shape().channels(),1,"Tensor should be a matrix");
+        let w = self.shape().width();
+        assert_eq!(output.shape(),&[w,1,1],"Output shape is invalid");
+        let out = output.as_mut_slice();
+        for x in 0..w{
+            let s:D = lhs.iter().map(|&y|self.get_at2d(from_xy(x,y))).sum();
+            out[x.as_usize()] = s;
+        }
+    }
+    fn mat_sparse_dot_lhs_new_vec(&self, lhs: &CpuSDR) -> Tensor<D> where D:Sum{
+        let mut t = unsafe{Tensor::empty(from_xyz(self.shape().width(),1,1))};
+        self.mat_sparse_dot_lhs_vec(lhs, &mut t);
+        t
+    }
+    fn sparse_add_assign_scalar_to_area(&mut self, xy_indices:&CpuSDR, channel:Idx, scalar:D)where D:AddAssign{
+        let c = self.shape().channels();
+        xy_indices.iter().for_each(|&xy_idx|*self.geti_mut(xy_idx*c+channel)+=scalar)
+    }
+    fn mat_sparse_add_assign_scalar_to_column(&mut self, x:Idx, y_indices:&CpuSDR, scalar:D)where D:AddAssign{
+        y_indices.iter().for_each(|&y|*self.get_at2d_mut(from_xy(x,y))+=scalar)
+    }
+    fn mat_sparse_add_assign_scalar_to_row(&mut self, x_indices:&CpuSDR, y:Idx, scalar:D)where D:AddAssign{
+        x_indices.iter().for_each(|&x|*self.get_at2d_mut(from_xy(x,y))+=scalar)
+    }
+    fn mat_sparse_sub_assign_scalar_to_column(&mut self, x:Idx, y_indices:&CpuSDR, scalar:D)where D:SubAssign{
+        y_indices.iter().for_each(|&y|*self.get_at2d_mut(from_xy(x,y))-=scalar)
+    }
+    fn mat_sparse_sub_assign_scalar_to_row(&mut self, x_indices:&CpuSDR, y:Idx, scalar:D)where D:SubAssign{
+        x_indices.iter().for_each(|&x|*self.get_at2d_mut(from_xy(x,y))-=scalar)
+    }
+    fn mat_div_column(&mut self, x:Idx, scalar:D) where D:DivAssign{
+        (0..self.shape().height()).for_each(|y|*self.get_at2d_mut(from_xy(x,y))/=scalar)
+    }
+    fn mat_div_row(&mut self, y:Idx, scalar:D) where D:DivAssign{
+        (0..self.shape().width()).for_each(|x|*self.get_at2d_mut(from_xy(x,y))/=scalar)
+    }
+    fn mat_sum_column<N:LNorm<D>>(&self, x:Idx) -> D where D:Sum{
+        (0..self.shape().height()).map(|y|N::pow(self.get_at2d(from_xy(x,y)))).sum()
+    }
+    fn mat_sum_row<N:LNorm<D>>(&self, y:Idx) -> D where D:Sum{
+        (0..self.shape().width()).map(|x|N::pow(self.get_at2d(from_xy(x,y)))).sum()
+    }
+    fn mat_norm_column<N:LNorm<D>>(&self, x:Idx) -> D where D:Sum{
+        N::root(self.mat_sum_column::<N>(x))
+    }
+    fn mat_norm_row<N:LNorm<D>>(&self, y:Idx) -> D where D:Sum{
+        N::root(self.mat_sum_row::<N>(y))
+    }
+    fn mat_norm_assign_column<N:LNorm<D>>(&mut self, x:Idx) where D:Sum+DivAssign{
+        self.mat_div_column(x,self.mat_norm_column::<N>(x))
+    }
+    fn mat_norm_assign_row<N:LNorm<D>>(&mut self, y:Idx) where D:Sum+DivAssign{
+        self.mat_div_row(y,self.mat_norm_row::<N>(y))
+    }
+    fn mat_norm_assign_columnwise<N:LNorm<D>>(&mut self) where D:Sum+DivAssign{
+        for x in 0..self.shape().width(){
+            self.mat_norm_assign_column::<N>(x)
+        }
+    }
+    fn mat_norm_assign_rowwise<N:LNorm<D>>(&mut self) where D:Sum+DivAssign{
+        for y in 0..self.shape().height(){
+            self.mat_norm_assign_row::<N>(y)
+        }
+    }
+    fn rand_assign(&mut self, rng:&mut impl Rng) where Standard: Distribution<D>{
+        self.iter_mut().for_each(|a|*a=rng.gen())
+    }
+    fn add_assign(&mut self, other:&impl TensorTrait<D>) where D:AddAssign{
+        assert_eq!(self.shape(),other.shape(),"Shapes don't match");
+        self.iter_mut().zip(other.iter()).for_each(|(a,b)|*a+=*b)
+    }
+    fn sub_assign(&mut self, other:&impl TensorTrait<D>) where D:SubAssign{
+        assert_eq!(self.shape(),other.shape(),"Shapes don't match");
+        self.iter_mut().zip(other.iter()).for_each(|(a,b)|*a-=*b)
+    }
+    fn mul_assign(&mut self, other:&impl TensorTrait<D>) where D:MulAssign{
+        assert_eq!(self.shape(),other.shape(),"Shapes don't match");
+        self.iter_mut().zip(other.iter()).for_each(|(a,b)|*a*=*b)
+    }
+    fn div_assign(&mut self, other:&impl TensorTrait<D>) where D:DivAssign{
+        assert_eq!(self.shape(),other.shape(),"Shapes don't match");
+        self.iter_mut().zip(other.iter()).for_each(|(a,b)|*a/=*b)
+    }
     fn kernel_column_sum_assign(&mut self, rhs: &impl ConvTensorTrait<D>) where D:Sum{
+        assert_eq!(self.shape(),rhs.out_shape(),"Shapes don't match");
         self.iter_mut().enumerate().for_each(|(i, w)| *w = rhs.kernel_column_sum(as_idx(i)))
     }
     fn kernel_column_sum_add_assign(&mut self, rhs: &impl ConvTensorTrait<D>) where D:Sum+AddAssign{
+        assert_eq!(self.shape(),rhs.out_shape(),"Shapes don't match");
         self.iter_mut().enumerate().for_each(|(i, w)| *w += rhs.kernel_column_sum(as_idx(i)))
     }
     fn kernel_column_sum_sub_assign(&mut self, rhs: &impl ConvTensorTrait<D>) where D:Sum+SubAssign{
+        assert_eq!(self.shape(),rhs.out_shape(),"Shapes don't match");
         self.iter_mut().enumerate().for_each(|(i, w)| *w -= rhs.kernel_column_sum(as_idx(i)))
     }
     fn topk(&self, k: usize, output: &mut CpuSDR) where D:PartialOrd{
@@ -121,6 +218,15 @@ pub trait TensorTrait<D:Copy>: HasShape {
         self.shape().topk_per_column(k, |_, i| self.get(i), |v, _, i| if v > threshold {
             output.push(as_idx(i))
         })
+    }
+    fn argmax(&self) -> usize where D:NaiveCmp{
+        self.iter().cloned().position_max_by(D::cmp_naive).unwrap()
+    }
+    fn mat_argmax_in_column(&self, x:Idx) -> usize where D:NaiveCmp{
+        (0..self.shape().height()).map(|y|self.get_at2d(from_xy(x,y))).position_max_by(D::cmp_naive).unwrap()
+    }
+    fn mat_argmax_in_row(&self, y:Idx) -> usize where D:NaiveCmp{
+        (0..self.shape().width()).map(|x|self.get_at2d(from_xy(x,y))).position_max_by(D::cmp_naive).unwrap()
     }
     fn top1_per_region(&self, k: Idx, output: &mut CpuSDR) where D:PartialOrd{
         self.shape().top1_per_region(k, |i| self.get(i.as_usize()), |v, i| output.push(i))

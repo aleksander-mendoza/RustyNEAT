@@ -53,6 +53,49 @@ pub fn parallel_map_vector<A, T, B, F>(a: &[A], t: &mut [T], b: &mut [B], f: F) 
 }
 
 
+/**Maps every element from A to B. Every thread has mutable access to its own element T*/
+pub fn parallel_iter_vectors<A1,A2, T, F>(a1: &[A1],a2: &[A2], t: &mut [T], f: F) where F:Fn(&A1,&A2, &mut T) + Send + Sync{
+    assert_eq!(a1.len(), a2.len());
+    let atomic_counter = AtomicUsize::new(0);
+
+    let a1_ptr: *const A1 = a1.as_ptr();
+    let a1_ptr = a1_ptr as usize;
+    let a_len = a1.len();
+
+    let a2_ptr: *const A2 = a2.as_ptr();
+    let a2_ptr = a2_ptr as usize;
+
+    let th: Vec<std::thread::JoinHandle<()>> = t.iter_mut().map(|target| {
+        let t_ptr = target as *mut T;
+        let t_ptr_ = t_ptr as usize;
+        let f_ref = &f;
+        let f_ptr = f_ref as *const F;
+        let f_ptr = f_ptr as usize;
+        let ac_ref = &atomic_counter;
+        let ac_ptr = ac_ref as *const AtomicUsize;
+        let ac_ptr = ac_ptr as usize;
+        std::thread::spawn(move || {
+            let a1 = unsafe { std::slice::from_raw_parts(a1_ptr as *const A1, a_len) };
+            let a2 = unsafe { std::slice::from_raw_parts(a2_ptr as *const A2, a_len) };
+            let t_ptr = t_ptr_ as *mut T;
+            let target = unsafe { &mut *t_ptr };
+            let f = f_ptr as *const F;
+            let f = unsafe{&*f};
+            let ac_ref= ac_ptr as *const AtomicUsize;
+            let ac_ref = unsafe{&*ac_ref};
+            loop {
+                let idx = ac_ref.fetch_add(1, Ordering::Relaxed);
+                if idx < a_len {
+                    f(&a1[idx],&a2[idx],target)
+                } else {
+                    break;
+                }
+            }
+        })
+    }).collect();
+    th.into_iter().for_each(|t|t.join().unwrap())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::parallel::{parallel_map_vector, parallel_map_collect};

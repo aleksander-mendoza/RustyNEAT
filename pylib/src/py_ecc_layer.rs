@@ -283,7 +283,7 @@ impl EccLayer {
     }
     #[text_signature = "(sdr)"]
     pub fn sums_for_sdr(&self, sdr: &CpuSDR) -> f32 {
-        self.ecc.sums().sparse_dot(&sdr.sdr)
+        self.ecc.sums().sparse_sum(&sdr.sdr)
     }
     #[text_signature = "(output_neuron_idx)"]
     pub fn get_weights(&self, output_neuron_idx: Option<Idx>) -> Vec<f32> {

@@ -1,7 +1,8 @@
-use crate::{Idx, Shape3, VectorFieldOne, Shape, VectorFieldPartialOrd, range_contains, from_xyz, Shape2, w_idx, CpuSDR, AsUsize, top_small_k_indices, Weight};
+use crate::{Idx, Shape3, VectorFieldOne, Shape, VectorFieldPartialOrd, range_contains, from_xyz, Shape2, w_idx, CpuSDR, AsUsize, top_small_k_indices, Weight, ConvTensor, ConvTensorTrait};
 use serde::{Serialize, Deserialize};
 use std::ops::{Range, AddAssign, Div};
 use std::fmt::Debug;
+use crate::parallel::parallel_iter_vectors;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct ConvShape {
@@ -239,6 +240,22 @@ impl ConvShape {
         debug_assert!(range_contains(&input_pos.grid().conv_out_range_clipped(self.stride(), self.kernel()), output_pos.grid()));
         w_idx(self.out_shape().idx(*output_pos), self.idx_within_kernel(input_pos, output_pos), self.out_volume())
     }
+    // fn batch_sum_x<T, O>(&self, input: &[T], output: &[O], f: impl Fn(&T) -> &CpuSDR + Send + Sync, of: impl Fn(&O) -> &CpuSDR + Send + Sync) -> ConvTensor<f32>{
+    //     let mut q: Vec<ConvTensor<f32>> = (0..num_cpus::get()).map(|_| ConvTensor::new(self.clone(),0.)).collect();
+    //     parallel_iter_vectors(input,output,&mut q, |i,o,q|{
+    //         let i = f(i);
+    //         for &o in of(o).iter(){
+    //             for &i in i.iter(){
+    //                 q.as_slice_mut()[self.idx_within_kernel()]
+    //             }
+    //         }
+    //     });
+    //     let mut sum = q.pop().unwrap();
+    //     for q in q{
+    //         sum.add_assign(&q)
+    //     }
+    //     sum
+    // }
 }
 
 pub trait HasShape {

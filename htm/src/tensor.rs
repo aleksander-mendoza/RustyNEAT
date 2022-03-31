@@ -17,7 +17,7 @@ impl<D> HasShape for Tensor<D> {
         &self.shape
     }
 }
-impl<D: Weight> TensorTrait<D> for Tensor<D> {
+impl<D: Copy> TensorTrait<D> for Tensor<D> {
     fn as_slice(&self) -> &[D] {
         self.arr.as_slice()
     }

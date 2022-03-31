@@ -1,4 +1,4 @@
-use crate::{ConvShape, Idx, as_idx, as_usize, Shape, VectorFieldOne, Shape2, Shape3, from_xyz, VectorFieldPartialOrd, CpuSDR, from_xy, SDR, range_contains, ConvShapeTrait, HasConvShape, HasConvShapeMut, range_foreach2d, D, HasShape, Weight};
+use crate::{ConvShape, Idx, as_idx, as_usize, Shape, VectorFieldOne, Shape2, Shape3, from_xyz, VectorFieldPartialOrd, CpuSDR, from_xy, SDR, range_contains, ConvShapeTrait, HasConvShape, HasConvShapeMut, range_foreach2d, D, HasShape, Weight, Tensor, ConvTensor};
 use std::ops::{Deref, DerefMut, Index, IndexMut, Range, DivAssign, AddAssign, SubAssign, MulAssign, Div, Sub};
 use rand::Rng;
 use rand::prelude::SliceRandom;
@@ -8,13 +8,13 @@ use std::collections::HashSet;
 use serde::{Serialize, Deserialize};
 use rayon::prelude::*;
 use std::thread::JoinHandle;
-use crate::parallel::{parallel_map_vector, parallel_map_collect};
+use crate::parallel::{parallel_map_vector, parallel_map_collect, parallel_iter_vectors};
 use crate::as_usize::AsUsize;
 use std::marker::PhantomData;
 use crate::vector_field_norm::{LNorm};
 use std::iter::Sum;
 use crate::tensor_trait::TensorTrait;
-use num_traits::One;
+use num_traits::{One, Zero};
 use std::ptr::NonNull;
 
 
@@ -117,6 +117,14 @@ pub trait ConvTensorTrait<D:Copy>: HasConvShape {
             v[l] = self.geti(i)
         }
         v
+    }
+    fn add_assign(&mut self, other:&impl ConvTensorTrait<D>)  where D:AddAssign{
+        assert_eq!(self.shape(),other.shape());
+        self.as_slice_mut().iter_mut().zip(other.as_slice().iter()).for_each(|(a,b)|*a+=*b);
+    }
+    fn sub_assign(&mut self, other:&impl ConvTensorTrait<D>)  where D:SubAssign{
+        assert_eq!(self.shape(),other.shape());
+        self.as_slice_mut().iter_mut().zip(other.as_slice().iter()).for_each(|(a,b)|*a-=*b);
     }
     fn kernel_column_sum(&self, output_idx: Idx) -> D  where D:Sum{
         self.kernel_column_iter(output_idx).map(|i|self.geti(i)).sum()
@@ -280,6 +288,35 @@ pub trait ConvTensorTrait<D:Copy>: HasConvShape {
         let (w_slice,shape) = self.unpack_mut();
         shape.sparse_unbiased_increment(w_slice,epsilon,input,output)
     }
+    fn sparse_dot_and_top1_per_region(&self,k:Idx,input:&CpuSDR, s_tensor:&mut impl TensorTrait<D>,output:&mut CpuSDR) where D:Zero+AddAssign+PartialOrd{
+        s_tensor.fill(D::zero());
+        self.sparse_dot_add_assign(input, s_tensor);
+        s_tensor.top1_per_region(k,  output)
+    }
+    fn sparse_dot_and_top1_per_region_new_sdr(&self,k:Idx, input:&CpuSDR, s_tensor:&mut impl TensorTrait<D>) -> CpuSDR where D:Zero+AddAssign+PartialOrd{
+        let mut sdr = CpuSDR::new();
+        self.sparse_dot_and_top1_per_region(k,input,s_tensor,&mut sdr);
+        sdr
+    }
+    fn batch_sparse_dot_and_top1_per_region<T, O: Send>(&self,k:Idx, input: &[T], f: impl Fn(&T) -> &CpuSDR + Send + Sync, of: impl Fn(CpuSDR) -> O + Sync) -> Vec<O> where D:Zero+AddAssign+PartialOrd, Self:Send+Sync{
+        let mut s_tensors: Vec<Tensor<D>> = (0..num_cpus::get()).map(|_| Tensor::new(self.output_shape(),D::zero())).collect();
+        parallel_map_collect(input, &mut s_tensors, |i, t| of(self.sparse_dot_and_top1_per_region_new_sdr(k,f(i), t)))
+    }
+    fn sparse_dot_and_top1_per_region_thresholded(&self,k:Idx,input:&CpuSDR, threshold:D, s_tensor:&mut impl TensorTrait<D>,output:&mut CpuSDR) where D:Zero+AddAssign+PartialOrd{
+        s_tensor.fill(D::zero());
+        self.sparse_dot_add_assign(input, s_tensor);
+        s_tensor.top1_per_region_thresholded(k,  threshold, output)
+    }
+    fn sparse_dot_and_top1_per_region_thresholded_new_sdr(&self,k:Idx, input:&CpuSDR,threshold:D, s_tensor:&mut impl TensorTrait<D>) -> CpuSDR where D:Zero+AddAssign+PartialOrd{
+        let mut sdr = CpuSDR::new();
+        self.sparse_dot_and_top1_per_region_thresholded(k,input,threshold,s_tensor,&mut sdr);
+        sdr
+    }
+    fn batch_sparse_dot_and_top1_per_region_thresholded<T, O: Send>(&self,k:Idx,threshold:D, input: &[T], f: impl Fn(&T) -> &CpuSDR + Send + Sync, of: impl Fn(CpuSDR) -> O + Sync) -> Vec<O> where D:Zero+AddAssign+PartialOrd+Sync, Self:Send+Sync{
+        let mut s_tensors: Vec<Tensor<D>> = (0..num_cpus::get()).map(|_| Tensor::new(self.output_shape(),D::zero())).collect();
+        parallel_map_collect(input, &mut s_tensors, |i, t| of(self.sparse_dot_and_top1_per_region_thresholded_new_sdr(k,f(i), threshold,t)))
+    }
+
 }
 
 

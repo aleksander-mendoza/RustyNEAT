@@ -70,6 +70,12 @@ impl CpuSdrDataset {
             shape,
         }
     }
+    pub fn from_vec(shape: [Idx; 3],data:Vec<CpuSDR>) -> Self {
+        Self {
+            data,
+            shape,
+        }
+    }
     pub fn with_capacity(capacity: usize, shape: [Idx; 3]) -> Self {
         Self {
             data: Vec::with_capacity(capacity),
@@ -174,22 +180,19 @@ impl CpuSdrDataset {
             progress_callback(i);
         }
     }
-    // pub fn train_machine_with_patches<M:Metric<D>>(&self, decrement_activities:bool, number_of_samples: usize, ecc: &mut CpuEccMachine<M>, rng: &mut impl Rng, progress_callback: impl Fn(usize)) {
-    //     assert_eq!(ecc.out_grid(), Some(&[1, 1]), "The ecc network should consist of only a single column");
-    //     assert_eq!(Some(self.shape().channels()), ecc.in_channels(), "Channels don't match");
-    //     assert_ne!(self.len(), 0, "Dataset is empty");
-    //     for i in 0..number_of_samples {
-    //         let idx = rng.gen_range(0..self.len());
-    //         let sample = &self[idx];
-    //         let patch = sample.rand_subregion(self.shape(), ecc.in_shape().unwrap(), rng);
-    //         ecc.infer(&patch);
-    //         if decrement_activities {
-    //             ecc.decrement_activities()
-    //         }
-    //         ecc.learn();
-    //         progress_callback(i);
-    //     }
-    // }
+    pub fn train_net_with_patches(&self, number_of_samples: usize, ecc: &mut EccNet, rng: &mut impl Rng, progress_callback: impl Fn(usize)) {
+        assert_eq!(ecc.out_grid(), Some(&[1, 1]), "The ecc network should consist of only a single column");
+        assert_eq!(Some(self.shape().channels()), ecc.in_channels(), "Channels don't match");
+        assert_ne!(self.len(), 0, "Dataset is empty");
+        let mut output = EccNetSDRs::new(ecc.len());
+        for i in 0..number_of_samples {
+            let idx = rng.gen_range(0..self.len());
+            let sample = &self[idx];
+            let patch = sample.rand_subregion(self.shape(), ecc.in_shape().unwrap(), rng);
+            ecc.infer(&patch,&mut output,true);
+            progress_callback(i);
+        }
+    }
     pub fn count(&self) -> Vec<u32> {
         let mut counts = vec![0; self.shape().product().as_usize()];
         for i in &self.data {
@@ -232,7 +235,7 @@ impl CpuSdrDataset {
             shape: *ecc.out_shape().unwrap(),
         }
     }
-    // pub fn batch_infer<M:Metric<D>>(&self, ecc: &CpuEccDense<M>) -> Self {
+    // pub fn layer_infer(&self, ecc: &EccNet) -> Self {
     //     assert_eq!(self.shape(), ecc.cshape().in_shape());
     //     let data = ecc.batch_infer(&self.data, |d| d, |o| o);
     //     Self {

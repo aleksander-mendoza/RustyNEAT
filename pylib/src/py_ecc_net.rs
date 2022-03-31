@@ -359,8 +359,8 @@ impl EccNet {
         }
     }
     #[text_signature = "(layer)"]
-    pub fn sums_sparse_dot(&self, layer: usize,output_sdr:&CpuSDR) -> f32 {
-        self.ecc.layer(layer).sums().sparse_dot(&output_sdr.sdr)
+    pub fn sparse_sum(&self, layer: usize,output_sdr:&CpuSDR) -> f32 {
+        self.ecc.layer(layer).sums().sparse_sum(&output_sdr.sdr)
     }
 }
 

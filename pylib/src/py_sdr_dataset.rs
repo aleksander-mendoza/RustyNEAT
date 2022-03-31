@@ -35,6 +35,10 @@ use crate::py_ecc_layer::EccLayer;
 use crate::py_ecc_tensor::Tensor;
 use crate::py_ecc_net::EccNet;
 
+///
+/// CpuSdrDataset(shape, sdr)
+///
+///
 #[pyclass]
 pub struct CpuSdrDataset {
     pub(crate) sdr: htm::CpuSdrDataset,
@@ -456,7 +460,34 @@ impl CpuSdrDataset {
             d => Err(PyValueError::new_err(format!("Unexpected dtype {:?} of numpy array ", d)))
         }.map(|c| Occurrences { c })
     }
+
 }
+
+#[pyproto]
+impl PyIterProtocol for CpuSdrDataset{
+    fn __iter__(slf: PyRef<Self>) -> PyResult<Py<CpuSdrDatasetIter>> {
+        let iter = CpuSdrDatasetIter {
+            inner: slf.sdr.to_vec().into_iter(),
+        };
+        Py::new(slf.py(), iter)
+    }
+}
+#[pyproto]
+impl PyIterProtocol for CpuSdrDatasetIter {
+    fn __iter__(slf: PyRef<Self>) -> PyRef<Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<Self>) -> Option<CpuSDR> {
+        slf.inner.next().map(|sdr|CpuSDR{sdr})
+    }
+}
+#[pyclass]
+pub struct CpuSdrDatasetIter {
+    inner: std::vec::IntoIter<htm::CpuSDR>,
+}
+
+
 
 impl_save_load!(CpuSdrDataset,sdr);
 impl_save_load!(SubregionIndices,sdr);

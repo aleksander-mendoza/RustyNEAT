@@ -1,0 +1,45 @@
+
+================== ECC NET BENCHMARKS ===========
+
+Convolutional network shape 
+input      1 layer   2 layer   3 layer(output)
+16x16      11x11     6x6     1x1
+16*16 + 11*11+6*6 + 1*1= 414 (columns in total)
+
+== ECC L2, channels: 1 49 49 49 (1 input + 3 hidden layers)
+Took  242 seconds
+Speed: 412 samples per second
+Speed: 412*414=170,568 columns per second
+Input shape: [16, 16, 1]
+Speed: 105,516 pixels per second
+Speed: 43,683,624 pixels per (second per column)
+
+== ECC L1, channels: 1 49 49 49 (1 input + 3 hidden layers)
+Took  24 seconds
+Speed: 415 samples per second
+Input shape: [16, 16, 1]
+Speed: 106,359 pixels per second
+
+
+== ECC L1, channels: 1 49 (1 input + 1 hidden layers)
+Took  0.04655 seconds
+Speed: 214,805 samples per second
+Input shape: [6, 6, 1]
+Speed: 7,732,980 pixels per second
+
+
+================== DEEP NET BENCHMARKS ===========
+
+Convolutional network shape 
+input      1 layer   2 layer   3 layer(output)
+28x28      23x23     18x18     13x13
+23*23 +18*18 +13*13 = 1022 (columns in total)
+
+== DEEP, channels: 1 49 49 49 (1 input + 3 hidden layers)
+Took  374 seconds
+Speed: 160 samples per second
+Input shape: [28,28]
+Speed: 125,630 pixels per second
+
+
+

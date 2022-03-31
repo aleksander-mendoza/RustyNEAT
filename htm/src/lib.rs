@@ -14,7 +14,6 @@ mod population;
 mod xorshift;
 mod ocl_ecc;
 mod sdr;
-mod cpu_ecc_dense;
 mod scalar;
 mod ecc_layer;
 mod conv_shape;

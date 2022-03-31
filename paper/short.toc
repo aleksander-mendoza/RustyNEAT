@@ -1,0 +1,78 @@
+\contentsline {section}{\numberline {1}Introduction}{2}{section.1}%
+\contentsline {paragraph}{How to read this paper}{2}{section*.2}%
+\contentsline {paragraph}{Motivation}{3}{section*.3}%
+\contentsline {paragraph}{Introductory example}{4}{section*.4}%
+\contentsline {section}{\numberline {2}Network of exclusive coincidence classes}{6}{section.2}%
+\contentsline {section}{\numberline {3}Fundamental theory}{8}{section.3}%
+\contentsline {paragraph}{ECC networks and Bayesian inference}{8}{section*.5}%
+\contentsline {paragraph}{Interpretations of $W$ matrix}{8}{section*.6}%
+\contentsline {paragraph}{Models of $q(\boldsymbol {x}|y_j)$ distribution}{9}{section*.7}%
+\contentsline {paragraph}{Interpretations of $\boldsymbol {x}W$ product}{10}{section*.8}%
+\contentsline {paragraph}{Binary vector subsets and their overlap probabilities}{11}{section*.9}%
+\contentsline {paragraph}{Bits $x_i$ are mutually independent random variables}{11}{section*.10}%
+\contentsline {paragraph}{Maximum likelihood estimation of W}{12}{section*.11}%
+\contentsline {paragraph}{Similarities between ECC and k-means }{13}{section*.12}%
+\contentsline {section}{\numberline {4}Convolutional networks}{13}{section.4}%
+\contentsline {paragraph}{Convolutional topology and topological receptive fields}{13}{section*.13}%
+\contentsline {paragraph}{Translation invariance and column isomorphism}{15}{section*.14}%
+\contentsline {paragraph}{Multilayer networks}{16}{section*.15}%
+\contentsline {paragraph}{Probability $q(\boldsymbol {x})$ is relative}{16}{section*.16}%
+\contentsline {paragraph}{Training and its results}{17}{section*.17}%
+\contentsline {paragraph}{Optimisations and efficiency benchmarks}{17}{section*.18}%
+\contentsline {paragraph}{Universal approximation}{21}{section*.19}%
+\contentsline {paragraph}{Problem with distinguishing bit subsets}{21}{section*.20}%
+\contentsline {section}{\numberline {5}Motor feedback}{22}{section.5}%
+\contentsline {paragraph}{View translation/random eye movement}{22}{section*.21}%
+\contentsline {paragraph}{Benchmarks}{22}{section*.22}%
+\contentsline {paragraph}{Multiple bits per column}{27}{section*.23}%
+\contentsline {paragraph}{Sparse connections (dropout)}{28}{section*.24}%
+\contentsline {paragraph}{Deeper layers are less sensitive to small changes}{28}{section*.25}%
+\contentsline {paragraph}{Recurrent connections within columns}{28}{section*.26}%
+\contentsline {paragraph}{Voting and recurrent connections between layers}{29}{section*.27}%
+\contentsline {section}{\numberline {6}Using $\ell _2$ norm instead of $\ell _1$}{30}{section.6}%
+\contentsline {paragraph}{Interpretation of $\boldsymbol {x}W$}{30}{section*.28}%
+\contentsline {paragraph}{Expected value $\mathbb {E}_{\bar {p}}(\boldsymbol {x}|y_j)$ maximises $\boldsymbol {x}W_j$}{30}{section*.29}%
+\contentsline {paragraph}{Proof of convergence for k-means algorithm}{31}{section*.30}%
+\contentsline {paragraph}{K-means with entropy maximisation}{32}{section*.31}%
+\contentsline {paragraph}{K-means with multiplicative entropy maximisation}{33}{section*.32}%
+\contentsline {paragraph}{Updated \texttt {infer} algorithm}{34}{section*.33}%
+\contentsline {paragraph}{Convergence of entropy maximisation}{36}{section*.34}%
+\contentsline {paragraph}{Benchmark comparison}{36}{section*.35}%
+\contentsline {section}{\numberline {7}Alternative model with $\ell _1$ norm}{37}{section.7}%
+\contentsline {paragraph}{One-hot vector maximizes $\boldsymbol {x}W$}{37}{section*.36}%
+\contentsline {paragraph}{Generalized $a_j$-hot vector maximizes $\boldsymbol {x}W$}{37}{section*.37}%
+\contentsline {paragraph}{Using $a_j$ as $W_j$ length}{38}{section*.38}%
+\contentsline {paragraph}{Proof of convergence for $\ell _1$ norm}{38}{section*.39}%
+\contentsline {paragraph}{Inference procedure}{39}{section*.40}%
+\contentsline {section}{\numberline {8}Higher-order eigendistributions}{40}{section.8}%
+\contentsline {paragraph}{Formal definition of (first-order) ECC network}{40}{section*.41}%
+\contentsline {paragraph}{Learning is achieved by maximising $q(\boldsymbol {x}|y_k)$}{42}{section*.42}%
+\contentsline {paragraph}{Clustering problem measured with overlap}{42}{section*.43}%
+\contentsline {paragraph}{Clustering problem measured as difference in bits}{43}{section*.44}%
+\contentsline {paragraph}{Clustering problem measured with normalized overlap}{44}{section*.45}%
+\contentsline {paragraph}{Expected overlap and $Q$ matrix}{44}{section*.46}%
+\contentsline {paragraph}{Zero-order ECC networks}{44}{section*.47}%
+\contentsline {paragraph}{Optimal clustering maximises $p(\boldsymbol {x}|y_k)$}{45}{section*.48}%
+\contentsline {paragraph}{Generalised proof of k-means convergence for first-order networks}{45}{section*.49}%
+\contentsline {paragraph}{Convergence is not guaranteed for zero-order networks}{46}{section*.50}%
+\contentsline {paragraph}{Convergence of $Q$ in online-learning}{47}{section*.51}%
+\contentsline {paragraph}{Higher-order networks}{48}{section*.52}%
+\contentsline {section}{\numberline {9}Inhibitory plasticity}{48}{section.9}%
+\contentsline {paragraph}{Problems of ECC networks}{49}{section*.53}%
+\contentsline {paragraph}{Plastic inhibitory neurons}{49}{section*.54}%
+\contentsline {section}{\numberline {10}Reinforcement learning and control}{50}{section.10}%
+\contentsline {paragraph}{ECC can't learn value functions}{50}{section*.55}%
+\contentsline {paragraph}{Geometric deep learning theory}{50}{section*.56}%
+\contentsline {paragraph}{Reinforcement learning sample inefficiency}{51}{section*.57}%
+\contentsline {paragraph}{Inference of groups from actions and observations}{52}{section*.58}%
+\contentsline {paragraph}{Parametric groups}{52}{section*.59}%
+\contentsline {paragraph}{Inductive inference of groups}{53}{section*.60}%
+\contentsline {paragraph}{Group manifolds}{54}{section*.61}%
+\contentsline {paragraph}{ECC networks are a parallel algorithm for group inference from noisy observations}{55}{section*.62}%
+\contentsline {paragraph}{Learning groups and cosets}{55}{section*.63}%
+\contentsline {paragraph}{Reducing reward maximisation problem to a search problem}{55}{section*.64}%
+\contentsline {paragraph}{Action equations}{56}{section*.65}%
+\contentsline {paragraph}{Markov decision processes and Mealy-Moore automata}{57}{section*.66}%
+\contentsline {paragraph}{Supervised vs unsupervised (This paragraph is mostly work-in-progress)}{57}{section*.67}%
+\contentsline {section}{\numberline {11}ECC are spiking networks}{59}{section.11}%
+\contentsline {section}{\numberline {12}Evolving ECC networks}{60}{section.12}%

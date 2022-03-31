@@ -28,6 +28,7 @@ use num_traits::{AsPrimitive, Zero, Num, NumAssign};
 use crate::tensor_trait::TensorTrait;
 use crate::conv_tensor::ConvTensor;
 use crate::vector_field_norm::{L, Sqrt};
+use crate::parallel::parallel_map_collect;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct EccLayer {
@@ -182,6 +183,7 @@ pub trait EccLayerTrait<D: Weight>: HasEccConfig<D> + HasConvShape {
             WNorm::L2 => { w.kernel_column_norm_assign::<L<2>>(column_idx) }
         }
     }
+
 }
 
 impl HasEccConfig<D> for EccLayer {
