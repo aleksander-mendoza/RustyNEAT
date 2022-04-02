@@ -5,6 +5,8 @@ use crate::as_usize::AsUsize;
 use std::iter::Sum;
 use crate::tensor_trait::TensorTrait;
 use crate::{Idx, HasShape, Shape2, VectorFieldOne, Shape3, Weight};
+use rand::Rng;
+use rand::distributions::{Standard, Distribution};
 
 #[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct Tensor<D> {
@@ -72,6 +74,12 @@ impl<D> Tensor<D> {
         Self{
             arr: vec![],
             shape: [0,0,0]
+        }
+    }
+    pub fn rand(shape: [Idx; 3], rng: &mut impl Rng) -> Self where D: Clone, Standard: Distribution<D> {
+        Self {
+            arr: (0..shape.product()).map(|_|rng.gen()).collect(),
+            shape,
         }
     }
     pub fn new(shape: [Idx; 3], initial_value: D) -> Self where D: Clone {

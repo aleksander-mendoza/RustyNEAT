@@ -1,4 +1,4 @@
-use crate::vector_field::*;
+use crate::vf::*;
 use std::ops::{Add, Sub, Div, Mul, Rem, Index, IndexMut, Neg, AddAssign, SubAssign, DivAssign, MulAssign, RemAssign};
 use std::mem::MaybeUninit;
 use num_traits::{Zero, One, Num, AsPrimitive, NumAssign};
@@ -131,6 +131,7 @@ impl<T: Copy + Rem<Output=T>, const DIM: usize> VectorFieldRngAssign<T> for [T; 
 mod tests {
     use crate::VectorFieldRng;
     use rand::thread_rng;
+    use crate::vf::VectorFieldRng;
 
     #[test]
     fn test1() {

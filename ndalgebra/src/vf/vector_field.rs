@@ -6,7 +6,6 @@ use std::mem::MaybeUninit;
 use num_traits::{Zero, One, Num, AsPrimitive, NumAssign};
 use rand::Rng;
 use rand::distributions::{Standard, Distribution};
-use crate::{CpuSDR, EncoderTarget, as_idx};
 
 pub trait VectorField<Scalar: Copy>: Sized {
     fn fold<T>(&self, zero: T, f: impl FnMut(T, Scalar) -> T) -> T;

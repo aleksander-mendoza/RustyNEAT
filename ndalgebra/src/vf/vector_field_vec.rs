@@ -1,10 +1,9 @@
-use crate::vector_field::*;
+use crate::vf::*;
 use std::ops::{Add, Sub, Div, Mul, Rem, Index, IndexMut, Neg, AddAssign, SubAssign, DivAssign, MulAssign, RemAssign};
 use std::mem::MaybeUninit;
 use num_traits::{Zero, One, Num, AsPrimitive, NumAssign};
 use rand::Rng;
 use rand::distributions::{Standard, Distribution};
-use itertools::Itertools;
 
 impl<T: Copy> VectorField<T> for Vec<T> {
     #[inline]

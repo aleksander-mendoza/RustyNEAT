@@ -13,6 +13,9 @@ pub mod lin_alg_program;
 pub mod buffer;
 pub mod kernel_builder;
 pub mod context;
+pub mod cpu;
+pub mod vf;
+
 pub use ocl::Device;
 pub use ocl::Platform;
 

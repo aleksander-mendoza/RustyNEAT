@@ -33,7 +33,9 @@ mod conv_tensor;
 mod tensor_trait;
 mod k_reg;
 mod ecc_config;
+mod ecc_inhibition;
 
+pub use ecc_inhibition::*;
 pub use ecc_config::*;
 pub use vector_field_norm::*;
 pub use conv_tensor::*;

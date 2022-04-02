@@ -268,10 +268,18 @@ impl ImageEncoder {
     }
     fn enc<T: Copy + numpy::Element>(&self, sdr: PyObject, input: &PyAny, convert: impl Fn(T) -> bool) -> PyResult<()> {
         let array = unsafe { &*(input as *const PyAny as *const PyArray3<T>) };
-        let array_shape = array.shape();
-        if array_shape.len() != 3 || !self.enc.shape().iter().zip(array_shape.iter()).all(|(&a, &b)| a == b) {
+
+        let s = array.shape();
+        let array_shape = match s.len(){
+            1 => [s[0],1,1],
+            2=>[s[0],s[1],1],
+            3=>[s[0],s[1],s[3]],
+            _=>return Err(PyValueError::new_err(format!("Numpy array has too many dimensions {:?}. Expected shape{:?}", s, self.enc.shape())))
+        };
+        if self.enc.shape()!=&array_shape {
             return Err(PyValueError::new_err(format!("Expected numpy array of shape {:?} but got {:?}", self.enc.shape(), array_shape)));
         }
+        let array = array.reshape(array_shape)?;
         encode(sdr, array,
                |x, s| self.enc.encode(x, |x, y, c| convert(*unsafe { array.get([x, y, c]) }.unwrap())),
                |x, s| self.enc.encode(x, |x, y, c| convert(*unsafe { array.get([x, y, c]) }.unwrap())),

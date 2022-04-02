@@ -125,6 +125,26 @@ pub trait TensorTrait<D:Copy>: HasShape {
             out[x.as_usize()] = s;
         }
     }
+    fn mat_sparse_dot_lhs_vec_add_assign(&self, lhs: &CpuSDR, output:&mut impl TensorTrait<D>) where D:Sum+AddAssign{
+        assert_eq!(self.shape().channels(),1,"Tensor should be a matrix");
+        let w = self.shape().width();
+        assert_eq!(output.shape(),&[w,1,1],"Output shape is invalid");
+        let out = output.as_mut_slice();
+        for x in 0..w{
+            let s:D = lhs.iter().map(|&y|self.get_at2d(from_xy(x,y))).sum();
+            out[x.as_usize()] += s;
+        }
+    }
+    fn mat_sparse_dot_lhs_vec_sub_assign(&self, lhs: &CpuSDR, output:&mut impl TensorTrait<D>) where D:Sum+SubAssign{
+        assert_eq!(self.shape().channels(),1,"Tensor should be a matrix");
+        let w = self.shape().width();
+        assert_eq!(output.shape(),&[w,1,1],"Output shape is invalid");
+        let out = output.as_mut_slice();
+        for x in 0..w{
+            let s:D = lhs.iter().map(|&y|self.get_at2d(from_xy(x,y))).sum();
+            out[x.as_usize()] -= s;
+        }
+    }
     fn mat_sparse_dot_lhs_new_vec(&self, lhs: &CpuSDR) -> Tensor<D> where D:Sum{
         let mut t = unsafe{Tensor::empty(from_xyz(self.shape().width(),1,1))};
         self.mat_sparse_dot_lhs_vec(lhs, &mut t);
@@ -133,6 +153,10 @@ pub trait TensorTrait<D:Copy>: HasShape {
     fn sparse_add_assign_scalar_to_area(&mut self, xy_indices:&CpuSDR, channel:Idx, scalar:D)where D:AddAssign{
         let c = self.shape().channels();
         xy_indices.iter().for_each(|&xy_idx|*self.geti_mut(xy_idx*c+channel)+=scalar)
+    }
+    fn sparse_add_assign_scalar_to_areas(&mut self, xy_indices:&CpuSDR, channels:&CpuSDR, scalar:D)where D:AddAssign{
+        let c = self.shape().channels();
+        channels.iter().for_each(|&channel|xy_indices.iter().for_each(|&xy_idx|*self.geti_mut(xy_idx*c+channel)+=scalar))
     }
     fn mat_sparse_add_assign_scalar_to_column(&mut self, x:Idx, y_indices:&CpuSDR, scalar:D)where D:AddAssign{
         y_indices.iter().for_each(|&y|*self.get_at2d_mut(from_xy(x,y))+=scalar)
@@ -145,6 +169,12 @@ pub trait TensorTrait<D:Copy>: HasShape {
     }
     fn mat_sparse_sub_assign_scalar_to_row(&mut self, x_indices:&CpuSDR, y:Idx, scalar:D)where D:SubAssign{
         x_indices.iter().for_each(|&x|*self.get_at2d_mut(from_xy(x,y))-=scalar)
+    }
+    fn mat_sparse_add_assign_scalar_to_area(&mut self, x_indices:&CpuSDR, y_indices:&CpuSDR, scalar:D)where D:AddAssign{
+        y_indices.iter().for_each(|&y|x_indices.iter().for_each(|&x| *self.get_at2d_mut(from_xy(x,y))+=scalar))
+    }
+    fn mat_sparse_sub_assign_scalar_to_area(&mut self, x_indices:&CpuSDR, y_indices:&CpuSDR, scalar:D)where D:SubAssign{
+        y_indices.iter().for_each(|&y|x_indices.iter().for_each(|&x| *self.get_at2d_mut(from_xy(x,y))-=scalar))
     }
     fn mat_div_column(&mut self, x:Idx, scalar:D) where D:DivAssign{
         (0..self.shape().height()).for_each(|y|*self.get_at2d_mut(from_xy(x,y))/=scalar)
@@ -166,6 +196,16 @@ pub trait TensorTrait<D:Copy>: HasShape {
     }
     fn mat_norm_assign_column<N:LNorm<D>>(&mut self, x:Idx) where D:Sum+DivAssign{
         self.mat_div_column(x,self.mat_norm_column::<N>(x))
+    }
+    fn mat_sparse_norm_assign_column<N:LNorm<D>>(&mut self, x:&CpuSDR) where D:Sum+DivAssign{
+        for &x in x.iter(){
+            self.mat_norm_assign_column::<N>(x)
+        }
+    }
+    fn mat_sparse_norm_assign_row<N:LNorm<D>>(&mut self, y:&CpuSDR) where D:Sum+DivAssign{
+        for &y in y.iter(){
+            self.mat_norm_assign_row::<N>(y)
+        }
     }
     fn mat_norm_assign_row<N:LNorm<D>>(&mut self, y:Idx) where D:Sum+DivAssign{
         self.mat_div_row(y,self.mat_norm_row::<N>(y))
@@ -218,6 +258,24 @@ pub trait TensorTrait<D:Copy>: HasShape {
         self.shape().topk_per_column(k, |_, i| self.get(i), |v, _, i| if v > threshold {
             output.push(as_idx(i))
         })
+    }
+    fn find_sparse_between(&self, min: D, max: D, output: &mut CpuSDR) where D:PartialOrd{
+        self.as_slice().iter().enumerate().for_each(|(i, &w)| if min < w && w < max{ output.push(as_idx(i))})
+    }
+    fn find_sparse_gt(&self, min: D, output: &mut CpuSDR) where D:PartialOrd{
+        self.as_slice().iter().enumerate().for_each(|(i, &w)| if min < w{ output.push(as_idx(i))})
+    }
+    fn find_sparse_lt(&self, max: D, output: &mut CpuSDR) where D:PartialOrd{
+        self.as_slice().iter().enumerate().for_each(|(i, &w)| if w < max{ output.push(as_idx(i))})
+    }
+    fn find_sparse_eq(&self, scalar: D, output: &mut CpuSDR) where D:PartialOrd{
+        self.as_slice().iter().enumerate().for_each(|(i, &w)| if w == scalar{ output.push(as_idx(i))})
+    }
+    fn find_sparse_ge(&self, min: D, output: &mut CpuSDR) where D:PartialOrd{
+        self.as_slice().iter().enumerate().for_each(|(i, &w)| if min <= w { output.push(as_idx(i))})
+    }
+    fn find_sparse_le(&self, max: D, output: &mut CpuSDR) where D:PartialOrd{
+        self.as_slice().iter().enumerate().for_each(|(i, &w)| if w <= max{ output.push(as_idx(i))})
     }
     fn argmax(&self) -> usize where D:NaiveCmp{
         self.iter().cloned().position_max_by(D::cmp_naive).unwrap()

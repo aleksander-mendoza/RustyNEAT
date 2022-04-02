@@ -163,6 +163,10 @@ impl Tensor {
     pub fn sparse_add_assign_scalar_to_area(&mut self, xy_indices:&CpuSDR, channel:Idx, scalar:D){
         self.ecc.sparse_add_assign_scalar_to_area(&xy_indices.sdr,channel,scalar)
     }
+    #[text_signature = "(xy_indices,channels,scalar)"]
+    fn sparse_add_assign_scalar_to_areas(&mut self, xy_indices:&CpuSDR, channels:&CpuSDR, scalar:D){
+        self.ecc.sparse_add_assign_scalar_to_areas(&xy_indices.sdr,&channels.sdr,scalar)
+    }
     #[text_signature = "(x,y_indices,scalar)"]
     pub fn mat_sparse_add_assign_scalar_to_column(&mut self, x: Idx, y_indices: &CpuSDR, scalar: D) {
         self.ecc.mat_sparse_add_assign_scalar_to_column(x, &y_indices.sdr, scalar)
@@ -179,6 +183,14 @@ impl Tensor {
     pub fn mat_sparse_sub_assign_scalar_to_row(&mut self, x_indices: &CpuSDR, y: Idx, scalar: D) {
         self.ecc.mat_sparse_sub_assign_scalar_to_row(&x_indices.sdr, y, scalar)
     }
+    #[text_signature = "(x_indices,y_indices,scalar)"]
+    pub fn mat_sparse_add_assign_scalar_to_area(&mut self, x_indices: &CpuSDR, y_indices: &CpuSDR, scalar: D) {
+        self.ecc.mat_sparse_add_assign_scalar_to_area(&x_indices.sdr, &y_indices.sdr, scalar)
+    }
+    #[text_signature = "(x_indices,y_indices,scalar)"]
+    pub fn mat_sparse_sub_assign_scalar_to_area(&mut self, x_indices: &CpuSDR, y_indices: &CpuSDR, scalar: D) {
+        self.ecc.mat_sparse_sub_assign_scalar_to_area(&x_indices.sdr, &y_indices.sdr, scalar)
+    }
     #[text_signature = "(lhs_sdr)"]
     pub fn mat_sparse_dot_lhs_new_vec(&self, lhs_sdr: &CpuSDR) -> Tensor {
         Tensor { ecc: self.ecc.mat_sparse_dot_lhs_new_vec(&lhs_sdr.sdr) }
@@ -186,6 +198,74 @@ impl Tensor {
     #[text_signature = "(lhs_sdr,output)"]
     pub fn mat_sparse_dot_lhs_vec(&self, lhs_sdr: &CpuSDR, output: &mut Tensor) {
         self.ecc.mat_sparse_dot_lhs_vec(&lhs_sdr.sdr, &mut output.ecc)
+    }
+    #[text_signature = "(lhs_sdr,output)"]
+    pub fn mat_sparse_dot_lhs_vec_add_assign(&self, lhs_sdr: &CpuSDR, output: &mut Tensor) {
+        self.ecc.mat_sparse_dot_lhs_vec_add_assign(&lhs_sdr.sdr, &mut output.ecc)
+    }
+    #[text_signature = "(lhs_sdr,output)"]
+    pub fn mat_sparse_dot_lhs_vec_sub_assign(&self, lhs_sdr: &CpuSDR, output: &mut Tensor) {
+        self.ecc.mat_sparse_dot_lhs_vec_sub_assign(&lhs_sdr.sdr, &mut output.ecc)
+    }
+    #[text_signature = "(min, max, output)"]
+    fn find_sparse_between(&self, min: D, max: D, output: &mut CpuSDR) {
+        self.ecc.find_sparse_between(min,max,&mut output.sdr)
+    }
+    #[text_signature = "(min, output)"]
+    fn find_sparse_gt(&self, min: D, output: &mut CpuSDR) {
+        self.ecc.find_sparse_gt(min,&mut output.sdr)
+    }
+    #[text_signature = "(max, output)"]
+    fn find_sparse_lt(&self, max: D, output: &mut CpuSDR) {
+        self.ecc.find_sparse_lt(max,&mut output.sdr)
+    }
+    #[text_signature = "(scalar, output)"]
+    fn find_sparse_eq(&self, scalar: D, output: &mut CpuSDR) {
+        self.ecc.find_sparse_eq(scalar,&mut output.sdr)
+    }
+    #[text_signature = "(min, output)"]
+    fn find_sparse_ge(&self, min: D, output: &mut CpuSDR) {
+        self.ecc.find_sparse_ge(min,&mut output.sdr)
+    }
+    #[text_signature = "(max, output)"]
+    fn find_sparse_le(&self, max: D, output: &mut CpuSDR) {
+        self.ecc.find_sparse_le(max,&mut output.sdr)
+    }
+    #[text_signature = "(min, max, output)"]
+    fn find_new_sparse_between(&self, min: D, max: D) -> CpuSDR{
+        let mut sdr = htm::CpuSDR::new();
+        self.ecc.find_sparse_between(min,max,&mut sdr);
+        CpuSDR{sdr}
+    }
+    #[text_signature = "(min, output)"]
+    fn find_new_sparse_gt(&self, min: D) -> CpuSDR{
+        let mut sdr = htm::CpuSDR::new();
+        self.ecc.find_sparse_gt(min,&mut sdr);
+        CpuSDR{sdr}
+    }
+    #[text_signature = "(max, output)"]
+    fn find_new_sparse_lt(&self, max: D) -> CpuSDR{
+        let mut sdr = htm::CpuSDR::new();
+        self.ecc.find_sparse_lt(max,&mut sdr);
+        CpuSDR{sdr}
+    }
+    #[text_signature = "(scalar, output)"]
+    fn find_new_sparse_eq(&self, scalar: D) -> CpuSDR{
+        let mut sdr = htm::CpuSDR::new();
+        self.ecc.find_sparse_eq(scalar,&mut sdr);
+        CpuSDR{sdr}
+    }
+    #[text_signature = "(min, output)"]
+    fn find_new_sparse_ge(&self, min: D) -> CpuSDR{
+        let mut sdr = htm::CpuSDR::new();
+        self.ecc.find_sparse_ge(min,&mut sdr);
+        CpuSDR{sdr}
+    }
+    #[text_signature = "(max, output)"]
+    fn find_new_sparse_le(&self, max: D) -> CpuSDR{
+        let mut sdr = htm::CpuSDR::new();
+        self.ecc.find_sparse_le(max,&mut sdr);
+        CpuSDR{sdr}
     }
     #[text_signature = "(x,scalar)"]
     pub fn mat_div_column(&mut self, x: Idx, scalar: D) {
