@@ -7,6 +7,8 @@ use crate::cpu::error::MatError;
 use crate::cpu::buffer::{Buffer, empty};
 use crate::cpu::layout::Layout;
 
+
+
 #[derive(Clone)]
 pub struct Mat<T: Num, B: Buffer<T>> {
     buff: B,

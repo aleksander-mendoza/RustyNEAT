@@ -1,41 +1,32 @@
-use crate::vf::*;
+use crate::*;
 use std::ops::{Add, Sub, Div, Mul, Rem, Index, IndexMut, Neg, AddAssign, SubAssign, DivAssign, MulAssign, RemAssign};
 use std::mem::MaybeUninit;
 use num_traits::{Zero, One, Num, AsPrimitive, NumAssign};
 use rand::Rng;
 use rand::distributions::{Standard, Distribution};
+use crate::init::empty;
 
 impl<T: Copy, const DIM: usize> VectorField<T> for [T; DIM] {
     #[inline]
     fn fold<I>(&self, zero: I, mut f: impl FnMut(I, T) -> I) -> I {
         self.iter().fold(zero, |a, b| f(a, *b))
     }
-    #[inline]
-    fn map(&self, mut f: impl FnMut(T) -> T) -> Self {
-        let mut arr: [T; DIM] = unsafe { MaybeUninit::uninit().assume_init() };
-        for i in 0..DIM {
-            arr[i] = f(self[i]);
-        }
-        arr
-    }
 
-    fn map_assign(&mut self, f: impl FnMut(&mut T)) -> &mut Self {
+    fn map_(&mut self, f: impl FnMut(&mut T)) -> &mut Self {
         self.iter_mut().for_each(f);
         self
-    }
-
-    #[inline]
-    fn new_const(s: T) -> Self {
-        [s;DIM]
     }
     #[inline]
     fn all(&self, mut f: impl FnMut(T) -> bool) -> bool {
         self.iter().cloned().all(f)
     }
+
     #[inline]
     fn any(&self, mut f: impl FnMut(T) -> bool) -> bool {
         self.iter().cloned().any(f)
     }
+
+
     #[inline]
     fn all_zip(&self, other: &Self, mut f: impl FnMut(T, T) -> bool) -> bool {
         self.iter().zip(other.iter()).all(|(&a, &b)| f(a, b))
@@ -44,17 +35,37 @@ impl<T: Copy, const DIM: usize> VectorField<T> for [T; DIM] {
     fn any_zip(&self, other: &Self, mut f: impl FnMut(T, T) -> bool) -> bool {
         self.iter().zip(other.iter()).any(|(&a, &b)| f(a, b))
     }
+    fn zip_(&mut self, other: &Self, mut f: impl FnMut(&mut T, T)) -> &mut Self {
+        self.iter_mut().zip(other.iter().cloned()).for_each(|(a, b)| f(a, b));
+        self
+    }
+    type O = Self;
+    #[inline]
+    fn map(&self, mut f: impl FnMut(T) -> T) -> Self {
+        let mut arr: [T; DIM] = empty();
+        for i in 0..DIM {
+            arr[i] = f(self[i]);
+        }
+        arr
+    }
+
     #[inline]
     fn zip(&self, other: &Self, mut f: impl FnMut(T, T) -> T) -> Self {
-        let mut arr: [T; DIM] = unsafe { MaybeUninit::uninit().assume_init() };
+        let mut arr: [T; DIM] = empty();
         for i in 0..DIM {
             arr[i] = f(self[i], other[i]);
         }
         arr
     }
+}
 
-    fn zip_assign(&mut self, other: &Self, mut f: impl FnMut(&mut T, T)) -> &mut Self {
-        self.iter_mut().zip(other.iter().cloned()).for_each(|(a,b)|f(a,b));
+impl<T: Copy, const DIM: usize> VectorFieldOwned<T> for [T; DIM] {
+    fn _map(mut self, f: impl FnMut(T) -> T) -> Self {
+        self.iter_mut().for_each(f);
+        self
+    }
+    fn _zip(mut self, other: &Self, f: impl FnMut(T, T) -> T) -> Self {
+        self.iter_mut().zip(other.iter().cloned()).for_each(|(a, b)| f(a, b));
         self
     }
 }
@@ -83,6 +94,28 @@ impl<T: Neg<Output=T> + Zero + PartialOrd + Copy, const DIM: usize> VectorFieldA
 
 impl<T: Neg<Output=T> + Copy, const DIM: usize> VectorFieldNeg<T> for [T; DIM] {}
 
+
+impl<T: Copy + Add<Output=T>, const DIM: usize> VectorFieldAddOwned<T> for [T; DIM] {}
+
+impl<T: Copy + Sub<Output=T>, const DIM: usize> VectorFieldSubOwned<T> for [T; DIM] {}
+
+impl<T: Copy + Div<Output=T>, const DIM: usize> VectorFieldDivOwned<T> for [T; DIM] {}
+
+impl<T: Copy + Div<Output=T> + Zero, const DIM: usize> VectorFieldDivDefaultZeroOwned<T> for [T; DIM] {}
+
+impl<T: Copy + Rem<Output=T> + Zero, const DIM: usize> VectorFieldRemDefaultZeroOwned<T> for [T; DIM] {}
+
+impl<T: Copy + Mul<Output=T>, const DIM: usize> VectorFieldMulOwned<T> for [T; DIM] {}
+
+impl<T: Copy + Rem<Output=T>, const DIM: usize> VectorFieldRemOwned<T> for [T; DIM] {}
+
+impl<T: Copy + PartialOrd, const DIM: usize> VectorFieldPartialOrdOwned<T> for [T; DIM] {}
+
+impl<T: Neg<Output=T> + Zero + PartialOrd + Copy, const DIM: usize> VectorFieldAbsOwned<T> for [T; DIM] {}
+
+impl<T: Neg<Output=T> + Copy, const DIM: usize> VectorFieldNegOwned<T> for [T; DIM] {}
+
+
 impl<T: Copy + AddAssign, const DIM: usize> VectorFieldAddAssign<T> for [T; DIM] {}
 
 impl<T: Copy + SubAssign, const DIM: usize> VectorFieldSubAssign<T> for [T; DIM] {}
@@ -99,11 +132,17 @@ impl<T: Copy + RemAssign, const DIM: usize> VectorFieldRemAssign<T> for [T; DIM]
 
 impl<T: Num + Copy + PartialOrd, const DIM: usize> VectorFieldNum<T> for [T; DIM] {}
 
+impl<T: Num + Copy + PartialOrd, const DIM: usize> VectorFieldNumOwned<T> for [T; DIM] {}
+
 impl<T: NumAssign + Copy + PartialOrd, const DIM: usize> VectorFieldNumAssign<T> for [T; DIM] {}
+
+pub trait ArrayCast<Scalar: Copy, const DIM: usize> {
+    fn as_scalar<IntoScalar: 'static + Copy>(&self) -> [IntoScalar; DIM] where Scalar: AsPrimitive<IntoScalar>;
+}
 
 impl<T: Copy, const DIM: usize> ArrayCast<T, DIM> for [T; DIM] {
     fn as_scalar<IntoScalar: 'static + Copy>(&self) -> [IntoScalar; DIM] where T: AsPrimitive<IntoScalar> {
-        let mut arr: [IntoScalar; DIM] = unsafe { MaybeUninit::uninit().assume_init() };
+        let mut arr: [IntoScalar; DIM] = empty();
         for i in 0..DIM {
             arr[i] = self[i].as_();
         }
@@ -111,43 +150,24 @@ impl<T: Copy, const DIM: usize> ArrayCast<T, DIM> for [T; DIM] {
     }
 }
 
-impl<T: Copy + Rem<Output=T>, const DIM: usize> VectorFieldRng<T> for [T; DIM] where Standard: Distribution<T>{
-    fn rand_vec(&self, rng: &mut impl rand::Rng)->Self{
-        let mut s:[T;DIM] = unsafe{MaybeUninit::uninit().assume_init()};
-        for i in 0..DIM{
-            s[i] = rng.gen::<T>()%self[i];
-        }
-        s
-    }
-}
-
-impl<T: Copy + Rem<Output=T>, const DIM: usize> VectorFieldRngAssign<T> for [T; DIM] where Standard: Distribution<T>{
-    fn rand_vec_assign(&mut self, rng: &mut impl rand::Rng)->&mut Self{
-        self.iter_mut().map(|i|*i = rng.gen::<T>() % *i);
+impl<T: Copy, const DIM: usize> VectorFieldRngOwned<T> for [T; DIM] where Standard: Distribution<T> {
+    fn _rand(mut self, rng: &mut impl Rng) -> Self {
+        self.iter_mut().map(|i| *i = rng.gen::<T>());
         self
     }
 }
-#[cfg(test)]
-mod tests {
-    use crate::VectorFieldRng;
-    use rand::thread_rng;
-    use crate::vf::VectorFieldRng;
 
-    #[test]
-    fn test1() {
-        let a = [3,3];
-        let mut c = [[0;2];3];
-        let mut rng = thread_rng();
-        for i in 0..64{
-            let b = a.rand_vec(&mut rng);
-            c[b[0]][0] += 1;
-            c[b[1]][1] += 1;
-        }
-        for c in c.iter() {
-            for &c in c.iter() {
-                assert!(c>0);
-            }
-        }
+impl<T: Copy, const DIM: usize> VectorFieldRngAssign<T> for [T; DIM] where Standard: Distribution<T> {
+    fn rand_(&mut self, rng: &mut impl rand::Rng) -> &mut Self {
+        self.iter_mut().map(|i| *i = rng.gen::<T>());
+        self
     }
-
 }
+
+// pub fn rand_vec(&self, rng: &mut impl rand::Rng)->Self{
+//     let mut s:[T;DIM] = empty();
+//     for i in 0..DIM{
+//         s[i] = rng.gen::<T>()%self[i];
+//     }
+//     s
+// }

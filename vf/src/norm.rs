@@ -1,12 +1,13 @@
 use std::fmt::{Debug, Formatter};
 
-use serde::{Serialize, Deserialize};
 use crate::VectorField;
 use num_traits::{Zero, Pow};
 use std::ops::{Mul, Add};
+
 pub trait Sqrt{
     fn sqrt(self)->Self;
 }
+
 impl Sqrt for f32{
     fn sqrt(self) -> Self {
         f32::sqrt(self)
