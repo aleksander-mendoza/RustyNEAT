@@ -99,48 +99,73 @@ class IncEpsilonAmnesic:
         else:
             l = self.C + (self.i - self.n2) / self.m
         _wnew = float(1 + l) / self.i
-        return [1 - _wnew, _wnew]
+        return _wnew
 
 
 class IncPca:
 
-    def __init__(self, de_mean):
-        self.de_mean = de_mean
+    def __init__(self, dim, k, epsilon=IncEpsilonForMovAvg(0.001)):
+        """
+        :param k: number of principal components to extract
+        :param dim: length of input vectors
+        """
+        self.k = k
+        self.dim = dim
+        v = np.random.rand(dim, k)
+        self.eig_vec = v / np.linalg.norm(v, axis=0)
+        self.eig_val = 1 + np.random.randn(k) * 0.1
+        self.epsilon = epsilon
 
     def __call__(self, x):
-        assert (x.shape[0] == 1)
-        self.n += 1
+        """
+        :param x: a vector of centered (zero-mean) observations
+        :return:
+        """
+        assert x.shape == (1, self.dim)
+        e = self.epsilon(x)
+        for j in range(self.k):
+            v = self.eig_vec[:, j]
+            d = self.eig_val[j]
+            v = (1 - e) * v + e * np.dot(x, v.T) / d * x
+            d = np.linalg.norm(v)
+            v /= d
+            self.eig_vec[:, j] = v
+            self.eig_val[j] = d
+            x = x - np.dot(x, v.T) * v
 
-        x = self.de_mean(x)
 
-        red_j = self.output_dim
-        red_j_Flag = False
-        explained_var = 0.0
+class IncMca:
+    """
+    Incremental minor component analysis
+    """
+    def __init__(self, dim, k, epsilon=IncEpsilonForMovAvg(0.001)):
+        """
+        :param k: number of principal components to extract
+        :param dim: length of input vectors
+        """
+        self.k = k
+        self.dim = dim
+        v = np.random.rand(dim, k)
+        self.eig_vec = v / np.linalg.norm(v, axis=0)
+        self.eig_val = 1 + np.random.randn(k) * 0.1
+        self.epsilon = epsilon
 
-        r = x.copy()
-        for j in range(self.output_dim):
-            v = self._v[j:j + 1].copy()
-            v = w1 * v + w2 * np.dot(r, v.T) / self._d[j] * r
-            self._d[j] = np.linalg.norm(v)
-            vn = v / self._d[j]
-            r = r - np.dot(r, vn.T) * vn
-            explained_var += self._d[j]
-            if (self.reduce is True) and (red_j_Flag is False):
-                ratio1 = self._d[j] / self._d[0]
-                ratio2 = explained_var / self.explained_var_tot
-                # print j, " :  ", ratio1, " :  ", ratio2, " :  ",self._d[j]
-                if ratio1 < self.var_rel or ratio2 > self.beta:
-                    red_j = j
-                    red_j_Flag = True
-                    # print j,  " :  ", ratio1, " :  ", ratio2, " :  ", self._d[j]
-            self._v[j] = v.copy()
-            self._vn[j] = vn.copy()
-
-        if explained_var > 0.0001:
-            self.explained_var_tot = explained_var
-        self.v = self._vn[:red_j].copy()
-        self.d = self._d[:red_j].copy()
-        self.reducedDim = red_j
+    def __call__(self, x):
+        """
+        :param x: a vector of centered (zero-mean) observations
+        :return:
+        """
+        assert x.shape == (1, self.dim)
+        e = self.epsilon(x)
+        for j in range(self.k):
+            v = self.eig_vec[:, j]
+            d = self.eig_val[j]
+            v = (1 - e) * v + e * np.dot(x, v.T) / d * x
+            d = np.linalg.norm(v)
+            v /= d
+            self.eig_vec[:, j] = v
+            self.eig_val[j] = d
+            x = x - np.dot(x, v.T) * v
 
 
 class NormaliseStd:
@@ -194,6 +219,10 @@ def no_truncation(e_values, e_vectors):
 
 
 def pca(x):
+    """
+    :param x: a matrix of centered (zero-mean) observations
+    :return:
+    """
     x_cov = cov(x)
     e_values, e_vectors = np.linalg.eigh(x_cov)
     return e_values, e_vectors
