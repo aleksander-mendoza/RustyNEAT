@@ -7,9 +7,20 @@ use rand::distributions::{Standard, Distribution};
 use crate::init::empty;
 
 impl<T: Copy, const DIM: usize> VectorField<T> for [T; DIM] {
-    #[inline]
-    fn fold<I>(&self, zero: I, mut f: impl FnMut(I, T) -> I) -> I {
+    fn fold<D>(&self, zero: D, f: impl FnMut(D, T) -> T) -> D {
         self.iter().fold(zero, |a, b| f(a, *b))
+    }
+
+    fn rfold<D>(&self, zero: D, f: impl FnMut(D, T) -> T) -> D {
+        self.iter().rfold(zero, |a, b| f(a, *b))
+    }
+
+    fn fold_<D>(&mut self, zero: D, f: impl FnMut(D, &mut T) -> T) -> D {
+        self.iter_mut().fold(zero, |a, b| f(a, b))
+    }
+
+    fn rfold_<D>(&mut self, zero: D, f: impl FnMut(D, &mut T) -> T) -> D {
+        self.iter_mut().rfold(zero, |a, b| f(a, b))
     }
 
     fn map_(&mut self, f: impl FnMut(&mut T)) -> &mut Self {
@@ -56,6 +67,26 @@ impl<T: Copy, const DIM: usize> VectorField<T> for [T; DIM] {
             arr[i] = f(self[i], other[i]);
         }
         arr
+    }
+
+    fn fold_map<D>(&self, mut zero: D, f: impl FnMut(D, T) -> (D, T)) -> (D, Self::O) {
+        let mut arr: [T; DIM] = empty();
+        for i in 0..DIM {
+            let (z, a) = f(zero, self[i]);
+            zero = z;
+            arr[i] = a;
+        }
+        (zero, arr)
+    }
+
+    fn rfold_map<D>(&self, mut zero: D, f: impl FnMut(D, T) -> (D, T)) -> (D, Self::O) {
+        let mut arr: [T; DIM] = empty();
+        for i in (0..DIM).rev() {
+            let (z, a) = f(zero, self[i]);
+            zero = z;
+            arr[i] = a;
+        }
+        (zero, arr)
     }
 }
 

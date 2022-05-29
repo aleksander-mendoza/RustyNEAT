@@ -4,12 +4,26 @@ use num_traits::{Zero, One, Num, AsPrimitive, NumAssign};
 use rand::Rng;
 use rand::distributions::{Standard, Distribution};
 use crate::*;
+use crate::init::InitEmptyWithCapacity;
 
 impl<T: Copy> VectorField<T> for [T] {
     #[inline]
     fn fold<I>(&self, zero: I, mut f: impl FnMut(I, T) -> I) -> I {
         self.iter().fold(zero, |a, b| f(a, *b))
     }
+
+    fn rfold<I>(&self, zero: I, f: impl FnMut(I, T) -> I) -> I {
+        self.iter().rfold(zero, |a, b| f(a, *b))
+    }
+
+    fn fold_<I>(&mut self, zero: I, f: impl FnMut(I, &mut T) -> I) -> I {
+        self.iter_mut().fold(zero, |a, b| f(a, b))
+    }
+
+    fn rfold_<I>(&mut self, zero: I, f: impl FnMut(I, &mut T) -> I) -> I {
+        self.iter_mut().rfold(zero, |a, b| f(a, b))
+    }
+
     fn map_(&mut self, f: impl FnMut(&mut T)) -> &mut Self {
         self.iter_mut().for_each(f);
         self
@@ -45,6 +59,26 @@ impl<T: Copy> VectorField<T> for [T] {
     #[inline]
     fn zip(&self, other: &Self, mut f: impl FnMut(T, T) -> T) -> Self::O {
         self.iter().cloned().zip(other.iter().cloned()).map(|(a, b)| f(a, b)).collect()
+    }
+
+    fn fold_map<D>(&self, mut zero: D, f: impl FnMut(D, T) -> (D, T)) -> (D, Self::O) {
+        let mut arr = Vec::empty(self.len());
+        for (i, j) in self.iter().cloned().zip(arr.iter_mut()) {
+            let (z, a) = f(zero, i);
+            zero = z;
+            *j = a;
+        }
+        (zero, arr)
+    }
+
+    fn rfold_map<D>(&self, mut zero: D, f: impl FnMut(D, T) -> (D, T)) -> (D, Self::O) {
+        let mut arr = Vec::empty(self.len());
+        for (i, j) in self.iter().rev().cloned().zip(arr.iter_mut().rev()) {
+            let (z, a) = f(zero, i);
+            zero = z;
+            *j = a;
+        }
+        (zero, arr)
     }
 }
 

@@ -1,7 +1,7 @@
 use std::ops::{Add, Mul};
 use crate::init::{empty, InitEmptyWithCapacity};
 use num_traits::{MulAdd, Zero};
-use crate::static_shape::Shape;
+use crate::shape::Shape;
 
 pub fn dot3<T: Mul + Add + Copy + Zero>(lhs: &[T], shape_lhs: &[usize; 3], rhs: &[T], shape_rhs: &[usize; 3]) -> (Vec<T>, [usize; 3]) {
     // [Z, Y, W] == shape_lhs;
@@ -16,7 +16,7 @@ pub fn dot3<T: Mul + Add + Copy + Zero>(lhs: &[T], shape_lhs: &[usize; 3], rhs: 
     for w in 0..W {
         for x in 0..X {
             for y in 0..Y {
-                o[w][y][x] = (0..Z).fold(T::zero(), |sum, z| sum + lhs[shape_lhs.idx([z, y, w])] * rhs[shape_rhs.idx([w, z, x])]);
+                o[w][y][x] = (0..Z).fold(T::zero(), |sum, z| sum + lhs[shape_lhs.idx(&[z, y, w])] * rhs[shape_rhs.idx(&[w, z, x])]);
             }
         }
     }
@@ -33,7 +33,7 @@ pub fn dot2<T: Mul + Add + Copy + Zero>(lhs: &[T], shape_lhs: &[usize; 2], rhs: 
     let mut o = Vec::empty(X * Y);
     for x in 0..X {
         for y in 0..Y {
-            o[y][x] = (0..Z).fold(T::zero(), |sum, z| sum + lhs[shape_lhs.idx([z, y])] * rhs[shape_rhs.idx([x, z])]);
+            o[y][x] = (0..Z).fold(T::zero(), |sum, z| sum + lhs[shape_lhs.idx(&[z, y])] * rhs[shape_rhs.idx(&[x, z])]);
         }
     }
     (o, [X, Y])
@@ -42,8 +42,8 @@ pub fn dot2<T: Mul + Add + Copy + Zero>(lhs: &[T], shape_lhs: &[usize; 2], rhs: 
 pub fn dot1<T: Mul + Add + Copy + Zero>(lhs: &[T], rhs: &[T], shape_rhs: &[usize; 2]) -> Vec<T> {
     assert_eq!(lhs.len(), shape_rhs[1]);
     let mut o = Vec::empty(shape_rhs[0]);
-    for x in 0..X {
-        o[x] = lhs.iter().enumerate().fold(T::zero(), |sum, (z, l)| sum + l * rhs[shape_rhs.idx([x, z])]);
+    for x in 0..o.len() {
+        o[x] = lhs.iter().enumerate().fold(T::zero(), |sum, (z, l)| sum + l * rhs[shape_rhs.idx(&[x, z])]);
     }
     o
 }

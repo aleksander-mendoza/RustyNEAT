@@ -43,7 +43,7 @@ impl <T:Copy,const DIM:usize> InitWith<T> for [T;DIM]{
         e
     }
 }
-impl <T,const DIM:usize> InitWithCapacity<T> for Vec<T>{
+impl <T> InitWithCapacity<T> for Vec<T>{
     fn init_with(capacity: usize, f: impl FnMut(usize) -> T) -> Self {
         (0..capacity).map(f).collect()
     }
@@ -53,7 +53,7 @@ impl <T:Copy,const DIM:usize> InitFold<T> for [T;DIM]{
         init_fold(start,f)
     }
 }
-impl <T:Copy,const DIM:usize> InitFoldWithCapacity<T> for Vec<T>{
+impl <T:Copy> InitFoldWithCapacity<T> for Vec<T>{
     fn init_fold(capacity: usize, mut start: T, f: impl FnMut(T, usize) -> T) -> Self {
         let mut arr = Self::empty(capacity);
         arr.fill_fold(start,f);
@@ -65,7 +65,7 @@ impl <T:Copy,const DIM:usize> InitFoldRev<T> for [T;DIM]{
         init_fold_rev(end,f)
     }
 }
-impl <T:Copy,const DIM:usize> InitFoldRevWithCapacity<T> for Vec<T>{
+impl <T:Copy> InitFoldRevWithCapacity<T> for Vec<T>{
     fn init_fold_rev(capacity: usize, mut end: T, f: impl FnMut(T, usize) -> T) -> Self {
         let mut arr = Self::empty(capacity);
         arr.fill_fold_rev(end,f);

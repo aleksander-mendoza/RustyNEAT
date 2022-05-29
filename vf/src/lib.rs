@@ -1,5 +1,4 @@
-#![feature(maybe_uninit_uninit_array)]
-#![feature(maybe_uninit_array_assume_init)]
+#![feature(generic_const_exprs)]
 
 mod vector_field;
 mod vector_field_arr;
@@ -15,14 +14,14 @@ pub mod init;
 pub mod dynamic_tensor;
 pub mod dynamic_layout;
 pub mod shaped_tensor;
-pub mod static_shape;
 mod vector_field_vec;
 pub mod shaped_tensor_mad;
 pub mod static_nested_array;
 pub mod static_tensor_mad;
 pub mod static_tensor_sparse;
 pub mod shaped_tensor_sparse;
-pub mod dynamic_shape;
+pub mod shape;
+pub mod layout;
 
 pub use vector_field::*;
 pub use vector_field_arr::*;

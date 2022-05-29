@@ -32,7 +32,7 @@ impl<T: MulAdd + Copy + Zero, const X: usize, const Z: usize> Dot<[[T; X]; Z]> f
     }
 }
 
-impl<T: MulAdd + Copy + Zero, const X: usize, const Z: usize> Dot<[T; Z]> for [T; Z] {
+impl<T: MulAdd + Copy + Zero, const Z: usize> Dot<[T; Z]> for [T; Z] {
     type O = T;
 
     fn dot(&self, other: &[T; Z]) -> Self::O {

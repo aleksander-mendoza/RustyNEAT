@@ -110,7 +110,7 @@ pub fn compose<T: Div + Add + Sub + Ord, const DIM: usize>(self_stride: &[T; DIM
 
 #[cfg(test)]
 mod tests {
-    use crate::conv::{Conv, in_size, out_size, out_range, in_range};
+    use super::*;
 
     #[test]
     fn test5() {

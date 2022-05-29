@@ -1,6 +1,6 @@
 use std::ops::Range;
 use crate::init::{empty, init_fold_rev};
-use crate::VectorFieldOne;
+use crate::{VectorField, VectorFieldOne};
 
 pub type Shape<const DIM: usize> = [usize; DIM];
 pub type Strides<const DIM: usize> = [usize; DIM];
@@ -21,13 +21,13 @@ pub fn insert<T: Copy, const DIM: usize>(z: &[T; DIM], idx: usize, elem: T) -> [
     s
 }
 
+pub fn null() -> Layout<0> {
+    ([], [])
+}
+
 pub fn from<const DIM: usize>(shape: Shape<DIM>) -> Layout<DIM> {
     let strides = strides_for_shape(&shape);
     (shape, strides)
-}
-
-pub fn end_offset<const DIM: usize>(layout: &Layout<DIM>) -> usize {
-    shape(layout).iter().zip(strides(layout).iter()).map(|(&len, &stride)| (len - 1) * stride).sum()
 }
 
 pub fn view<const DIM: usize>(layout: &Layout<DIM>, ranges: &[Range<usize>; DIM]) -> Layout<DIM> {
@@ -54,41 +54,6 @@ pub fn squeeze<const DIM: usize>(layout: &Layout<DIM>, idx: usize) -> Layout<{ D
     (cut_out(shape(layout), idx), cut_out(strides(layout), idx))
 }
 
-pub fn transpose<const DIM: usize>(layout: &Layout<DIM>, dim0: usize, dim1: usize) -> Layout<DIM> {
-    _transpose(layout.clone(), dim0, dim1)
-}
-
-pub fn transpose_<const DIM: usize>(layout: &mut Layout<DIM>, dim0: usize, dim1: usize) -> &mut Layout<DIM> {
-    shape_mut(layout).swap(dim0, dim1);
-    shape_mut(layout).swap(dim0, dim1);
-    layout
-}
-
-pub fn _transpose<const DIM: usize>(mut layout: Layout<DIM>, dim0: usize, dim1: usize) -> Layout<DIM> {
-    transpose_(&mut layout, dim0, dim1);
-    layout
-}
-
-pub fn contiguous<const DIM: usize>(layout: &Layout<DIM>) -> bool {
-    let mut i = 1;
-    for (dim, stride) in shape(layout).iter().cloned().zip(strides(layout).iter().cloned()).rev() {
-        if stride != i {
-            return false;
-        }
-        i *= dim;
-    }
-    true
-}
-
-pub fn offset<const DIM: usize>(layout: &Layout<DIM>, index: &[usize]) -> usize {
-    if index.len() == ndim(layout) && index.iter().zip(shape(layout).iter()).all(|(&a, &b)| a < b) {
-        index.iter().zip(strides(layout).iter()).map(|(a, b)| a * b).sum()
-    } else {
-        panic!("Invalid index {:?} into shape {:?}", index, shape(layout))
-    }
-}
-
-
 pub fn shape<const DIM: usize>(layout: &Layout<DIM>) -> &Shape<DIM> {
     &layout.0
 }
@@ -105,28 +70,7 @@ pub fn strides_mut<const DIM: usize>(layout: &mut Layout<DIM>) -> &mut Strides<D
     &mut layout.1
 }
 
-pub fn ndim<const DIM: usize>(_layout: &Layout<DIM>) -> usize {
-    DIM
-}
-
-pub fn size<const DIM: usize>(layout: &Layout<DIM>) -> usize {
-    shape(layout).product()
-}
-
-/**Length of first dimension*/
-pub fn len<const DIM: usize>(layout: &Layout<DIM>) -> usize {
-    shape(layout).first().cloned().unwrap_or(0usize)
-}
 
 pub fn strides_for_shape<const DIM: usize>(shape: &[usize; DIM]) -> [usize; DIM] {
-    if DIM == 0 {
-        [0; DIM]
-    } else {
-        let mut strides = empty();
-        strides[shape.len() - 1] = 1;
-        for i in (1..shape.len()).rev() {
-            strides[i - 1] = strides[i] * shape[i];
-        }
-        strides
-    }
+    shape.rfold_map(1, |prod, next_dim| (prod * next_dim, prod)).1
 }

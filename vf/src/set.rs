@@ -75,13 +75,13 @@ impl<N: num_traits::PrimInt> SetIntersection for [N] {
         let mut intersection = Vec::with_capacity(self.len() + other.len());
         let mut i = 0;
         if other.is_empty() { return intersection; }
-        for &idx in &self {
-            while other[i] < neuron_index {
+        for &idx in self {
+            while other[i] < idx {
                 i += 1;
                 if i >= other.len() { return intersection; }
             }
-            if other[i] == neuron_index {
-                intersection.push(neuron_index);
+            if other[i] == idx {
+                intersection.push(idx);
             }
         }
         intersection
@@ -211,7 +211,7 @@ impl<N: AsPrimitive<usize>+Copy> SetSparseParallelMask for [N] {
         let len = destination.len();
         let ptr = destination.as_mut_ptr() as usize;
         self.par_iter().for_each(|i:&N| {
-            let s = unsafe { std::slice::from_raw_parts_mut(ptr as *mut D, len) };
+            let s = unsafe { std::slice::from_raw_parts_mut(ptr as *mut T, len) };
             f(&mut s[i.as_()])
         })
     }

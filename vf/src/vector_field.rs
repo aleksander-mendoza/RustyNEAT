@@ -8,6 +8,10 @@ use rand::distributions::{Standard, Distribution};
 
 pub trait VectorField<Scalar: Copy> {
     fn fold<T>(&self, zero: T, f: impl FnMut(T, Scalar) -> T) -> T;
+    fn rfold<T>(&self, zero: T, f: impl FnMut(T, Scalar) -> T) -> T;
+    fn fold_<T>(&mut self, zero: T, f: impl FnMut(T, &mut Scalar) -> T) -> T;
+    fn rfold_<T>(&mut self, zero: T, f: impl FnMut(T, &mut Scalar) -> T) -> T;
+
     fn for_each(&self, mut f: impl FnMut(Scalar)) {
         self.fold((), |(), s| f(s))
     }
@@ -26,6 +30,8 @@ pub trait VectorField<Scalar: Copy> {
     type O;
     fn map(&self, f: impl FnMut(Scalar) -> Scalar) -> Self::O;
     fn zip(&self, other: &Self, f: impl FnMut(Scalar, Scalar) -> Scalar) -> Self::O;
+    fn fold_map<T>(&self, zero: T, f: impl FnMut(T, Scalar) -> (T, Scalar)) -> (T, Self::O);
+    fn rfold_map<T>(&self, zero: T, f: impl FnMut(T, Scalar) -> (T, Scalar)) -> (T, Self::O);
 }
 
 pub trait VectorFieldOwned<Scalar: Copy>: Sized {
@@ -235,6 +241,7 @@ pub trait VectorFieldNeg<Scalar: Neg<Output=Scalar> + Copy>: VectorField<Scalar>
         self.map_(|b| *b = -*b)
     }
 }
+
 pub trait VectorFieldSubOwned<Scalar: Sub<Output=Scalar> + Copy>: VectorFieldOwned<Scalar> {
     fn _sub(self, rhs: &Self) -> Self {
         self._zip(rhs, |a, b| a - b)
@@ -243,6 +250,7 @@ pub trait VectorFieldSubOwned<Scalar: Sub<Output=Scalar> + Copy>: VectorFieldOwn
         self._map(|a| a - scalar)
     }
 }
+
 pub trait VectorFieldSub<Scalar: Sub<Output=Scalar> + Copy>: VectorField<Scalar> {
     fn sub(&self, rhs: &Self) -> Self::O {
         self.zip(rhs, |a, b| a - b)
@@ -251,6 +259,7 @@ pub trait VectorFieldSub<Scalar: Sub<Output=Scalar> + Copy>: VectorField<Scalar>
         self.map(|a| a - scalar)
     }
 }
+
 pub trait VectorFieldSubAssign<Scalar: SubAssign + Copy>: VectorField<Scalar> {
     fn sub_(&mut self, rhs: &Self) -> &mut Self {
         self.zip_(rhs, |a, b| *a -= b)
@@ -268,6 +277,7 @@ pub trait VectorFieldDivOwned<Scalar: Div<Output=Scalar> + Copy>: VectorFieldOwn
         self._map(|a| a / scalar)
     }
 }
+
 pub trait VectorFieldDiv<Scalar: Div<Output=Scalar> + Copy>: VectorField<Scalar> {
     fn div(&self, rhs: &Self) -> Self::O {
         self.zip(rhs, |a, b| a / b)
@@ -282,11 +292,13 @@ pub trait VectorFieldDivDefaultZeroOwned<Scalar: Div<Output=Scalar> + Copy + Zer
         self._zip(&rhs, |a, b| if b.is_zero() { default_value_for_division_by_zero } else { a / b })
     }
 }
+
 pub trait VectorFieldDivDefaultZero<Scalar: Div<Output=Scalar> + Copy + Zero>: VectorFieldDiv<Scalar> {
     fn div_default_zero(&self, rhs: &Self, default_value_for_division_by_zero: Scalar) -> Self::O {
         self.zip(&rhs, |a, b| if b.is_zero() { default_value_for_division_by_zero } else { a / b })
     }
 }
+
 pub trait VectorFieldDivAssign<Scalar: DivAssign + Copy>: VectorField<Scalar> {
     fn div_(&mut self, rhs: &Self) -> &mut Self {
         self.zip_(rhs, |a, b| *a /= b)
@@ -295,11 +307,13 @@ pub trait VectorFieldDivAssign<Scalar: DivAssign + Copy>: VectorField<Scalar> {
         self.map_(|a| *a /= scalar)
     }
 }
+
 pub trait VectorFieldDivAssignDefaultZero<Scalar: DivAssign + Copy + Zero>: VectorFieldDivAssign<Scalar> {
     fn div_default_zero_(&mut self, rhs: &Self, default_value_for_division_by_zero: Scalar) -> &mut Self {
         self.zip_(&rhs, |a, b| if b.is_zero() { *a = default_value_for_division_by_zero } else { *a /= b })
     }
 }
+
 pub trait VectorFieldMulOwned<Scalar: Mul<Output=Scalar> + Copy>: VectorFieldOwned<Scalar> {
     fn _mul(self, rhs: &Self) -> Self {
         self._zip(rhs, |a, b| a * b)
@@ -308,6 +322,7 @@ pub trait VectorFieldMulOwned<Scalar: Mul<Output=Scalar> + Copy>: VectorFieldOwn
         self._map(|a| a * scalar)
     }
 }
+
 pub trait VectorFieldMul<Scalar: Mul<Output=Scalar> + Copy>: VectorField<Scalar> {
     fn mul(&self, rhs: &Self) -> Self::O {
         self.zip(rhs, |a, b| a * b)
@@ -316,6 +331,7 @@ pub trait VectorFieldMul<Scalar: Mul<Output=Scalar> + Copy>: VectorField<Scalar>
         self.map(|a| a * scalar)
     }
 }
+
 pub trait VectorFieldMulAssign<Scalar: MulAssign + Copy>: VectorField<Scalar> {
     fn mul_(&mut self, rhs: &Self) -> &mut Self {
         self.zip_(rhs, |a, b| *a *= b)
@@ -324,11 +340,13 @@ pub trait VectorFieldMulAssign<Scalar: MulAssign + Copy>: VectorField<Scalar> {
         self.map_(|a| *a *= scalar)
     }
 }
+
 pub trait VectorFieldOne<Scalar: One + Mul<Output=Scalar> + Copy>: VectorFieldMul<Scalar> {
     fn product(&self) -> Scalar {
         self.fold(Scalar::one(), |a, b| a * b)
     }
 }
+
 pub trait VectorFieldRemOwned<Scalar: Rem<Output=Scalar> + Copy>: VectorFieldOwned<Scalar> {
     fn _rem(self, rhs: &Self) -> Self {
         self._zip(&rhs, |a, b| a % b)
@@ -337,6 +355,7 @@ pub trait VectorFieldRemOwned<Scalar: Rem<Output=Scalar> + Copy>: VectorFieldOwn
         self._map(|a| a % scalar)
     }
 }
+
 pub trait VectorFieldRem<Scalar: Rem<Output=Scalar> + Copy>: VectorField<Scalar> {
     fn rem(&self, rhs: &Self) -> Self::O {
         self.zip(&rhs, |a, b| a % b)
@@ -345,6 +364,7 @@ pub trait VectorFieldRem<Scalar: Rem<Output=Scalar> + Copy>: VectorField<Scalar>
         self.map(|a| a % scalar)
     }
 }
+
 pub trait VectorFieldRemAssign<Scalar: RemAssign + Copy>: VectorField<Scalar> {
     fn rem_(&mut self, rhs: &Self) -> &mut Self {
         self.zip_(rhs, |a, b| *a %= b)
@@ -353,11 +373,13 @@ pub trait VectorFieldRemAssign<Scalar: RemAssign + Copy>: VectorField<Scalar> {
         self.map_(|a| *a %= scalar)
     }
 }
+
 pub trait VectorFieldRemDefaultZeroOwned<Scalar: Rem<Output=Scalar> + Copy + Zero>: VectorFieldRemOwned<Scalar> {
     fn _rem_default_zero(self, rhs: &Self, default_value_for_division_by_zero: Scalar) -> Self {
         self._zip(rhs, |a, b| if b.is_zero() { default_value_for_division_by_zero } else { a % b })
     }
 }
+
 pub trait VectorFieldRemDefaultZero<Scalar: Rem<Output=Scalar> + Copy + Zero>: VectorFieldRem<Scalar> {
     fn rem_default_zero(&self, rhs: &Self, default_value_for_division_by_zero: Scalar) -> Self::O {
         self.zip(rhs, |a, b| if b.is_zero() { default_value_for_division_by_zero } else { a % b })

@@ -1,7 +1,6 @@
 use std::ops::{Add, Mul};
 use crate::init::{empty, InitEmptyWithCapacity};
 use num_traits::{MulAdd, Zero};
-use crate::static_shape::Shape;
 
 pub fn dot1<I: num_traits::AsPrimitive<usize>, T: Add + Copy + Zero>(lhs: &[I], rhs: &[[T; X]; Z]) -> [T; X] {
     let mut o = empty();
