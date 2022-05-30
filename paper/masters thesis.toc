@@ -1,0 +1,23 @@
+\contentsline {section}{\numberline {1}Introduction}{1}{section.1}%
+\contentsline {subsection}{\numberline {1.1}Neuronal dynamics}{3}{subsection.1.1}%
+\contentsline {subsubsection}{\numberline {1.1.1}Hodgkin-Huxley model}{3}{subsubsection.1.1.1}%
+\contentsline {subsection}{\numberline {1.2}Geometric deep learning theory}{5}{subsection.1.2}%
+\contentsline {subsection}{\numberline {1.3}Reinforcement learning}{5}{subsection.1.3}%
+\contentsline {subsection}{\numberline {1.4}Cognitive maps and hippocampus modelling}{5}{subsection.1.4}%
+\contentsline {section}{\numberline {2}}{5}{section.2}%
+\contentsline {paragraph}{Problem statement}{5}{section*.2}%
+\contentsline {paragraph}{Binary vector subsets and their overlap probabilities}{6}{section*.3}%
+\contentsline {paragraph}{Formal definition of (first-order) ECC network}{6}{section*.4}%
+\contentsline {paragraph}{Learning is achieved by maximising $q(\boldsymbol {x}|y_k)$}{8}{section*.5}%
+\contentsline {paragraph}{Clustering problem measured with overlap}{8}{section*.6}%
+\contentsline {paragraph}{Expected overlap and $Q$ matrix}{9}{section*.7}%
+\contentsline {paragraph}{Zero-order ECC networks}{9}{section*.8}%
+\contentsline {paragraph}{Optimal clustering maximises $p(\boldsymbol {x}|y_k)$}{10}{section*.9}%
+\contentsline {paragraph}{Expected value $\mathbb {E}_{p}(\boldsymbol {x}|y_j)$ maximises $\boldsymbol {x}W_j$ under $\ell _2$ norm}{10}{section*.10}%
+\contentsline {paragraph}{One-hot vector maximizes $\boldsymbol {x}W$ under $\ell _1$ norm}{11}{section*.11}%
+\contentsline {paragraph}{Generalized $a_j$-hot vector maximizes $\boldsymbol {x}W$ under $\ell _1$ norm}{11}{section*.12}%
+\contentsline {paragraph}{Generalised proof of k-means convergence for first-order networks}{12}{section*.13}%
+\contentsline {paragraph}{Convergence is not guaranteed for zero-order networks}{13}{section*.14}%
+\contentsline {paragraph}{Convergence of $Q$ in online-learning}{13}{section*.15}%
+\contentsline {paragraph}{Higher-order networks}{14}{section*.16}%
+\contentsline {paragraph}{Top k-winners take all}{16}{section*.17}%

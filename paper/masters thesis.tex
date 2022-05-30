@@ -1,4 +1,4 @@
-\title{Sparse binary Winner-Takes-All neural networks of exclusive coincidence classes}
+\title{Masters thesis}
 \author{Aleksander Mendoza}
 
 \documentclass[12pt]{article}
@@ -16,9 +16,11 @@
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{tikzit}
+\usepackage{siunitx}
 \usepackage[hidelinks]{hyperref}
 \usepackage{tabularx}
 \usepackage{enumitem}
+\usepackage{chemformula}
 \input{style.tikzstyles}
 \def\MakeUppercaseUnsupportedInPdfStrings{\scshape}
 \DeclareMathOperator*{\argmax}{argmax}
@@ -30,6 +32,7 @@
 \newtheorem{lemma}[theorem]{Lemma}
 \renewcommand{\labelenumii}{\theenumii}
 \renewcommand{\theenumii}{\theenumi.\arabic{enumii}.}
+\DeclareSIUnit{\molar}{M}
 \begin{document}
 \maketitle
 \lstset{
@@ -41,7 +44,80 @@
 \begin{abstract}
 	abstract here
 \end{abstract} 
+\tableofcontents
+\section{Introduction}
 
+Modern deep neural networks have achieved many impressive feats, yet at the same time their intelligence appears to be shallow and inflexible. Perhaps the most challenging is the frontier of reinforcement learning.  As it has been demonstrated in Deepmind's ablation studies \cite{rainbow_dqn}, deep RL requires absurd amounts of training data and computation power (figure \ref{fig:dqn}). This issue is often referred to as sample inefficiency.
+\begin{figure}[!htbp]
+	\centering
+	\includegraphics[width=13cm]{dqn}
+	\caption{Median human-normalized performance across
+		57 Atari games for various deep RL methods.}
+	\label{fig:dqn}
+\end{figure} 
+The produced results rarely generalise to novel tasks and often fail to adapt to slight variations of the same task \cite{generalisation_in_rl}. Transfer learning does not exist in deep RL and fine-tuning an agent on a novel task leads to ``catastrophic forgetting'' of the previous one. Moreover, even within the same environment, reproducibility suffers and learning algorithms may fail due to random fluctuations\cite{vime} as it can be seen on figure \ref{fig:vime}. 
+\begin{figure}[!htbp]
+	\centering
+	\includegraphics[width=13cm]{vime}
+	\caption{The dark line is the median performance over 10 random seeds. Shaded region is the 25th to 75th percentile. It means that 25\% of runs fail due to randomness.}
+	\label{fig:vime}
+\end{figure} 
+Biological brains do not suffer from these problems. In this thesis, I attempt to investigate what nature can tell us about reinforcement learning. How could we solve the problems of sample inefficiency and catastrophic forgetting? Is deep learning the right approach?
+
+\subsection{Neuronal dynamics}
+
+\subsubsection{Hodgkin-Huxley model}
+
+In order to understand how nature tackles the problems of reinforcement learning, first we should understand some fundamentals of neuroscience. 
+
+Like many natural phenomena, biological brains can be modelled on many different levels of complexity. The smallest possible scale is miscroscopic - the biophysics of individual neurons. In 1952, Hodgkin and Huxley \cite{hodgkin} have successfully described the evolution of membrane potentials using differential equations. Their model was able to perfectly fit the observed data (figure \ref{fig:hodgkin_huxley_experiments}). 
+\begin{figure}[!htbp]
+	\centering
+	\includegraphics[width=13cm]{hodgkin_huxley_experiments}
+	\caption{Experimental measurements (dots) and predictions of Hodgkin-Huxley model  (line) }
+	\label{fig:hodgkin_huxley_experiments}
+\end{figure} 
+
+They reduced the neuron into a simple electric circuit. The fluid inside a cell body is insulated from the outside environment by a membrane, which cats as a capacitor $C$. It can store certain charge $q$ in form of ions such as $\ch{K+}$, $\ch{Na+}$, $\ch{Cl-}$. Let $n(x_1)$ and $n(x_2)$ denote the concentration of ions inside and outside the cell body respectively. 
+The difference in concentration leads to difference in electric potential 
+$\Delta u = u(x_1) - u(x_2)$. 
+From thermodynamics we know that 
+$n(x)\propto \exp(\frac{-E(x)}{kT})$, 
+where $E(x)$ is the energy a location $x$, $T$ is temperature and $k$ is the Boltzmann constant. Electric energy is given by $E(x)=qu(x)$, therefore we obtain
+\[
+\frac{n(x_1)}{n(x_2)} = \exp\big(-\frac{qu(x_1)-qu(x_2)}{kT}\big)
+\]
+From this we can derive Nernst equation 
+\[
+\Delta u = \frac{kT}{q}\ln\frac{n(x_1)}{n(x_2)}
+\]
+For example, it has been estimated that concentration of $\ch{K+}$ is $\approx\SI{140}{\milli\molar}$ inside the cell  and  $\approx\SI{5}{\milli\molar}$ outside. Potassium has charge $q=\SI{1.6e-19}{\coulomb}$. Applying it to the formula with $k=\SI{1.4e-23}{\joule/\kelvin}$ yields Nernst potential of $E_{\ch{K}}=\SI{-83}{\milli\volt}$ at equilibrium. If the membrane potential $\Delta u$ falls below $E_{\ch{K}}$ (for example when experimenter injects current from outside)
+
+By maintaining  certain ionic concentration $n(x_1)$, neurons can store voltage like batteries. The cell membrane is a nearly perfect insulator but on it's surface there many ion gates, which allow certain particles to pass through. Hodgkin and Huxley model those as resistance $R$. If the voltage $\Delta u$ is smaller than the value of Nernst potential $E$
+
+If an electric current is injected into the cell, its membrane will work like a capacitor, trapping extra charge inside the cell body. Over time this charge will leak through open ion channels. and the potential will return to its Nernst equilibrium.  The It prevents ions from crossing it. 
+
+\begin{figure}[!htbp]
+	\centering
+	\includegraphics[width=13cm]{hodgkin_huxley_model}
+	\caption{Schematic diagram of  Hodgkin-Huxley model}
+	\label{fig:hodgkin_huxley_model}
+\end{figure} 
+  
+\[
+\sum_{k}I_k  = g_{Na}m^3h(u-E_{Na}) + g_{K}n^4(u-E_{K}) + g_{L}m^3h(u-E_{L})
+\]
+
+\subsubsection{Leaky integrate-and-fire model}
+
+
+\subsection{Geometric deep learning theory}
+
+\subsection{Reinforcement learning}
+
+\subsection{Cognitive maps and hippocampus modelling}
+
+\section{}
 
 \paragraph{Problem statement} 
 Let $\boldsymbol{x}$ be a sparse binary vector $\boldsymbol{x}\in\{0,1\}^n$ of length $n$. We observe signals  $\boldsymbol{x}$ coming from an unknown probability distribution $p(\boldsymbol{x})$. Our task is to build model $q(\boldsymbol{x})$ that matches $p(\boldsymbol{x})$ as closely as possible. We achieve this goal by modelling a latent one-hot vector $\boldsymbol{y}\in\{0,1\}^m$ of explanations and conditional probabilities $q(\boldsymbol{x}|y_j)$ corresponding to each explanation $y_j$ for $1\le j\le m$.
